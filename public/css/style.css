@@ -1,0 +1,502 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background: #0f172a;
+    color: #f8fafc;
+    font-family: Arial, sans-serif;
+}
+
+.container {
+    width: 95%;
+    max-width: 1300px;
+    margin: 20px auto;
+}
+
+/* =========================
+   HEADER
+========================= */
+
+.header {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 28px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.header h1 {
+    margin: 0;
+    font-size: 28px;
+}
+
+.header p {
+    margin: 8px 0 0;
+    color: #94a3b8;
+}
+
+.header .btn {
+    text-decoration: none;
+}
+
+/* =========================
+   BUTTON
+========================= */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 16px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.btn-primary {
+    background: #4f46e5;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #4338ca;
+}
+
+.btn-edit {
+    background: #51451f;
+    color: #facc15;
+}
+
+.btn-delete {
+    background: #4b263c;
+    color: #fb7185;
+}
+
+.btn-secondary {
+    background: #334155;
+    color: white;
+    border-color: #475569;
+}
+
+.btn-secondary:hover {
+    background: #475569;
+}
+
+.btn-sm {
+    padding: 8px 12px;
+    font-size: 12px;
+}
+
+/* =========================
+   STATISTICS
+========================= */
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 22px;
+    min-height: 120px;
+}
+
+.stat-card h3 {
+    margin: 0 0 10px;
+    font-size: 20px;
+}
+
+.stat-card strong {
+    display: block;
+    font-size: 30px;
+    margin-bottom: 5px;
+}
+
+.stat-card p {
+    margin: 0;
+    color: #94a3b8;
+}
+
+/* =========================
+   FILTER
+========================= */
+
+.filter-box {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 25px;
+}
+
+.filter-box form {
+    display: flex;
+    gap: 14px;
+}
+
+.filter-box input,
+.filter-box select {
+    background: #111827;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    border-radius: 7px;
+    padding: 12px 14px;
+    font-size: 14px;
+}
+
+.filter-box input {
+    flex: 1;
+}
+
+.filter-box select {
+    width: 220px;
+}
+
+.filter-box button {
+    background: #334155;
+    color: white;
+    border: none;
+    border-radius: 7px;
+    padding: 12px 20px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+/* =========================
+   TABLE
+========================= */
+
+.table-container {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+thead {
+    background: #111827;
+}
+
+th {
+    padding: 18px 16px;
+    text-align: left;
+    font-size: 13px;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+
+td {
+    padding: 18px 16px;
+    border-top: 1px solid #334155;
+    white-space: nowrap;
+}
+
+tbody tr:hover {
+    background: #243247;
+}
+
+/* =========================
+   BADGE
+========================= */
+
+.badge {
+    display: inline-block;
+    padding: 7px 11px;
+    border-radius: 20px;
+    background: #334155;
+    color: #e2e8f0;
+    font-size: 13px;
+}
+
+.badge.kategori {
+    background: #252d62;
+    color: #a5b4fc;
+}
+
+/* =========================
+   ALERT SUCCESS
+========================= */
+
+.alert-success {
+    background: #123f45;
+    border-left: 4px solid #10b981;
+    color: #34d399;
+    padding: 18px 20px;
+    border-radius: 8px;
+    margin-bottom: 25px;
+    font-weight: bold;
+}
+
+/* =========================
+   FORM TAMBAH / EDIT BARANG
+========================= */
+
+.form-card {
+    max-width: 900px;
+    margin: 30px auto;
+    padding: 32px;
+    background: #1c273a;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    box-sizing: border-box;
+}
+
+.form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 20px;
+    margin-bottom: 25px;
+    border-bottom: 1px solid #334155;
+}
+
+.form-header h2 {
+    margin: 0;
+    color: #f8fafc;
+    font-size: 22px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+    flex: 1;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.form-row {
+    display: flex;
+    gap: 16px;
+}
+
+.input-control {
+    width: 100%;
+    padding: 12px 14px;
+    background: #111a2c;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #f8fafc;
+    box-sizing: border-box;
+    outline: none;
+}
+
+.input-control:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.input-control::placeholder {
+    color: #64748b;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 30px;
+    padding-top: 20px;
+}
+
+/* =========================
+   ALERT ERROR
+========================= */
+
+.alert {
+    padding: 14px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.alert-danger {
+    background: #3f1d2e;
+    border-left: 4px solid #ef4444;
+    color: #f87171;
+}
+
+.alert-close {
+    float: right;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 18px;
+    cursor: pointer;
+}
+
+/* =========================
+   RESPONSIVE DASHBOARD
+========================= */
+
+@media (max-width: 900px) {
+
+    .stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 20px;
+    }
+}
+
+/* =========================
+   RESPONSIVE FORM
+========================= */
+
+@media (max-width: 700px) {
+
+    .form-card {
+        margin: 20px;
+        padding: 20px;
+    }
+
+    .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .form-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+
+    .form-actions {
+        flex-direction: column;
+    }
+
+    .form-actions .btn {
+        width: 100%;
+    }
+}
+
+/* =========================
+   RESPONSIVE MOBILE
+========================= */
+
+@media (max-width: 600px) {
+
+    .stats {
+        grid-template-columns: 1fr;
+    }
+
+    .filter-box form {
+        flex-direction: column;
+    }
+
+    .filter-box select {
+        width: 100%;
+    }
+
+/* =========================
+   CUSTOM PAGINATION
+========================= */
+
+.custom-pagination {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    width: max-content !important;
+    max-width: 100% !important;
+
+    margin: 30px auto !important;
+    padding: 3px !important;
+
+    background: #334155 !important;
+    border-radius: 30px !important;
+
+    gap: 0 !important;
+}
+
+/* Semua elemen pagination */
+.custom-pagination a,
+.custom-pagination span {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: unset !important;
+
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    text-decoration: none !important;
+    box-sizing: border-box !important;
+}
+
+/* Previous */
+.custom-pagination .page-prev {
+    height: 48px !important;
+    padding: 0 24px !important;
+
+    background: #f8fafc !important;
+    color: #334155 !important;
+
+    border-radius: 26px !important;
+}
+
+/* Nomor halaman */
+.custom-pagination .page-number {
+    width: 48px !important;
+    height: 48px !important;
+    padding: 0 !important;
+
+    background: transparent !important;
+    color: #f8fafc !important;
+
+    border-radius: 50% !important;
+}
+
+/* Nomor aktif */
+.custom-pagination .page-number.active {
+    background: #f8fafc !important;
+    color: #334155 !important;
+}
+
+/* Hover nomor */
+.custom-pagination .page-number:hover {
+    background: #475569 !important;
+}
+
+/* Next */
+.custom-pagination .page-next {
+    height: 48px !important;
+    padding: 0 25px !important;
+
+    background: #1687e8 !important;
+    color: #ffffff !important;
+
+    border-radius: 26px !important;
+}
+
+/* Disabled */
+.custom-pagination .disabled {
+    opacity: 0.6 !important;
+    cursor: default !important;
+}
+}
