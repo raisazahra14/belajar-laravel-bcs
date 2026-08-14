@@ -275,7 +275,11 @@ tbody tr:hover {
     color: #f8fafc;
     font-size: 22px;
 }
-
+.detail-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 .form-group {
     margin-bottom: 20px;
     flex: 1;

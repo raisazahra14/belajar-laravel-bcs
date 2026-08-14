@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\StokHistory;
+use App\Models\StokTransaction;
 
 class Barang extends Model
 {
@@ -20,8 +20,8 @@ class Barang extends Model
         'lokasi',
     ];
 
-    public function stokHistories()
+    public function stokTransactions()
     {
-        return $this->hasMany(StokHistory::class);
+        return $this->hasMany(StokTransaction::class, 'barang_id');
     }
 }

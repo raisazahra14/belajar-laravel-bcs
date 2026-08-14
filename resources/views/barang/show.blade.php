@@ -14,14 +14,32 @@
 <div class="container">
 
     <div class="form-card">
-
+    @if(session('success'))
+        <div class="alert-success">
+            {{ session('success') }}
+        </div>
+    @endif
         <div class="form-header">
-            <h2>📦 Detail Barang</h2>
+
+        <h2>📦 Detail Barang</h2>
+
+        <div style="display: flex; gap: 8px;">
 
             <a href="/barang" class="btn btn-secondary btn-sm">
                 ← Kembali
             </a>
+
+            <a href="/barang/{{ $barang->id }}/riwayat-stok" class="btn btn-secondary btn-sm">
+                📋 Riwayat Stok
+            </a>
+
+            <a href="/barang/{{ $barang->id }}/stok" class="btn btn-primary btn-sm">
+                📦 Update Stok
+            </a>
+
         </div>
+
+    </div>
 
         <div class="form-group">
             <label>Kode Barang</label>

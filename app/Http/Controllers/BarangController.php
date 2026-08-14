@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Barang;
 use Illuminate\Http\Request;
+use App\Models\Barang;
+use App\Models\StokTransaction;
 
 class BarangController extends Controller
 {
@@ -192,4 +193,47 @@ if (isset($sorts[$sort])) {
 
         return view('barang.stok', compact('barang'));
     }
+   public function updateStok(Request $request, $id)
+{
+    $barang = Barang::findOrFail($id);
+
+    $request->validate([
+        'jenis' => 'required|in:masuk,keluar',
+        'jumlah' => 'required|integer|min:1',
+        'keterangan' => 'nullable|string',
+    ]);
+
+    if ($request->jenis == 'masuk') {
+        $barang->stok += $request->jumlah;
+    } else {
+        if ($request->jumlah > $barang->stok) {
+            return back()->with('error', 'Stok tidak mencukupi.');
+        }
+
+        $barang->stok -= $request->jumlah;
     }
+
+    $barang->save();
+
+    // Simpan riwayat transaksi stok
+    StokTransaction::create([
+        'barang_id' => $barang->id,
+        'jenis' => $request->jenis,
+        'jumlah' => $request->jumlah,
+        'keterangan' => $request->keterangan,
+    ]);
+
+    return redirect('/barang/' . $barang->id)
+        ->with('success', 'Stok berhasil diperbarui.');
+}
+public function riwayatStok($id)
+{
+    $barang = Barang::findOrFail($id);
+
+    $transactions = $barang->stokTransactions()
+        ->latest()
+        ->get();
+
+    return view('barang.riwayat-stok', compact('barang', 'transactions'));
+}
+}

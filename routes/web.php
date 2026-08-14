@@ -13,6 +13,8 @@ Route::get('/barang/create', [BarangController::class, 'create']);
 
 Route::get('/barang/{id}', [BarangController::class, 'show']);
 
+Route::get('/barang/{id}/riwayat-stok', [BarangController::class, 'riwayatStok']);
+
 Route::get('/barang/{id}/stok', [BarangController::class, 'stok']);
 Route::post('/barang/{id}/stok', [BarangController::class, 'updateStok']);
 
