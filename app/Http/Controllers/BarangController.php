@@ -236,4 +236,11 @@ public function riwayatStok($id)
 
     return view('barang.riwayat-stok', compact('barang', 'transactions'));
 }
+
+public function lowStock()
+{
+    $barang = Barang::where('stok', '<=', 5)->orderBy('stok')->paginate(10);
+
+    return view('barang.low-stock', compact('barang'));
+}
 }

@@ -1,0 +1,5 @@
+@extends('layouts.skydash')
+@section('content')
+<div class="page-header"><div><h3 class="font-weight-bold">Stok Menipis</h3><p>Barang dengan stok kurang dari atau sama dengan 5 unit.</p></div><a href="/barang" class="btn btn-light">Kembali ke Daftar</a></div>
+<div class="card"><div class="card-body"><div class="table-responsive"><table class="table table-hover"><thead><tr><th>No.</th><th>Kode</th><th>Nama Barang</th><th>Kategori</th><th>Stok</th><th>Lokasi</th><th></th></tr></thead><tbody>@forelse($barang as $item)<tr><td>{{ $loop->iteration }}</td><td><span class="badge badge-info">{{ $item->kode_barang }}</span></td><td>{{ $item->nama_barang }}</td><td><span class="badge badge-info">{{ $item->kategori }}</span></td><td class="text-danger font-weight-bold">{{ $item->stok }} {{ $item->satuan }}</td><td>{{ $item->lokasi }}</td><td><a class="btn btn-sm btn-inverse-primary" href="/barang/{{ $item->id }}">Detail</a></td></tr>@empty<tr><td colspan="7"><div class="empty-state">Tidak ada barang dengan stok menipis.</div></td></tr>@endforelse</tbody></table></div><div class="d-flex justify-content-center mt-3">{{ $barang->links() }}</div></div></div>
+@endsection
