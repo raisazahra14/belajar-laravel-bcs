@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use App\Http\Requests\StoreBarangRequest;
 use App\Models\Barang;
 use App\Models\StokTransaction;
 
@@ -92,17 +94,8 @@ if (isset($sorts[$sort])) {
         ));
     }
 
-    public function store(Request $request)
+    public function store(StoreBarangRequest $request)
     {
-        $request->validate([
-            'kode_barang' => 'required|unique:barang,kode_barang',
-            'nama_barang' => 'required',
-            'kategori' => 'required',
-            'stok' => 'required|integer|min:0',
-            'satuan' => 'required',
-            'lokasi' => 'required',
-        ]);
-
         Barang::create([
             'kode_barang' => $request->kode_barang,
             'nama_barang' => $request->nama_barang,
@@ -203,25 +196,27 @@ if (isset($sorts[$sort])) {
         'keterangan' => 'nullable|string',
     ]);
 
-    if ($request->jenis == 'masuk') {
-        $barang->stok += $request->jumlah;
-    } else {
-        if ($request->jumlah > $barang->stok) {
-            return back()->with('error', 'Stok tidak mencukupi.');
-        }
-
-        $barang->stok -= $request->jumlah;
+    if ($request->jenis == 'keluar' && $request->jumlah > $barang->stok) {
+        return back()->with('error', 'Stok tidak mencukupi.');
     }
 
-    $barang->save();
+    DB::transaction(function () use ($barang, $request) {
+        if ($request->jenis == 'masuk') {
+            $barang->stok += $request->jumlah;
+        } else {
+            $barang->stok -= $request->jumlah;
+        }
 
-    // Simpan riwayat transaksi stok
-    StokTransaction::create([
-        'barang_id' => $barang->id,
-        'jenis' => $request->jenis,
-        'jumlah' => $request->jumlah,
-        'keterangan' => $request->keterangan,
-    ]);
+        $barang->save();
+
+        // Simpan riwayat transaksi stok
+        StokTransaction::create([
+            'barang_id' => $barang->id,
+            'jenis' => $request->jenis,
+            'jumlah' => $request->jumlah,
+            'keterangan' => $request->keterangan,
+        ]);
+    });
 
     return redirect('/barang/' . $barang->id)
         ->with('success', 'Stok berhasil diperbarui.');

@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\User;
+use App\Models\Barang;
 use Illuminate\Support\Facades\Hash;
 // use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -20,5 +21,7 @@ class DatabaseSeeder extends Seeder
         User::updateOrCreate(['email' => 'staff@logistikku.test'], [
             'name' => 'Staff Gudang', 'role' => 'staff', 'password' => Hash::make('password'),
         ]);
+
+        Barang::factory()->count(50)->create();
     }
 }
