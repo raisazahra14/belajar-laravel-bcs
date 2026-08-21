@@ -3,10 +3,14 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use App\Http\Requests\StoreBarangRequest;
+use App\Http\Requests\UpdateBarangRequest;
+use App\Http\Requests\UpdateStokRequest;
 use App\Models\Barang;
-use App\Models\StokTransaction;
+use App\Services\BarangService;
 
 class BarangController extends Controller
 {
@@ -94,16 +98,12 @@ if (isset($sorts[$sort])) {
         ));
     }
 
-    public function store(StoreBarangRequest $request)
+    public function store(StoreBarangRequest $request, BarangService $barangService)
     {
-        Barang::create([
-            'kode_barang' => $request->kode_barang,
-            'nama_barang' => $request->nama_barang,
-            'kategori' => $request->kategori,
-            'stok' => $request->stok,
-            'satuan' => $request->satuan,
-            'lokasi' => $request->lokasi,
-        ]);
+        $barangService->create(
+            $request->safe()->except('foto_barang'),
+            $request->file('foto_barang'),
+        );
 
         return redirect('/barang')
         ->with('success', 'Data barang berhasil ditambahkan.');
@@ -139,37 +139,26 @@ if (isset($sorts[$sort])) {
     ));
     }
 
-    public function update(Request $request, $id)
+    public function update(UpdateBarangRequest $request, $id, BarangService $barangService)
     {
         $barang = Barang::findOrFail($id);
 
-        $request->validate([
-            'kode_barang' => 'required|unique:barang,kode_barang,' . $id,
-            'nama_barang' => 'required',
-            'kategori' => 'required',
-            'stok' => 'required|integer|min:0',
-            'satuan' => 'required',
-            'lokasi' => 'required',
-        ]);
-
-        $barang->update([
-            'kode_barang' => $request->kode_barang,
-            'nama_barang' => $request->nama_barang,
-            'kategori' => $request->kategori,
-            'stok' => $request->stok,
-            'satuan' => $request->satuan,
-            'lokasi' => $request->lokasi,
-        ]);
+        $barangService->update(
+            $barang,
+            $request->safe()->except('foto_barang'),
+            $request->file('foto_barang'),
+        );
 
         return redirect('/barang')
             ->with('success', 'Data barang berhasil diperbarui.');
     }
 
-    public function destroy($id)
+    public function destroy($id, BarangService $barangService)
     {
         $barang = Barang::findOrFail($id);
+        Gate::authorize('delete', $barang);
 
-        $barang->delete();
+        $barangService->delete($barang);
 
         return redirect('/barang')
             ->with('success', 'Data barang berhasil dihapus dari sistem.');
@@ -186,37 +175,15 @@ if (isset($sorts[$sort])) {
 
         return view('barang.stok', compact('barang'));
     }
-   public function updateStok(Request $request, $id)
+   public function updateStok(UpdateStokRequest $request, $id, BarangService $barangService)
 {
     $barang = Barang::findOrFail($id);
 
-    $request->validate([
-        'jenis' => 'required|in:masuk,keluar',
-        'jumlah' => 'required|integer|min:1',
-        'keterangan' => 'nullable|string',
-    ]);
-
-    if ($request->jenis == 'keluar' && $request->jumlah > $barang->stok) {
-        return back()->with('error', 'Stok tidak mencukupi.');
+    try {
+        $barangService->updateStok($barang, $request->validated());
+    } catch (ValidationException $exception) {
+        return back()->with('error', $exception->errors()['jumlah'][0]);
     }
-
-    DB::transaction(function () use ($barang, $request) {
-        if ($request->jenis == 'masuk') {
-            $barang->stok += $request->jumlah;
-        } else {
-            $barang->stok -= $request->jumlah;
-        }
-
-        $barang->save();
-
-        // Simpan riwayat transaksi stok
-        StokTransaction::create([
-            'barang_id' => $barang->id,
-            'jenis' => $request->jenis,
-            'jumlah' => $request->jumlah,
-            'keterangan' => $request->keterangan,
-        ]);
-    });
 
     return redirect('/barang/' . $barang->id)
         ->with('success', 'Stok berhasil diperbarui.');
@@ -232,10 +199,59 @@ public function riwayatStok($id)
     return view('barang.riwayat-stok', compact('barang', 'transactions'));
 }
 
+public function exportPdf()
+{
+    $barang = Barang::all();
+    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('barang.pdf', compact('barang'));
+    return $pdf->download('laporan_stok_barang.pdf');
+}
+
+public function exportExcel()
+{
+    return \Maatwebsite\Excel\Facades\Excel::download(new \App\Exports\BarangExport, 'laporan_stok_barang.xlsx');
+}
+
 public function lowStock()
 {
     $barang = Barang::where('stok', '<=', 5)->orderBy('stok')->paginate(10);
 
     return view('barang.low-stock', compact('barang'));
+}
+public function trash()
+{
+    $barang = Barang::onlyTrashed()->paginate(10);
+    return view('barang.trash', compact('barang'));
+}
+
+public function restore($id)
+{
+    $barang = Barang::onlyTrashed()->findOrFail($id);
+    Gate::authorize('restore', $barang);
+
+    $fotoTidakTersedia = $barang->foto_barang
+        && ! Storage::disk('public')->exists($barang->foto_barang);
+
+    if ($fotoTidakTersedia) {
+        $barang->foto_barang = null;
+        $barang->save();
+    }
+
+    $barang->restore();
+
+    $message = $fotoTidakTersedia
+        ? 'Data barang berhasil dipulihkan. Foto lama tidak ditemukan dan telah dikosongkan.'
+        : 'Data barang berhasil dipulihkan.';
+
+    return redirect('/barang-trash')->with('success', $message);
+}
+
+public function forceDelete($id, BarangService $barangService)
+{
+    $barang = Barang::onlyTrashed()->findOrFail($id);
+    Gate::authorize('forceDelete', $barang);
+
+    $barangService->forceDelete($barang);
+
+    return redirect('/barang-trash')->with('success', 'Data barang dihapus permanen.');
 }
 }

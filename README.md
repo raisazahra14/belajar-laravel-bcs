@@ -1,66 +1,210 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# LogistikKu
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+LogistikKu adalah aplikasi inventaris berbasis Laravel untuk mencatat barang dan pergerakan stok gudang. Aplikasi menyediakan antarmuka web untuk operasional inventaris serta REST API yang dilindungi token.
 
-## About Laravel
+Dokumentasi ini disusun dari implementasi yang tersedia di repository.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Teknologi yang digunakan
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- PHP `^8.2` dan Laravel `^12.0`
+- Laravel Sanctum `^4.3` untuk token API
+- Spatie Laravel Permission `^6.25` untuk role pengguna
+- Laravel DOMPDF `^3.1` untuk ekspor PDF
+- Laravel Excel `3.1.69` untuk ekspor Excel
+- Blade dengan aset tema SkyDash
+- Vite `^6`, Tailwind CSS `^4`, Axios, dan Concurrently
+- Eloquent ORM; konfigurasi bawaan `.env.example` menggunakan SQLite
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Fitur utama
 
-## Learning Laravel
+- Login dan logout berbasis session, termasuk opsi **remember me**.
+- Daftar barang dengan pencarian berdasarkan kode, nama, atau lokasi; filter kategori; pengurutan nama/stok; pagination; dan statistik inventaris.
+- Tambah, lihat detail, edit, dan hapus barang, termasuk unggah foto JPEG, PNG, JPG, atau WebP maksimal 2 MB.
+- Pencatatan stok masuk/keluar beserta keterangan dan validasi ketersediaan stok.
+- Riwayat transaksi stok dan daftar stok menipis (stok maksimal 5).
+- Ekspor seluruh data barang ke PDF dan Excel.
+- Soft delete, tong sampah, pemulihan, dan penghapusan permanen barang.
+- Pengelolaan akun pengguna oleh Admin.
+- REST API v1 berbasis Sanctum untuk CRUD barang, pagination/filter, dan transaksi stok.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Role dan hak akses
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+Role dikelola melalui Spatie Laravel Permission. Kolom `users.role` juga menyimpan nilai ringkas (`admin`, `staff`, atau `manager`) untuk kebutuhan data/tampilan pengguna.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+| Kemampuan | Admin | Staff Gudang | Manager |
+|---|:---:|:---:|:---:|
+| Melihat daftar/detail barang dan stok menipis | Ya | Ya | Ya |
+| Menambah dan mengedit barang | Ya | Ya | Ya |
+| Memperbarui dan melihat riwayat stok | Ya | Ya | Ya |
+| Mengekspor PDF/Excel | Ya | Ya | Ya |
+| Menghapus barang (soft delete) | Ya | Tidak | Tidak |
+| Melihat tong sampah, memulihkan, dan menghapus permanen | Ya | Tidak | Tidak |
+| Mengelola pengguna | Ya | Tidak | Tidak |
 
-## Laravel Sponsors
+Semua halaman operasional barang memerlukan autentikasi. Pembatasan Admin pada tong sampah dan pengguna dilakukan oleh middleware `role:Admin`; operasi hapus, restore, dan force delete juga diperiksa oleh `BarangPolicy`.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Struktur database
 
-### Premium Partners
+### Tabel domain utama
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+| Tabel | Kolom penting | Relasi/keterangan |
+|---|---|---|
+| `users` | `id`, `name`, `email` unik, `role`, `email_verified_at`, `password`, `remember_token`, timestamps | Model autentikasi; terhubung ke role Spatie dan token Sanctum. Nilai default `role` adalah `staff`. |
+| `barang` | `id`, `kode_barang` unik, `nama_barang`, `kategori`, `stok`, `satuan`, `lokasi`, `foto_barang`, `created_at`, `deleted_at` | Stok default 0 dan menggunakan soft delete. Model menonaktifkan `updated_at`. |
+| `stok_transactions` | `id`, `barang_id`, `jenis`, `jumlah`, `keterangan`, timestamps | Relasi ke `barang` dengan cascade delete; `jenis` adalah `masuk` atau `keluar`. Dipakai fitur riwayat stok. |
 
-## Contributing
+Tabel pendukung mencakup `password_reset_tokens`, `sessions`, `personal_access_tokens`; tabel otorisasi Spatie (`roles`, `permissions`, dan tabel pivot); serta tabel cache dan queue bawaan Laravel.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Route web
 
-## Code of Conduct
+| Method | URI | Akses | Fungsi |
+|---|---|---|---|
+| `ANY` | `/` | Publik | Redirect ke `/barang` |
+| `GET` | `/login` | Guest | Form login |
+| `POST` | `/login` | Guest | Proses login |
+| `POST` | `/logout` | Login | Logout |
+| `GET` | `/barang` | Login | Daftar, pencarian, filter, dan statistik |
+| `GET` | `/barang/create` | Login | Form tambah barang |
+| `POST` | `/barang` | Login | Simpan barang |
+| `GET` | `/barang/low-stock` | Login | Daftar stok maksimal 5 |
+| `GET` | `/barang-export/pdf` | Login | Unduh laporan PDF |
+| `GET` | `/barang-export/excel` | Login | Unduh laporan Excel |
+| `GET` | `/barang/{id}` | Login | Detail barang |
+| `GET` | `/barang/{id}/edit` | Login | Form edit barang |
+| `PUT` | `/barang/{id}` | Login | Perbarui barang |
+| `DELETE` | `/barang/{id}` | Admin | Soft delete barang |
+| `GET` | `/barang/{id}/stok` | Login | Form transaksi stok |
+| `POST` | `/barang/{id}/stok` | Login | Simpan transaksi stok |
+| `GET` | `/barang/{id}/riwayat-stok` | Login | Riwayat stok |
+| `GET` | `/barang-trash` | Admin | Tong sampah |
+| `POST` | `/barang/{id}/restore` | Admin | Pulihkan barang |
+| `DELETE` | `/barang/{id}/force-delete` | Admin | Hapus permanen |
+| `GET` | `/users` | Admin | Daftar pengguna |
+| `GET` | `/users/create` | Admin | Form pengguna baru |
+| `POST` | `/users` | Admin | Simpan pengguna |
+| `GET` | `/users/{user}/edit` | Admin | Form edit pengguna |
+| `PUT/PATCH` | `/users/{user}` | Admin | Perbarui pengguna |
+| `DELETE` | `/users/{user}` | Admin | Hapus pengguna; akun sendiri tidak dapat dihapus |
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Laravel juga menyediakan health check bawaan pada `GET /up`.
 
-## Security Vulnerabilities
+## Route API
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+| Method | URI | Akses | Fungsi |
+|---|---|---|---|
+| `POST` | `/api/v1/tokens` | Publik | Memvalidasi `email`, `password`, dan `device_name`, lalu membuat Bearer token Sanctum |
+| `GET` | `/api/v1/barang` | `auth:sanctum` | Daftar barang dengan pagination, pencarian, filter, dan sorting |
+| `POST` | `/api/v1/barang` | `auth:sanctum` | Menambahkan barang |
+| `GET` | `/api/v1/barang/{barang}` | `auth:sanctum` | Detail barang |
+| `PUT/PATCH` | `/api/v1/barang/{barang}` | `auth:sanctum` | Memperbarui barang |
+| `DELETE` | `/api/v1/barang/{barang}` | Admin + `auth:sanctum` | Soft delete barang |
+| `POST` | `/api/v1/barang/{barang}/stok` | `auth:sanctum` | Mencatat stok masuk atau keluar |
 
-## License
+Contoh penggunaan:
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+curl -X POST http://localhost:8000/api/v1/tokens \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@logistikku.test","password":"password","device_name":"demo"}'
+
+curl http://localhost:8000/api/v1/barang \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Instalasi dan menjalankan project
+
+Prasyarat: PHP 8.2 atau lebih baru, Composer, Node.js/npm, dan ekstensi PHP yang dipersyaratkan paket Composer.
+
+1. Pasang dependency.
+
+   ```bash
+   composer install
+   npm install
+   ```
+
+2. Salin konfigurasi dan buat application key.
+
+   ```bash
+   cp .env.example .env
+   php artisan key:generate
+   ```
+
+   Pada Windows PowerShell, gunakan `Copy-Item .env.example .env` sebagai pengganti `cp`.
+
+3. Konfigurasi database di `.env`. Konfigurasi contoh memakai SQLite; pastikan `database/database.sqlite` tersedia, atau ubah variabel `DB_*` untuk database lain.
+
+4. Buat database dan data demo.
+
+   ```bash
+   php artisan migrate --seed
+   ```
+
+   Seeder membuat tiga akun demo dan 50 barang contoh.
+
+5. Publikasikan foto dari disk `public`.
+
+   ```bash
+   php artisan storage:link
+   ```
+
+6. Jalankan aplikasi secara terpadu:
+
+   ```bash
+   composer run dev
+   ```
+
+   Perintah tersebut menjalankan server Laravel, queue listener, Pail, dan Vite. Alternatifnya:
+
+   ```bash
+   php artisan serve
+   npm run dev
+   ```
+
+Aplikasi tersedia secara default di `http://127.0.0.1:8000`.
+
+## Akun demo
+
+Akun berikut dibuat oleh `DatabaseSeeder`; semuanya memakai password `password`.
+
+| Role | Email |
+|---|---|
+| Admin | `admin@logistikku.test` |
+| Staff Gudang | `staff@logistikku.test` |
+| Manager | `manager@logistikku.test` |
+
+Gunakan akun tersebut hanya untuk lingkungan pengembangan/demo dan ganti kredensial untuk penggunaan nyata.
+
+## Struktur folder penting
+
+```text
+app/
+├── Exports/                 # Penyusun data ekspor Excel
+├── Http/
+│   ├── Controllers/         # Autentikasi, barang, pengguna, dan API v1
+│   ├── Middleware/          # Pemeriksaan role
+│   ├── Requests/            # Validasi pembuatan barang
+│   └── Resources/           # Format respons API barang
+├── Models/                  # User, Barang, dan catatan stok
+├── Policies/                # Otorisasi tindakan pada Barang
+└── Services/                # Logika bisnis barang yang dipakai web dan API
+database/
+├── factories/               # Generator data contoh
+├── migrations/              # Definisi tabel
+└── seeders/                 # Role, akun demo, dan barang contoh
+resources/views/             # Blade login, barang, pengguna, dan layout
+routes/                      # Route web dan API
+public/                      # Aset tema dan CSS publik
+tests/Feature/               # Pengujian otorisasi barang dan API
+```
+
+## Kendala dan fitur yang belum selesai
+
+- Hak akses Staff Gudang dan Manager saat ini sama pada route web; belum ada pembeda kemampuan.
+- Role tersimpan dalam dua bentuk: kolom string `users.role` dan relasi Spatie. Controller pengguna menyinkronkan keduanya, sehingga struktur ganda ini perlu dijaga konsistensinya.
+- API belum menyediakan endpoint untuk mencabut token.
+- `welcome.blade.php` masih memuat tautan register/dashboard yang tidak memiliki route, tetapi view tersebut tidak dipakai karena `/` diarahkan ke `/barang`.
+- `resources/views/barang/index.blade copy.php` tampak sebagai salinan dan tidak dirujuk controller.
+- Belum tersedia registrasi mandiri, UI lupa/reset password, atau verifikasi email.
+- Test bawaan Laravel (`ExampleTest`) masih ada di samping test fitur otorisasi dan API.

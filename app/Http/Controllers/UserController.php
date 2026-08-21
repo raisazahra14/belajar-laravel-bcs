@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
@@ -24,11 +23,19 @@ class UserController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'role' => ['required', Rule::in(['admin', 'staff'])],
+            'role' => ['required', Rule::in(['Admin', 'Staff Gudang', 'Manager'])],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
-        User::create($data);
+        $role = $data['role'];
+        $data['role'] = match ($role) {
+            'Admin' => 'admin',
+            'Manager' => 'manager',
+            default => 'staff',
+        };
+
+        $user = User::create($data);
+        $user->syncRoles($role);
 
         return redirect('/users')->with('success', 'User berhasil ditambahkan.');
     }
@@ -43,15 +50,23 @@ class UserController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
-            'role' => ['required', Rule::in(['admin', 'staff'])],
+            'role' => ['required', Rule::in(['Admin', 'Staff Gudang', 'Manager'])],
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
         ]);
+
+        $role = $data['role'];
+        $data['role'] = match ($role) {
+            'Admin' => 'admin',
+            'Manager' => 'manager',
+            default => 'staff',
+        };
 
         if (blank($data['password'])) {
             unset($data['password']);
         }
 
         $user->update($data);
+        $user->syncRoles($role);
 
         return redirect('/users')->with('success', 'User berhasil diperbarui.');
     }

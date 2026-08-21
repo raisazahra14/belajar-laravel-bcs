@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('stok_histories', function (Blueprint $table) {
             $table->id();
-            $table->integer('barang_id');
+            $table->unsignedBigInteger('barang_id');
             $table->enum('jenis', ['masuk', 'keluar']);
             $table->integer('jumlah');
             $table->string('keterangan')->nullable();

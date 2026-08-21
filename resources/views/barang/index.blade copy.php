@@ -121,6 +121,7 @@
                     ✏️ Edit
                 </a>
 
+            @can('delete', $item)
                 <form
                     action="/barang/{{ $item->id }}"
                     method="POST"
@@ -139,6 +140,7 @@
                     </button>
 
                 </form>
+            @endcan
 
             </div>
 

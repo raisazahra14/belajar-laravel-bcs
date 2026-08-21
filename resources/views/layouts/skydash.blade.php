@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}">
     <link rel="stylesheet" href="{{ asset('css/skydash-logistics.css') }}">
 </head>
-<body class="role-{{ auth()->check() ? auth()->user()->role : 'guest' }}">
+<body class="role-{{ auth()->check() ? str(auth()->user()->getRoleNames()->first() ?? 'guest')->slug() : 'guest' }}">
 <div class="container-scroller">
     <nav class="navbar col-lg-12 col-12 p-0 fixed-top d-flex flex-row">
         <div class="text-center navbar-brand-wrapper d-flex align-items-center justify-content-start">
@@ -21,7 +21,7 @@
         </div>
         <div class="navbar-menu-wrapper d-flex align-items-center justify-content-end">
             <button class="navbar-toggler align-self-center" type="button" data-toggle="minimize"><span class="icon-menu"></span></button>
-            <div class="navbar-text d-none d-md-block">{{ auth()->user()->name }} · {{ ucfirst(auth()->user()->role) }}</div>
+            <div class="navbar-text d-none d-md-block">{{ auth()->user()->name }} · {{ auth()->user()->getRoleNames()->first() ?? 'Tanpa Role' }}</div>
             <form action="/logout" method="POST" class="d-none d-md-block me-3">@csrf<button class="btn btn-sm btn-outline-secondary" type="submit">Keluar</button></form>
             <button class="navbar-toggler navbar-toggler-right d-lg-none align-self-center" type="button" data-toggle="offcanvas"><span class="icon-menu"></span></button>
         </div>
@@ -38,11 +38,11 @@
                 <li class="nav-item {{ request()->is('barang/low-stock') ? 'active' : '' }}">
                     <a class="nav-link" href="/barang/low-stock"><i class="icon-alert menu-icon"></i><span class="menu-title">Stok Menipis</span></a>
                 </li>
-                @if(auth()->user()->role === 'admin')
+                @role('Admin')
                     <li class="nav-item {{ request()->is('users*') ? 'active' : '' }}">
                         <a class="nav-link" href="/users"><i class="icon-head menu-icon"></i><span class="menu-title">Kelola User</span></a>
                     </li>
-                @endif
+                @endrole
             </ul>
         </nav>
         <div class="main-panel">
