@@ -73,24 +73,8 @@ if (isset($sorts[$sort])) {
 
     public function create()
     {
-        $kategori_options = [
-            'Elektronik',
-            'Jaringan',
-            'Peralatan',
-            'ATK',
-            'Bahan Baku',
-            'Furniture'
-        ];
-
-        $satuan_options = [
-            'Unit',
-            'Pcs',
-            'Box',
-            'Meter',
-            'Pack',
-            'Set',
-            'Kg'
-        ];
+        $kategori_options = array_keys(config('inventory.category_locations'));
+        $satuan_options = config('inventory.units');
 
         return view('barang.create', compact(
             'kategori_options',
@@ -113,24 +97,8 @@ if (isset($sorts[$sort])) {
     {
     $barang = Barang::findOrFail($id);
 
-    $kategori_options = [
-        'Elektronik',
-        'Jaringan',
-        'Peralatan',
-        'ATK',
-        'Bahan Baku',
-        'Furniture'
-    ];
-
-    $satuan_options = [
-        'Unit',
-        'Pcs',
-        'Box',
-        'Meter',
-        'Pack',
-        'Set',
-        'Kg'
-    ];
+    $kategori_options = array_keys(config('inventory.category_locations'));
+    $satuan_options = config('inventory.units');
 
     return view('barang.edit', compact(
         'barang',

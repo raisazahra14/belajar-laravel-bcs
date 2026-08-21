@@ -19,7 +19,7 @@ Dokumentasi ini disusun dari implementasi yang tersedia di repository.
 
 - Login dan logout berbasis session, termasuk opsi **remember me**.
 - Daftar barang dengan pencarian berdasarkan kode, nama, atau lokasi; filter kategori; pengurutan nama/stok; pagination; dan statistik inventaris.
-- Tambah, lihat detail, edit, dan hapus barang, termasuk unggah foto JPEG, PNG, JPG, atau WebP maksimal 2 MB.
+- Tambah, lihat detail, edit, dan hapus barang, termasuk gambar katalog khusus per jenis barang serta unggah foto JPEG, PNG, JPG, atau WebP maksimal 2 MB.
 - Pencatatan stok masuk/keluar beserta keterangan dan validasi ketersediaan stok.
 - Riwayat transaksi stok dan daftar stok menipis (stok maksimal 5).
 - Ekspor seluruh data barang ke PDF dan Excel.

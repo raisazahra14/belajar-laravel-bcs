@@ -23,7 +23,7 @@ class UpdateBarangRequest extends FormRequest
             'nama_barang' => ['required', 'string', 'max:255'],
             'kategori' => ['required', 'string', 'max:255'],
             'stok' => ['required', 'integer', 'min:0'],
-            'satuan' => ['required', 'string', 'max:255'],
+            'satuan' => ['required', 'string', Rule::in(config('inventory.units'))],
             'lokasi' => ['required', 'string', 'max:255'],
             'foto_barang' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
         ];
