@@ -15,6 +15,123 @@ Dokumentasi ini disusun dari implementasi yang tersedia di repository.
 - Vite `^6`, Tailwind CSS `^4`, Axios, dan Concurrently
 - Eloquent ORM; konfigurasi bawaan `.env.example` menggunakan SQLite
 
+## Jawaban dan penyelesaian modul
+
+Seluruh tugas pada Modul 1 sampai Modul 4 sudah diterapkan di repository ini. Berikut jawaban, lokasi implementasi, dan cara memverifikasi setiap tugas.
+
+### Modul 1: Merapikan Kode (Clean Code Standard)
+
+#### ✅ Tugas 1.1: Form Request Validation
+
+Validasi barang sudah dipisahkan dari controller ke `app/Http/Requests/StoreBarangRequest.php`. Request ini memvalidasi kode barang unik, nama, kategori, stok minimal 0, satuan yang diizinkan, lokasi, dan foto maksimal 2 MB.
+
+Method `BarangController::store()` menerima `StoreBarangRequest`, kemudian hanya meneruskan data yang lolos validasi ke `BarangService`. Validasi edit dan transaksi stok juga dipisahkan ke `UpdateBarangRequest` dan `UpdateStokRequest`.
+
+#### ✅ Tugas 1.2: Database Transaction (`DB::transaction`)
+
+Proses perubahan stok dan pencatatan riwayat berada di `app/Services/BarangService.php`, method `updateStok()`. Kedua operasi dibungkus dengan `DB::transaction()` sehingga perubahan stok akan dibatalkan apabila penyimpanan transaksi gagal.
+
+Data barang juga diambil ulang menggunakan `lockForUpdate()` untuk mencegah perubahan stok bersamaan menghasilkan jumlah yang tidak konsisten. Stok keluar yang melebihi stok tersedia ditolak melalui validation exception.
+
+#### ✅ Tugas 1.3: Seeder dan Factory Data Dummy
+
+`database/factories/BarangFactory.php` menghasilkan data barang realistis berdasarkan konfigurasi produk, kategori, satuan, dan lokasi. `database/seeders/DatabaseSeeder.php` membuat 50 barang serta tiga akun demo.
+
+Jalankan:
+
+```bash
+php artisan migrate:fresh --seed
+```
+
+Perintah tersebut membangun ulang database dan mengisi data demo. Jika tabel sudah tersedia dan tidak ingin menghapus data, gunakan `php artisan db:seed`.
+
+### Modul 2: Fitur Bisnis Dunia Nyata (Real-World Features)
+
+#### ✅ Tugas 2.1: Upload Foto Produk (`foto_barang`)
+
+Kolom `foto_barang` ditambahkan melalui migration `database/migrations/2026_08_19_171054_add_foto_barang_to_barang_table.php`. Form tambah/edit menggunakan `multipart/form-data` dan menyediakan input file pada `resources/views/barang/partials/form.blade.php`.
+
+Foto divalidasi sebagai JPEG, PNG, JPG, atau WebP maksimal 2 MB, lalu disimpan oleh `BarangService` ke disk `public` dalam folder `barang`. URL gambar disediakan oleh accessor `foto_url` pada model `Barang` dan ditampilkan pada halaman inventaris.
+
+Aktifkan akses file publik satu kali dengan:
+
+```bash
+php artisan storage:link
+```
+
+#### ✅ Tugas 2.2: Export Laporan PDF dan Excel
+
+Ekspor PDF menggunakan `barryvdh/laravel-dompdf`, view `resources/views/barang/pdf.blade.php`, dan route `GET /barang-export/pdf`. Ekspor Excel menggunakan `maatwebsite/excel`, class `app/Exports/BarangExport.php`, dan route `GET /barang-export/excel`.
+
+Tombol ekspor tersedia pada halaman daftar barang. File yang dihasilkan bernama `laporan_stok_barang.pdf` dan `laporan_stok_barang.xlsx`.
+
+#### ✅ Tugas 2.3: Tong Sampah (Soft Deletes)
+
+Model `Barang` memakai trait `SoftDeletes`, sedangkan kolom `deleted_at` dibuat melalui migration. Penghapusan biasa hanya memindahkan data ke tong sampah.
+
+Admin dapat membuka `GET /barang-trash`, memulihkan data melalui aksi restore, atau menghapusnya secara permanen melalui force delete. Foto barang ikut dihapus dari storage ketika force delete dilakukan.
+
+### Modul 3: Hak Akses (Role dan Permission)
+
+#### ✅ Tugas 3.1: Spatie Laravel Permission
+
+Package `spatie/laravel-permission` sudah terpasang. Model `User` memakai trait `HasRoles`, migration tabel permission tersedia, dan `RoleSeeder` membuat tiga role:
+
+- Admin
+- Staff Gudang
+- Manager
+
+`DatabaseSeeder` membuat satu akun demo untuk setiap role dan menyinkronkan role menggunakan `syncRoles()`.
+
+#### ✅ Tugas 3.2: Otorisasi dengan Laravel Policy
+
+`app/Policies/BarangPolicy.php` membatasi operasi `delete`, `restore`, dan `forceDelete` hanya untuk pengguna dengan role Admin. Controller menjalankan pemeriksaan melalui `Gate::authorize()`, sehingga pembatasan tetap berlaku walaupun URL dipanggil secara langsung.
+
+Halaman tong sampah dan manajemen pengguna juga dilindungi middleware `role:Admin`.
+
+### Modul 4: Membuat RESTful API
+
+#### ✅ Tugas 4.1: Endpoint API Barang
+
+Endpoint barang didaftarkan di `routes/api.php` dengan prefix `/api/v1`. Endpoint `GET /api/v1/barang` tersedia bersama endpoint tambah, detail, edit, hapus, dan transaksi stok.
+
+#### ✅ Tugas 4.2: Format JSON dengan API Resource
+
+Semua respons data barang menggunakan `app/Http/Resources/BarangResource.php`. Resource memberikan struktur JSON yang konsisten, meliputi identitas barang, stok, lokasi, path foto, URL foto, dan timestamp. Respons daftar juga menyertakan metadata pagination bawaan Laravel.
+
+#### ✅ Tugas 4.3: Keamanan API Token (Laravel Sanctum)
+
+Laravel Sanctum sudah terpasang dan model `User` memakai `HasApiTokens`. Token dibuat melalui `POST /api/v1/tokens`, sedangkan seluruh endpoint barang berada di dalam middleware `auth:sanctum`.
+
+Contoh membuat dan memakai token:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/tokens \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@logistikku.test","password":"password","device_name":"laptop"}'
+
+curl http://127.0.0.1:8000/api/v1/barang \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN_DARI_RESPONS_LOGIN"
+```
+
+### Ringkasan checklist
+
+| Tugas | Status | Implementasi utama |
+|---|:---:|---|
+| 1.1 Form Request Validation | ✅ | `StoreBarangRequest`, `UpdateBarangRequest`, `UpdateStokRequest` |
+| 1.2 Database Transaction | ✅ | `BarangService::updateStok()` |
+| 1.3 Seeder dan Factory | ✅ | `BarangFactory`, `DatabaseSeeder`, 50 barang dummy |
+| 2.1 Upload Foto | ✅ | Public storage, validasi gambar, accessor `foto_url` |
+| 2.2 Export PDF dan Excel | ✅ | DOMPDF dan Laravel Excel |
+| 2.3 Soft Deletes | ✅ | Trash, restore, dan force delete |
+| 3.1 Role dan Permission | ✅ | Spatie; Admin, Staff Gudang, Manager |
+| 3.2 Laravel Policy | ✅ | Hapus hanya untuk Admin |
+| 4.1 Endpoint API | ✅ | `/api/v1/barang` |
+| 4.2 API Resource | ✅ | `BarangResource` |
+| 4.3 Sanctum | ✅ | Bearer token dan `auth:sanctum` |
+
 ## Fitur utama
 
 - Login dan logout berbasis session, termasuk opsi **remember me**.
