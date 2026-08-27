@@ -1,9 +1,10 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\BarangController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BarangController;
+use App\Http\Controllers\DocumentToolController;
 use App\Http\Controllers\UserController;
+use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/barang');
 
@@ -24,6 +25,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/barang/{id}/stok', [BarangController::class, 'updateStok']);
 
     Route::middleware('role:admin')->group(function () {
+        Route::get('/document-tools', [DocumentToolController::class, 'index'])->name('document-tools.index');
+        Route::post('/document-tools/verify', [DocumentToolController::class, 'verify'])->name('document-tools.verify');
+        Route::post('/document-tools/import', [DocumentToolController::class, 'import'])->name('document-tools.import');
         Route::post('/barang', [BarangController::class, 'store']);
         Route::get('/barang/{id}/edit', [BarangController::class, 'edit']);
         Route::put('/barang/{id}', [BarangController::class, 'update']);

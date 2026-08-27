@@ -7,6 +7,8 @@
 /storage/pail
 /vendor
 .env
+.env.*
+!.env.example
 .env.backup
 .env.production
 .phpactor.json
@@ -21,3 +23,17 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+
+# Python
+python/.venv/
+.venv/
+**/__pycache__/
+*.pyc
+*.ocr-output.json
+.pytest_cache/
+.coverage
+
+# Temporary files
+*.log
+*.tmp
+~$*

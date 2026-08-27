@@ -2,6 +2,11 @@
 
 return [
 
+    'document_checker' => [
+        'python_binary' => env('PYTHON_BINARY', 'python'),
+        'timeout' => (int) env('DOCUMENT_CHECKER_TIMEOUT', 60),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
