@@ -38,9 +38,12 @@
                 <li class="nav-item {{ request()->is('barang/low-stock') ? 'active' : '' }}">
                     <a class="nav-link" href="/barang/low-stock"><i class="icon-alert menu-icon"></i><span class="menu-title">Stok Menipis</span></a>
                 </li>
+                <li class="nav-item {{ request()->is('verifications*') ? 'active' : '' }}">
+                    <a class="nav-link" href="{{ route('verifications.index') }}"><i class="icon-check menu-icon"></i><span class="menu-title">Verifikasi Dokumen</span></a>
+                </li>
                 @if(auth()->user()->role === 'admin')
                     <li class="nav-item {{ request()->is('document-tools*') ? 'active' : '' }}">
-                        <a class="nav-link" href="{{ route('document-tools.index') }}"><i class="icon-file menu-icon"></i><span class="menu-title">Dokumen & Import</span></a>
+                        <a class="nav-link" href="{{ route('document-tools.index') }}"><i class="icon-upload menu-icon"></i><span class="menu-title">Import Persediaan</span></a>
                     </li>
                     <li class="nav-item {{ request()->is('users*') ? 'active' : '' }}">
                         <a class="nav-link" href="/users"><i class="icon-head menu-icon"></i><span class="menu-title">Kelola User</span></a>

@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\User;
-use App\Services\DocumentVerificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
@@ -34,21 +33,6 @@ class DocumentToolsTest extends TestCase
         ]);
 
         $response->assertRedirect(route('document-tools.index'))->assertSessionHasErrors('spreadsheet');
-    }
-
-    public function test_admin_can_verify_document_through_service(): void
-    {
-        $user = User::factory()->make(['id' => 1, 'role' => 'admin']);
-        $this->mock(DocumentVerificationService::class)
-            ->shouldReceive('verify')
-            ->once()
-            ->andReturn(['valid' => true, 'score' => 100, 'fields' => [], 'matched_terms' => []]);
-
-        $response = $this->actingAs($user)->post(route('document-tools.verify'), [
-            'document' => UploadedFile::fake()->create('surat-jalan.pdf', 20, 'application/pdf'),
-        ]);
-
-        $response->assertRedirect()->assertSessionHas('verification');
     }
 
     public function test_staff_cannot_open_document_tools(): void

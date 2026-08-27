@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BarangController;
 use App\Http\Controllers\DocumentToolController;
+use App\Http\Controllers\DocumentVerificationController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -16,6 +17,10 @@ Route::middleware('guest')->group(function () {
 Route::post('/logout', [AuthController::class, 'destroy'])->middleware('auth');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/verifications', [DocumentVerificationController::class, 'index'])->name('verifications.index');
+    Route::post('/verifications', [DocumentVerificationController::class, 'store'])->name('verifications.store');
+    Route::get('/verifications/{documentVerification}', [DocumentVerificationController::class, 'show'])->name('verifications.show');
+
     Route::get('/barang', [BarangController::class, 'index']);
     Route::get('/barang/create', [BarangController::class, 'create'])->middleware('role:admin');
     Route::get('/barang/low-stock', [BarangController::class, 'lowStock']);
@@ -26,7 +31,6 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('role:admin')->group(function () {
         Route::get('/document-tools', [DocumentToolController::class, 'index'])->name('document-tools.index');
-        Route::post('/document-tools/verify', [DocumentToolController::class, 'verify'])->name('document-tools.verify');
         Route::post('/document-tools/import', [DocumentToolController::class, 'import'])->name('document-tools.import');
         Route::post('/barang', [BarangController::class, 'store']);
         Route::get('/barang/{id}/edit', [BarangController::class, 'edit']);
