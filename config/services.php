@@ -3,7 +3,7 @@
 return [
 
     'document_checker' => [
-        'python_binary' => env('PYTHON_BINARY', 'python'),
+        'python_executable' => env('PYTHON_EXECUTABLE', 'python'),
         'timeout' => (int) env('DOCUMENT_CHECKER_TIMEOUT', 60),
     ],
 

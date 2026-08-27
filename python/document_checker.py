@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,11 @@ from PIL import Image, UnidentifiedImageError
 
 ALLOWED_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png"}
 MAX_FILE_SIZE = 10 * 1024 * 1024
-REQUIRED_TERMS = ("surat jalan", "pengirim", "penerima")
+DOCUMENT_TERMS = {
+    "surat_jalan": ("surat jalan", "pengirim", "penerima"),
+    "invoice": ("invoice", "total", "tanggal"),
+    "bukti_fisik": ("bukti", "barang", "tanggal"),
+}
 
 
 class DocumentError(ValueError):
@@ -67,10 +70,11 @@ def extract_text(path: Path) -> str:
         raise DocumentError("Tesseract OCR belum terpasang atau tidak ditemukan.") from exc
 
 
-def analyze_text(text: str) -> dict[str, Any]:
+def analyze_text(text: str, document_type: str = "surat_jalan") -> dict[str, Any]:
     normalized = re.sub(r"\s+", " ", text).strip()
     lowered = normalized.lower()
-    matched_terms = [term for term in REQUIRED_TERMS if term in lowered]
+    required_terms = DOCUMENT_TERMS.get(document_type, DOCUMENT_TERMS["surat_jalan"])
+    matched_terms = [term for term in required_terms if term in lowered]
     number_match = re.search(
         r"(?:no(?:mor)?\.?|nomor)\s*(?:surat\s*jalan)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9./-]{2,})",
         normalized,
@@ -81,37 +85,57 @@ def analyze_text(text: str) -> dict[str, Any]:
         normalized,
         re.IGNORECASE,
     )
-    signals = len(matched_terms) + bool(number_match) + bool(date_match)
-    score = round(signals / (len(REQUIRED_TERMS) + 2) * 100)
+    signature_detected = bool(re.search(r"tanda\s*tangan|signature|ttd", lowered))
+    signals = len(matched_terms) + bool(number_match) + bool(date_match) + signature_detected
+    score = round(signals / (len(required_terms) + 3) * 100)
+    if score >= 80:
+        status = "valid"
+        message = "Dokumen memenuhi sebagian besar indikator validitas."
+    elif score >= 50:
+        status = "review"
+        message = "Dokumen memerlukan peninjauan lebih lanjut."
+    else:
+        status = "suspicious"
+        message = "Indikator dokumen belum cukup untuk dinyatakan valid."
 
     return {
-        "valid": score >= 60,
+        "status": status,
         "score": score,
-        "fields": {
+        "message": message,
+        "details": {
+            "text_detected": bool(normalized),
+            "document_number_detected": bool(number_match),
+            "date_detected": bool(date_match),
+            "signature_detected": signature_detected,
             "document_number": number_match.group(1) if number_match else None,
             "date": date_match.group(1) if date_match else None,
+            "matched_terms": matched_terms,
         },
-        "matched_terms": matched_terms,
-        "text_length": len(normalized),
     }
 
 
-def verify_document(path: Path) -> dict[str, Any]:
+def verify_document(path: Path, document_type: str = "surat_jalan") -> dict[str, Any]:
     text = extract_text(path)
     if not text:
         raise DocumentError("Teks tidak terdeteksi pada dokumen.")
-    return analyze_text(text)
+    return analyze_text(text, document_type)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verifikasi surat jalan dengan OCR lokal.")
     parser.add_argument("document", type=Path)
+    parser.add_argument("--document-type", choices=DOCUMENT_TERMS, default="surat_jalan")
     args = parser.parse_args(argv)
     try:
-        print(json.dumps(verify_document(args.document), ensure_ascii=False))
+        print(json.dumps(verify_document(args.document, args.document_type), ensure_ascii=False))
         return 0
     except DocumentError as exc:
-        print(str(exc), file=sys.stderr)
+        print(json.dumps({
+            "status": "failed",
+            "score": 0,
+            "message": str(exc),
+            "details": {"text_detected": False},
+        }, ensure_ascii=False))
         return 2
 
 

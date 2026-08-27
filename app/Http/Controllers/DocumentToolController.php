@@ -18,7 +18,7 @@ class DocumentToolController extends Controller
     public function verify(VerifyDocumentRequest $request, DocumentVerificationService $service)
     {
         try {
-            $result = $service->verify($request->file('document'));
+            $result = $service->verify($request->file('document')->getRealPath());
         } catch (RuntimeException $exception) {
             return back()->withErrors(['document' => $exception->getMessage()]);
         }
