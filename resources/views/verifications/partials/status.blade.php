@@ -1,10 +1,10 @@
 @php
     $badges = [
-        'valid' => ['badge-success', 'Valid/Asli'],
-        'review' => ['badge-warning', 'Perlu Ditinjau'],
-        'suspicious' => ['badge-danger', 'Terindikasi Palsu/Manipulasi'],
-        'failed' => ['badge-secondary', 'Verifikasi Gagal'],
+        'lengkap' => ['badge-success', 'Lengkap'],
+        'perlu_ditinjau' => ['badge-warning', 'Perlu Ditinjau'],
+        'terindikasi_manipulasi' => ['badge-danger', 'Terindikasi Manipulasi'],
+        'tidak_terbaca' => ['badge-secondary', 'Tidak Terbaca'],
     ];
-    [$class, $label] = $badges[$status] ?? $badges['failed'];
+    [$class, $label] = $badges[$status] ?? $badges['tidak_terbaca'];
 @endphp
 <span class="badge {{ $class }}">{{ $label }}</span>

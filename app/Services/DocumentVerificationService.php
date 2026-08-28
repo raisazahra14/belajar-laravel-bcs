@@ -9,7 +9,16 @@ use Symfony\Component\Process\Process;
 
 class DocumentVerificationService
 {
-    private const STATUSES = ['valid', 'review', 'suspicious', 'failed'];
+    private const STATUSES = ['LENGKAP', 'PERLU_DITINJAU', 'TERINDIKASI_MANIPULASI', 'TIDAK_TERBACA'];
+
+    private const SCORES = [
+        'readability_score',
+        'completeness_score',
+        'authenticity_score',
+        'overall_score',
+    ];
+
+    private const ANALYSIS_SECTIONS = ['ocr', 'metadata', 'manipulation', 'barcode'];
 
     public function verify(string $documentPath, string $documentType = 'surat_jalan'): array
     {
@@ -25,6 +34,12 @@ class DocumentVerificationService
             $documentPath,
             '--document-type',
             $documentType,
+        ], null, [
+            // Some Windows web-server accounts cannot access the OS entropy
+            // source during Python startup. A fixed seed is safe here because
+            // this short-lived local OCR process does not use hashing for
+            // security-sensitive operations.
+            'PYTHONHASHSEED' => '0',
         ]);
         $process->setTimeout((float) config('services.document_checker.timeout', 60));
 
@@ -45,7 +60,7 @@ class DocumentVerificationService
                 'exit_code' => $process->getExitCode(),
                 'stderr' => trim($process->getErrorOutput()),
             ]);
-            $message = is_array($result) ? ($result['message'] ?? null) : null;
+            $message = is_array($result) ? ($result['notes'] ?? null) : null;
             throw new RuntimeException($message ?: 'Dokumen tidak dapat diverifikasi. Pastikan file dapat dibaca.');
         }
 
@@ -63,10 +78,20 @@ class DocumentVerificationService
     {
         return is_array($result)
             && in_array($result['status'] ?? null, self::STATUSES, true)
-            && is_int($result['score'] ?? null)
-            && $result['score'] >= 0
-            && $result['score'] <= 100
-            && is_string($result['message'] ?? null)
-            && is_array($result['details'] ?? null);
+            && is_float($result['confidence'] ?? null)
+            && $result['confidence'] >= 0
+            && $result['confidence'] <= 100
+            && is_string($result['notes'] ?? null)
+            && is_array($result['scores'] ?? null)
+            && collect(self::SCORES)->every(fn (string $score): bool =>
+                is_int($result['scores'][$score] ?? null)
+                && $result['scores'][$score] >= 0
+                && $result['scores'][$score] <= 100
+            )
+            && $result['confidence'] === (float) $result['scores']['overall_score']
+            && is_array($result['analysis'] ?? null)
+            && collect(self::ANALYSIS_SECTIONS)->every(
+                fn (string $section): bool => is_array($result['analysis'][$section] ?? null)
+            );
     }
 }

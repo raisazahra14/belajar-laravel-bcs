@@ -20,6 +20,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/verifications', [DocumentVerificationController::class, 'index'])->name('verifications.index');
     Route::post('/verifications', [DocumentVerificationController::class, 'store'])->name('verifications.store');
     Route::get('/verifications/{documentVerification}', [DocumentVerificationController::class, 'show'])->name('verifications.show');
+    Route::patch('/verifications/{documentVerification}/metadata', [DocumentVerificationController::class, 'updateMetadata'])->name('verifications.metadata.update');
 
     Route::get('/barang', [BarangController::class, 'index']);
     Route::get('/barang/create', [BarangController::class, 'create'])->middleware('role:admin');

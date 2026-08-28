@@ -13,6 +13,6 @@
     </form>
 </div></div>
 <div class="card"><div class="card-body"><h4 class="card-title">Riwayat Verifikasi</h4><div class="table-responsive"><table class="table table-hover"><thead><tr><th>Waktu</th><th>Nama file</th><th>Jenis</th><th>Status</th><th>Skor</th><th></th></tr></thead><tbody>
-@forelse($verifications as $item)<tr><td>{{ $item->created_at->format('d/m/Y H:i') }}</td><td>{{ $item->original_filename }}</td><td>{{ ucwords(str_replace('_', ' ', $item->document_type)) }}</td><td>@include('verifications.partials.status', ['status' => $item->status])</td><td>{{ $item->score }}%</td><td><a class="btn btn-sm btn-inverse-primary" href="{{ route('verifications.show', $item) }}">Detail</a></td></tr>@empty<tr><td colspan="6" class="text-center text-muted">Belum ada riwayat verifikasi.</td></tr>@endforelse
+@forelse($verifications as $item)<tr><td>{{ $item->created_at->timezone(config('app.display_timezone'))->format('d/m/Y H:i') }}</td><td>{{ $item->original_filename }}</td><td>{{ ucwords(str_replace('_', ' ', $item->document_type)) }}</td><td>@include('verifications.partials.status', ['status' => $item->status])</td><td>{{ $item->overall_score }}%</td><td><a class="btn btn-sm btn-inverse-primary" href="{{ route('verifications.show', $item) }}">Detail</a></td></tr>@empty<tr><td colspan="6" class="text-center text-muted">Belum ada riwayat verifikasi.</td></tr>@endforelse
 </tbody></table></div>{{ $verifications->links() }}</div></div>
 @endsection

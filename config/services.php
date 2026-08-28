@@ -3,8 +3,13 @@
 return [
 
     'document_checker' => [
-        'python_executable' => env('PYTHON_EXECUTABLE', 'python'),
-        'timeout' => (int) env('DOCUMENT_CHECKER_TIMEOUT', 60),
+        'python_executable' => env(
+            'PYTHON_EXECUTABLE',
+            PHP_OS_FAMILY === 'Windows' && is_file(base_path('python/.venv/Scripts/python.exe'))
+                ? base_path('python/.venv/Scripts/python.exe')
+                : 'python',
+        ),
+        'timeout' => (int) env('DOCUMENT_CHECKER_TIMEOUT', 120),
     ],
 
     /*
