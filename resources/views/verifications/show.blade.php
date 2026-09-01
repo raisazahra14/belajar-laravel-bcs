@@ -101,7 +101,7 @@
                 @foreach($audit->changed_fields ?? [] as $field)<p>{{ $audit->user?->name ?? 'Sistem' }} mengubah {{ $fieldLabels[$field] ?? ucwords(str_replace('_', ' ', $field)) }} dari <strong>{{ $formatAuditValue(data_get($audit->before_values, $field), $field) }}</strong> menjadi <strong>{{ $formatAuditValue(data_get($audit->after_values, $field), $field) }}</strong>.</p>@endforeach
                 @if($audit->technical_metadata || $audit->confidence || $audit->extraction_status)<details class="audit-technical"><summary>Detail teknis</summary><dl>@if($audit->technical_metadata)<dt>Metadata proses</dt><dd>{{ json_encode($audit->technical_metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</dd>@endif @if($audit->confidence)<dt>Confidence OCR</dt><dd>{{ json_encode($audit->confidence, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</dd>@endif @if($audit->extraction_status)<dt>Status ekstraksi</dt><dd>{{ json_encode($audit->extraction_status, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</dd>@endif</dl></details>@endif
             </div></article>
-        @empty<div class="empty-state compact"><i class="ti-time"></i><h3>Belum ada aktivitas tercatat</h3><p>Dokumen lama tetap dapat digunakan. Aktivitas baru akan muncul setelah dokumen diproses atau dikoreksi.</p></div>@endforelse
+        @empty<x-ui.empty-state class="compact" icon="ti-time" title="Belum ada aktivitas tercatat" description="Dokumen lama tetap dapat digunakan. Aktivitas baru akan muncul setelah dokumen diproses atau dikoreksi." />@endforelse
     </div>
 </div></section>
 
