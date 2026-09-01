@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Http\Requests\ImportBarangRequest;
 use App\Services\BarangSpreadsheetImporter;
 use App\Services\StockPredictionService;
-use App\Exceptions\StockPredictionException;
 
 class DocumentToolController extends Controller
 {
@@ -22,6 +21,7 @@ class DocumentToolController extends Controller
             $predictions->analyzeAll($request->user());
         } catch (\Throwable $exception) {
             report($exception);
+
             return back()->with('warning', 'Import berhasil, tetapi analisis prediksi gagal diperbarui.');
         }
 

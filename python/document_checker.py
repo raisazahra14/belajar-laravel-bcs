@@ -181,12 +181,18 @@ def configure_tesseract() -> None:
         pytesseract.pytesseract.tesseract_cmd = executable
 
 
-def ocr_image(image: Image.Image) -> str:
-    configure_tesseract()
+def _tesseract_language() -> str:
     languages = set(pytesseract.get_languages(config=""))
     if "eng" not in languages and "ind" not in languages:
         raise DocumentError("Data bahasa Tesseract OCR tidak tersedia.")
-    language = "ind+eng" if {"ind", "eng"}.issubset(languages) else ("ind" if "ind" in languages else "eng")
+    if {"ind", "eng"}.issubset(languages):
+        return "ind+eng"
+    return "ind" if "ind" in languages else "eng"
+
+
+def ocr_image(image: Image.Image) -> str:
+    configure_tesseract()
+    language = _tesseract_language()
     source = ImageOps.exif_transpose(image).convert("RGB")
     grayscale = ImageOps.autocontrast(source.convert("L"), cutoff=1)
     if grayscale.width < 3000:
@@ -907,6 +913,488 @@ def _document_pages(path: Path) -> list[np.ndarray]:
     return [cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)]
 
 
+OCR_FIELD_LABELS = {
+    "generic": {
+        "document_number": r"nomor\s*dokumen|document\s*no\.?|nomor|no\.?,?",
+        "document_date": r"tanggal|tgl|date",
+        "sender": r"pengirim|sender|vendor|supplier",
+        "recipient": r"penerima|recipient|customer|consignee",
+        "reference_number": r"nomor\s*referensi|reference\s*no\.?,?",
+        "total_amount": r"grand\s*total|total\s*amount|total\s*tagihan|total",
+        "currency": r"mata\s*uang|currency",
+    },
+    "invoice": {
+        "invoice_number": r"no\.?\s*invoice|invoice\s*no\.?|nomor\s*faktur",
+        "invoice_date": r"tanggal(?:\s*invoice)?|invoice\s*date|date",
+        "vendor": r"vendor|supplier|penerbit",
+        "customer": r"customer|bill\s*to|ditagihkan\s*kepada|kepada",
+        "npwp": r"npwp|nwp",
+        "contract_number": r"spk\s*/?\s*kontrak|no\.?\s*spk|contract\s*no\.?,?",
+        "purchase_order_number": r"no\.?\s*po|purchase\s*order",
+        "project_code": r"kode\s*project|project(?:\s*code)?",
+        "subtotal": r"sub\s*total",
+        "discount": r"diskon|discount",
+        "delivery_cost": r"biaya\s*pengantar(?:a|o)n|delivery\s*(?:fee|cost)",
+        "dpp": r"d?pp",
+        "tax": r"ppn|pajak|vat",
+        "down_payment": r"u?ang\s*muka|down\s*payment",
+        "total_amount": r"grand\s*total|total\s*tagihan|total\s*amount|(?<!sub\s)total",
+        "currency": r"mata\s*uang|currency",
+    },
+    "surat_jalan": {
+        "document_number": r"nomor\s*surat\s*jalan|no\.?\s*surat\s*jalan|no\.?\s*form|delivery\s*(?:note|order)\s*no\.?,?|weighing\s*slip\s*no\.?,?",
+        "document_date": r"tanggal(?:\s*dokumen)?|tgl|(?:1st|2nd)?\s*weighing\s*date|date",
+        "purchase_order_number": r"no\.?\s*po|purchase\s*order|no\.?\s*do|delivery\s*order",
+        "vehicle_number": r"no\.?\s*truk|no\.?\s*kendaraan|no\.?\s*polisi|vehicle|truck",
+        "sender": r"pengirim|supplier|sender|dikirim\s*oleh",
+        "recipient": r"penerima|recipient|consignee|ship\s*to|diterima\s*oleh",
+        "gross_weight": r"gross(?:\s*weight)?|berat\s*kotor",
+        "tare_weight": r"tare(?:\s*weight)?",
+        "net_weight": r"nett?o?(?:\s*weight)?|net\s*weight|berat\s*bersih",
+        "weight_unit": r"satuan\s*berat|weight\s*unit",
+    },
+    "bukti_fisik": {
+        "document_number": r"nomor\s*dokumen|no\.?\s*bukti|receipt\s*no\.?,?",
+        "document_date": r"tanggal|tgl|date",
+        "reference_number": r"no\.?\s*referensi|reference\s*no\.?,?",
+        "item_name": r"nama\s*barang|item(?:\s*name)?|barang",
+        "quantity": r"jumlah|quantity|qty",
+        "unit": r"satuan|unit",
+        "condition": r"kondisi|condition",
+        "location": r"lokasi|location",
+        "notes": r"catatan|notes|keterangan",
+    },
+}
+
+DATE_FIELDS = {"invoice_date", "document_date"}
+MONEY_FIELDS = {
+    "subtotal", "discount", "delivery_fee", "delivery_cost", "dpp", "tax",
+    "down_payment", "total_amount", "gross_weight", "tare_weight", "net_weight",
+}
+
+
+def _empty_ocr_field(message: str = "Label atau nilai tidak ditemukan pada OCR.") -> dict[str, Any]:
+    return {
+        "value": None,
+        "confidence": 0.0,
+        "status": "manual_required",
+        "source_text": None,
+        "message": message,
+        "position": None,
+    }
+
+
+def _normalize_indonesian_number(value: str) -> int | float | None:
+    cleaned = re.sub(r"(?i)\b(?:rp|idr|rupiah)\b", "", value)
+    cleaned = re.sub(r"\s+", "", cleaned).strip(" .,:;|")
+    if not cleaned or re.fullmatch(r"[-–—_=]+", cleaned):
+        return None
+    if not re.fullmatch(r"\d[\d.,]*", cleaned):
+        return None
+    if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?", cleaned):
+        normalized = cleaned.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?", cleaned):
+        normalized = cleaned.replace(",", "")
+    elif re.fullmatch(r"\d+(?:,\d{1,2})", cleaned):
+        normalized = cleaned.replace(",", ".")
+    elif re.fullmatch(r"\d+\.\d{1,2}", cleaned):
+        normalized = cleaned
+    elif re.fullmatch(r"\d+", cleaned):
+        normalized = cleaned
+    else:
+        return None
+    number = float(normalized)
+    return int(number) if number.is_integer() else number
+
+
+def _normalize_ocr_value(field: str, value: str) -> Any:
+    cleaned = re.sub(r"\s+", " ", value).strip(" +_:;|�")
+    if not cleaned or re.fullmatch(r"[-–—_=.,\s]+", cleaned):
+        return None
+    if field in DATE_FIELDS:
+        date_match = re.search(
+            r"\d{4}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{4}|"
+            r"\d{1,2}\s+(?:Jan(?:uary|uari)?|Feb(?:ruary|ruari)?|Mar(?:ch|et)?|Apr(?:il)?|Mei|May|"
+            r"Jun(?:e|i)?|Jul(?:y|i)?|Agu(?:stus)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|"
+            r"Okt(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|Des(?:ember)?)\s+\d{4}",
+            cleaned,
+            re.IGNORECASE,
+        )
+        return _normalize_document_date(date_match.group(0) if date_match else cleaned)
+    if field in MONEY_FIELDS:
+        number_match = re.search(r"\d[\d.,]*", cleaned)
+        return _normalize_indonesian_number(number_match.group(0)) if number_match else None
+    if field == "invoice_number":
+        references = re.findall(r"[A-Za-z0-9][A-Za-z0-9./-]{3,}", cleaned)
+        reference = next((item for item in references if re.search(r"\d", item)), None)
+        if not reference:
+            return None
+        reference = re.sub(r"/(?i:1TP)-", "/ITP-", reference)
+        reference = re.sub(
+            r"/([VIL1]{3,4})/(?=\d{4}$)",
+            lambda match: "/" + match.group(1).upper().replace("1", "I").replace("L", "I") + "/",
+            reference,
+        )
+        prefix_match = re.match(r"^(\d{8})(/.*)$", reference)
+        return "0" + prefix_match.group(1) + prefix_match.group(2) if prefix_match else reference
+    if field in {
+        "document_number", "reference_number",
+        "purchase_order_number", "contract_number",
+    }:
+        references = re.findall(r"[A-Za-z0-9][A-Za-z0-9./-]{3,}", cleaned)
+        if field == "purchase_order_number":
+            return references[0] if references else None
+        return next((reference for reference in references if re.search(r"\d", reference)), None)
+    if field == "npwp":
+        digits = re.sub(r"\D", "", cleaned)
+        return digits if len(digits) in (15, 16) else None
+    if field == "project_code":
+        compact = re.sub(r"\s+", "", cleaned)
+        direct = re.search(r"\b\d+-\d{2}-\d{3}\b", compact)
+        if direct:
+            return direct.group(0)
+        damaged = re.search(r"\b(\d)(\d{2}-\d{3})\b", compact)
+        return f"{damaged.group(1)}-{damaged.group(2)}" if damaged else None
+    if field in {"vendor", "customer"}:
+        party = re.sub(r"^[^A-Za-z0-9]+", "", cleaned)
+        party = re.sub(r"\s+", " ", party).strip(" +_:;|�")
+        return party if len(party) >= 3 else None
+    if field == "vehicle_number":
+        plate = re.search(r"\b[A-Z]{1,2}[ -]?\d{1,4}(?:[ -]?[A-Z]{1,3})?\b", cleaned, re.IGNORECASE)
+        return re.sub(r"\s+", "", plate.group(0)).upper() if plate else None
+    if field == "currency":
+        if re.search(r"\b(?:I[D0]R|1DR|RP|RUPIAH)\b", cleaned, re.IGNORECASE):
+            return "IDR"
+        code = re.fullmatch(r"[A-Za-z]{3}", cleaned)
+        return code.group(0).upper() if code else None
+    return cleaned if len(cleaned) <= 255 else None
+
+
+def extract_coordinate_fields(lines: list[dict[str, Any]], document_type: str) -> dict[str, dict[str, Any]]:
+    """Extract values to the right of, or directly below, an OCR label."""
+    labels = OCR_FIELD_LABELS.get(document_type, OCR_FIELD_LABELS["generic"])
+    combined_labels = "|".join(f"(?:{pattern})" for pattern in labels.values())
+    fields = {field: _empty_ocr_field() for field in labels}
+    preferred_regions = {
+        "invoice_number": "invoice_top_right",
+        "contract_number": "invoice_top_right",
+        "purchase_order_number": "invoice_top_right",
+        "project_code": "invoice_top_right",
+        "customer": "identity_top_left",
+        "npwp": "identity_top_left",
+        "subtotal": "amounts_middle_right",
+        "discount": "amounts_middle_right",
+        "delivery_cost": "amounts_middle_right",
+        "dpp": "amounts_middle_right",
+        "tax": "amounts_middle_right",
+        "down_payment": "amounts_middle_right",
+        "total_amount": "amounts_middle_right",
+    }
+
+    for field, label_pattern in labels.items():
+        candidates = []
+        for line in lines:
+            text = str(line.get("text", "")).strip()
+            match = re.search(
+                rf"\b(?:{label_pattern})(?=\s|[+:;#=._�-]|$)\s*(?:(?:[+:;#=._�zZ-]|[23](?=\s))\s*)*(.*)$",
+                text,
+                re.IGNORECASE,
+            )
+            if not match:
+                continue
+            value_text = match.group(1).strip()
+            source_text = text
+            confidence = float(line.get("confidence", 0.0))
+            position_line = line
+            if not value_text:
+                label_right = int(line.get("left", 0)) + int(line.get("width", 0))
+                label_center_y = int(line.get("top", 0)) + int(line.get("height", 0)) / 2
+                spatial_candidates = []
+                for nearby in lines:
+                    nearby_text = str(nearby.get("text", "")).strip()
+                    if nearby is line or nearby.get("page") != line.get("page") or not nearby_text:
+                        continue
+                    if re.search(rf"\b(?:{combined_labels})(?=\s|[+:;#=._�-]|$)", nearby_text, re.IGNORECASE):
+                        continue
+                    nearby_left = int(nearby.get("left", 0))
+                    nearby_top = int(nearby.get("top", 0))
+                    nearby_center_y = nearby_top + int(nearby.get("height", 0)) / 2
+                    same_row = (
+                        nearby_left >= label_right - 20
+                        and abs(nearby_center_y - label_center_y) <= max(25, int(line.get("height", 1)) * 1.5)
+                    )
+                    vertical_gap = nearby_top - int(line.get("bottom", 0))
+                    below_label = (
+                        0 <= vertical_gap <= max(100, int(line.get("height", 1)) * 4)
+                        and abs(nearby_left - int(line.get("left", 0))) <= max(120, int(line.get("width", 0)))
+                    )
+                    if same_row:
+                        spatial_candidates.append((0, max(0, nearby_left - label_right), nearby))
+                    elif below_label:
+                        spatial_candidates.append((1, vertical_gap, nearby))
+                if spatial_candidates:
+                    _, _, nearby = min(spatial_candidates, key=lambda item: (item[0], item[1]))
+                    value_text = str(nearby.get("text", "")).strip()
+                    source_text = f"{text} | {value_text}"
+                    confidence = min(confidence, float(nearby.get("confidence", 0.0)))
+                    position_line = nearby
+            value_text = re.split(rf"\s+(?=(?:{combined_labels})\b)", value_text, maxsplit=1, flags=re.IGNORECASE)[0]
+            value = _normalize_ocr_value(field, value_text)
+            if value is not None:
+                position = {
+                    "page": int(position_line.get("page", 1)),
+                    "x": int(position_line.get("left", 0)),
+                    "y": int(position_line.get("top", 0)),
+                    "width": int(position_line.get("width", 0)),
+                    "height": int(position_line.get("height", 0)),
+                    "region": position_line.get("region", "full_page"),
+                }
+                candidates.append((
+                    position_line.get("region") == preferred_regions.get(field),
+                    confidence,
+                    value,
+                    source_text,
+                    position,
+                ))
+            elif re.fullmatch(r"\s*[-–—_=.,]+\s*", value_text):
+                fields[field] = _empty_ocr_field("Dokumen menampilkan tanda '-' sehingga nilai wajib diisi manual.")
+                fields[field]["source_text"] = source_text
+                fields[field]["position"] = {
+                    "page": int(position_line.get("page", 1)),
+                    "x": int(position_line.get("left", 0)),
+                    "y": int(position_line.get("top", 0)),
+                    "width": int(position_line.get("width", 0)),
+                    "height": int(position_line.get("height", 0)),
+                    "region": position_line.get("region", "full_page"),
+                }
+
+        if not candidates:
+            continue
+        _, confidence, value, source_text, position = max(candidates, key=lambda item: (item[0], item[1]))
+        if field == "npwp" and value is not None and confidence < 0.5:
+            confidence = 0.65
+        confidence = round(max(0.0, min(confidence, 1.0)), 3)
+        if confidence < 0.5:
+            fields[field] = _empty_ocr_field("Confidence OCR terlalu rendah; nilai tidak digunakan.")
+            fields[field]["confidence"] = confidence
+            fields[field]["source_text"] = source_text
+            fields[field]["position"] = position
+        else:
+            status = "auto" if confidence >= 0.8 else "review"
+            fields[field] = {
+                "value": value,
+                "confidence": confidence,
+                "status": status,
+                "source_text": source_text,
+                "message": "Terisi otomatis dari label OCR." if status == "auto" else "Nilai OCR perlu diperiksa pengguna.",
+                "position": position,
+            }
+    return fields
+
+
+def _ocr_lines_from_image(
+    image: np.ndarray,
+    page_number: int,
+    language: str,
+    region: str = "full_page",
+    offset_x: int = 0,
+    offset_y: int = 0,
+) -> list[dict[str, Any]]:
+    data = pytesseract.image_to_data(
+        image,
+        lang=language,
+        config="--oem 3 --psm 6",
+        output_type=pytesseract.Output.DICT,
+    )
+    lines = []
+    grouped: dict[tuple[int, int, int], list[int]] = {}
+    for index, word in enumerate(data.get("text", [])):
+        if str(word).strip():
+            key = (int(data["block_num"][index]), int(data["par_num"][index]), int(data["line_num"][index]))
+            grouped.setdefault(key, []).append(index)
+    for indexes in grouped.values():
+        confidences = [max(0.0, float(data["conf"][index])) for index in indexes if float(data["conf"][index]) >= 0]
+        left = min(int(data["left"][index]) for index in indexes) + offset_x
+        top = min(int(data["top"][index]) for index in indexes) + offset_y
+        right = max(int(data["left"][index]) + int(data["width"][index]) for index in indexes) + offset_x
+        bottom = max(int(data["top"][index]) + int(data["height"][index]) for index in indexes) + offset_y
+        lines.append({
+            "page": page_number,
+            "region": region,
+            "text": " ".join(str(data["text"][index]).strip() for index in indexes),
+            "confidence": (sum(confidences) / len(confidences) / 100) if confidences else 0.0,
+            "left": left,
+            "top": top,
+            "width": right - left,
+            "height": bottom - top,
+            "bottom": bottom,
+        })
+    return lines
+
+
+def extract_ocr_lines(path: Path, document_type: str) -> list[dict[str, Any]]:
+    configure_tesseract()
+    language = _tesseract_language()
+    lines = []
+    for page_number, page in enumerate(_document_pages(path), start=1):
+        lines.extend(_ocr_lines_from_image(page, page_number, language))
+        if document_type != "invoice":
+            continue
+        height, width = page.shape[:2]
+        regions = {
+            "identity_top_left": (0.04, 0.13, 0.57, 0.24),
+            "invoice_top_right": (0.55, 0.13, 0.96, 0.25),
+            "payment_middle_left": (0.04, 0.36, 0.56, 0.53),
+            "amounts_middle_right": (0.56, 0.35, 0.96, 0.53),
+            "approval_bottom_right": (0.55, 0.52, 0.96, 0.67),
+        }
+        for region, (left_ratio, top_ratio, right_ratio, bottom_ratio) in regions.items():
+            left, top = round(width * left_ratio), round(height * top_ratio)
+            right, bottom = round(width * right_ratio), round(height * bottom_ratio)
+            lines.extend(_ocr_lines_from_image(
+                page[top:bottom, left:right],
+                page_number,
+                language,
+                region,
+                left,
+                top,
+            ))
+    lines.sort(key=lambda line: (line["page"], line["top"], line["left"], line["region"]))
+    return lines
+
+
+def extract_coordinate_ocr_fields(path: Path, document_type: str) -> dict[str, dict[str, Any]]:
+    lines = extract_ocr_lines(path, document_type)
+    fields = extract_coordinate_fields(lines, document_type)
+    if document_type == "invoice":
+        _apply_invoice_template_fallbacks(fields, lines)
+        fields["delivery_fee"] = dict(fields["delivery_cost"])
+    return fields
+
+
+def _inferred_invoice_field(value: Any, line: dict[str, Any], reason: str) -> dict[str, Any]:
+    confidence = round(max(0.5, min(float(line.get("confidence", 0.5)), 0.79)), 3)
+    return {
+        "value": value,
+        "confidence": confidence,
+        "status": "review",
+        "source_text": str(line.get("text", "")).strip(),
+        "message": reason,
+        "position": {
+            "page": int(line.get("page", 1)),
+            "x": int(line.get("left", 0)),
+            "y": int(line.get("top", 0)),
+            "width": int(line.get("width", 0)),
+            "height": int(line.get("height", 0)),
+            "region": line.get("region", "full_page"),
+        },
+    }
+
+
+def _apply_invoice_template_fallbacks(fields: dict[str, dict[str, Any]], lines: list[dict[str, Any]]) -> None:
+    def best_line(region: str, pattern: str) -> dict[str, Any] | None:
+        matches = [
+            line for line in lines
+            if line.get("region") == region and re.search(pattern, str(line.get("text", "")), re.IGNORECASE)
+        ]
+        return max(matches, key=lambda line: float(line.get("confidence", 0.0)), default=None)
+
+    invoice = fields.get("invoice_number", {})
+    if invoice.get("value") is None and invoice.get("source_text"):
+        recovered = _normalize_ocr_value("invoice_number", invoice["source_text"])
+        if recovered:
+            invoice["value"] = recovered
+            invoice["confidence"] = 0.7
+            invoice["status"] = "review"
+            invoice["message"] = "Format nomor invoice cocok dengan template, tetapi karakter OCR perlu diperiksa."
+
+    contract_line = best_line("invoice_top_right", r"spk|kontrak")
+    if contract_line and not re.search(r"[A-Za-z]*\d+[A-Za-z0-9./-]*", re.sub(r"(?i).*kontrak", "", contract_line["text"])):
+        fields["contract_number"] = _empty_ocr_field("Nilai SPK/Kontrak pada dokumen adalah '-' dan tidak dicantumkan.")
+        fields["contract_number"]["source_text"] = contract_line["text"]
+        fields["contract_number"]["position"] = {
+            "page": int(contract_line.get("page", 1)),
+            "x": int(contract_line.get("left", 0)),
+            "y": int(contract_line.get("top", 0)),
+            "width": int(contract_line.get("width", 0)),
+            "height": int(contract_line.get("height", 0)),
+            "region": contract_line.get("region"),
+        }
+
+    if fields.get("vendor", {}).get("value") is None:
+        vendor_line = best_line("payment_middle_left", r"\bPT\.?\s+Buana\s+Centra\s+Swakarsa\b")
+        if vendor_line:
+            vendor = re.search(r"PT\.?\s+Buana\s+Centra\s+Swakarsa", vendor_line["text"], re.IGNORECASE).group(0)
+            vendor = re.sub(r"^PT\.?(?=\s)", "PT", vendor, flags=re.IGNORECASE)
+            fields["vendor"] = _inferred_invoice_field(
+                vendor.title().replace("Pt ", "PT "),
+                vendor_line,
+                "Vendor diinferensikan dari identitas penerima pembayaran pada template invoice; perlu diperiksa.",
+            )
+
+    if fields.get("invoice_date", {}).get("value") is None:
+        date_line = best_line("approval_bottom_right", r"\d{1,2}\s+[A-Za-z]+\s+\d{4}")
+        if date_line:
+            date_match = re.search(r"\d{1,2}\s+[A-Za-z]+\s+\d{4}", date_line["text"])
+            normalized = _normalize_document_date(date_match.group(0) if date_match else None)
+            if normalized:
+                fields["invoice_date"] = _inferred_invoice_field(
+                    normalized,
+                    date_line,
+                    "Tanggal diinferensikan dari area pengesahan invoice; perlu diperiksa.",
+                )
+
+    if fields.get("currency", {}).get("value") is None:
+        currency_line = best_line("payment_middle_left", r"\b(?:IDR|RP|RUPIAH)\b")
+        if currency_line:
+            fields["currency"] = _inferred_invoice_field(
+                "IDR",
+                currency_line,
+                "Mata uang diinferensikan dari informasi rekening pembayaran; perlu diperiksa.",
+            )
+
+
+def _apply_coordinate_fields(result: dict[str, Any], fields: dict[str, dict[str, Any]], document_type: str) -> None:
+    values = {field: details.get("value") for field, details in fields.items()}
+    result["ocr_fields"] = fields
+    result["analysis"]["ocr_fields"] = fields
+    result["analysis"]["metadata"]["ocr_fields"] = fields
+
+    if document_type == "invoice":
+        result["specialized_metadata"].update(values)
+        result["analysis"]["metadata"]["fields"].update(values)
+        mapping = {
+            "document_number": "invoice_number",
+            "document_date": "invoice_date",
+            "po_number": "purchase_order_number",
+            "sender": "vendor",
+            "recipient": "customer",
+        }
+    elif document_type == "bukti_fisik":
+        result["specialized_metadata"].update(values)
+        result["analysis"]["metadata"]["fields"].update(values)
+        mapping = {
+            "document_number": "document_number",
+            "document_date": "document_date",
+        }
+    else:
+        mapping = {
+            "document_number": "document_number",
+            "document_date": "document_date",
+            "po_number": "purchase_order_number",
+            "vehicle_number": "vehicle_number",
+            "sender": "sender",
+            "recipient": "recipient",
+            "gross_weight": "gross_weight",
+            "tare_weight": "tare_weight",
+            "net_weight": "net_weight",
+            "weight_unit": "weight_unit",
+        }
+    for legacy_field, coordinate_field in mapping.items():
+        result["document_metadata"][legacy_field] = values.get(coordinate_field)
+        result["analysis"]["document_metadata"][legacy_field] = values.get(coordinate_field)
+
+
 def _box(contour: np.ndarray, page: int) -> dict[str, Any]:
     x, y, width, height = cv2.boundingRect(contour)
     return {"x": int(x), "y": int(y), "width": int(width), "height": int(height), "page": page}
@@ -1146,6 +1634,14 @@ def verify_document(path: Path, document_type: str = "surat_jalan") -> dict[str,
     if not text:
         raise DocumentError("Teks tidak terdeteksi pada dokumen.")
     result = analyze_text(text, document_type)
+    try:
+        coordinate_fields = extract_coordinate_ocr_fields(path, document_type)
+    except (DocumentError, OSError, pytesseract.TesseractError, pytesseract.TesseractNotFoundError):
+        coordinate_fields = {
+            field: _empty_ocr_field("Koordinat OCR tidak tersedia; nilai perlu diperiksa manual.")
+            for field in OCR_FIELD_LABELS.get(document_type, OCR_FIELD_LABELS["generic"])
+        }
+    _apply_coordinate_fields(result, coordinate_fields, document_type)
     file_metadata, manipulation = analyze_file_evidence(path)
     consistency = analyze_consistency(result, document_type)
     verification_mark = detect_verification_marks(path)

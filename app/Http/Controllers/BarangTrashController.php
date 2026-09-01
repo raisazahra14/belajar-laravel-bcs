@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Barang;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\View\View;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
 
 class BarangTrashController extends Controller
 {
@@ -27,7 +27,9 @@ class BarangTrashController extends Controller
     {
         $barang = Barang::onlyTrashed()->findOrFail($id);
         $barang->stokTransactions()->delete();
-        if ($barang->foto_barang) Storage::disk('public')->delete($barang->foto_barang);
+        if ($barang->foto_barang) {
+            Storage::disk('public')->delete($barang->foto_barang);
+        }
         $barang->forceDelete();
 
         return back()->with('success', 'Data barang dihapus permanen.');

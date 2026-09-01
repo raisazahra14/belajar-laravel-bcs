@@ -83,6 +83,7 @@ class Barang extends Model
         };
         $columns = ['0%', '33.333%', '66.667%', '100%'];
         $rows = ['0%', '50%', '100%'];
+
         return $columns[$index % 4].' '.$rows[intdiv($index, 4)];
     }
 }

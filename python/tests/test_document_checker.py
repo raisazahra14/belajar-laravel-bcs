@@ -8,7 +8,135 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from document_checker import DocumentError, analyze_file_evidence, analyze_text, detect_verification_marks, extract_text, main, validate_file, verify_document
+from document_checker import (
+    DocumentError,
+    analyze_file_evidence,
+    analyze_text,
+    detect_verification_marks,
+    extract_coordinate_fields,
+    extract_coordinate_ocr_fields,
+    extract_text,
+    main,
+    validate_file,
+    verify_document,
+)
+
+
+class CoordinateMetadataTest(unittest.TestCase):
+    @staticmethod
+    def line(text, confidence=0.95, top=10):
+        return {
+            "page": 1,
+            "text": text,
+            "confidence": confidence,
+            "left": 10,
+            "top": top,
+            "width": 500,
+            "height": 20,
+            "bottom": top + 20,
+        }
+
+    def test_invoice_fields_use_matching_labels_and_normalize_values(self):
+        fields = extract_coordinate_fields(
+            [
+                self.line("No. Invoice: INV-2026/001"),
+                self.line("Tanggal: 27 Agustus 2026", top=40),
+                self.line("Subtotal: Rp 1.234.567", top=70),
+                self.line("DPP: Rp 1.111.111", top=100),
+                self.line("Mata Uang: Rupiah", top=130),
+            ],
+            "invoice",
+        )
+
+        self.assertEqual("INV-2026/001", fields["invoice_number"]["value"])
+        self.assertEqual("2026-08-27", fields["invoice_date"]["value"])
+        self.assertEqual(1234567, fields["subtotal"]["value"])
+        self.assertEqual(1111111, fields["dpp"]["value"])
+        self.assertEqual("IDR", fields["currency"]["value"])
+        self.assertEqual("auto", fields["dpp"]["status"])
+        self.assertIn("DPP", fields["dpp"]["source_text"])
+
+    def test_dash_missing_and_low_confidence_require_manual_input(self):
+        fields = extract_coordinate_fields(
+            [
+                self.line("DPP: -"),
+                self.line("Total: Rp 50.000", confidence=0.45, top=40),
+            ],
+            "invoice",
+        )
+
+        self.assertIsNone(fields["dpp"]["value"])
+        self.assertEqual("manual_required", fields["dpp"]["status"])
+        self.assertIsNone(fields["total_amount"]["value"])
+        self.assertEqual(0.45, fields["total_amount"]["confidence"])
+        self.assertEqual("manual_required", fields["vendor"]["status"])
+
+    def test_dpp_never_copies_subtotal_without_dpp_label(self):
+        fields = extract_coordinate_fields(
+            [self.line("Subtotal: Rp 900.000")],
+            "invoice",
+        )
+
+        self.assertEqual(900000, fields["subtotal"]["value"])
+        self.assertIsNone(fields["dpp"]["value"])
+
+    def test_value_in_separate_right_or_below_ocr_block_is_detected(self):
+        invoice_label = self.line("Invoice No.", top=10)
+        invoice_label["width"] = 120
+        invoice_value = self.line("INV-2026-777", top=11)
+        invoice_value["left"] = 180
+        date_label = self.line("Tanggal", top=50)
+        unrelated = self.line("Customer", top=70)
+        unrelated["left"] = 500
+        date_value = self.line("27/08/2026", top=82)
+
+        fields = extract_coordinate_fields(
+            [invoice_label, invoice_value, date_label, unrelated, date_value],
+            "invoice",
+        )
+
+        self.assertEqual("INV-2026-777", fields["invoice_number"]["value"])
+        self.assertEqual("2026-08-27", fields["invoice_date"]["value"])
+        self.assertEqual(180, fields["invoice_number"]["position"]["x"])
+
+    def test_available_invoice_fixture_matches_complete_expected_result(self):
+        fixture = (
+            Path(__file__).parents[2]
+            / "storage/app/private/document-verifications/1/BElgUmt2dn5QArW9UpAbRqJR1p6meH68TwDe8ycN.jpg"
+        )
+        if not fixture.exists():
+            self.skipTest("Invoice pengujian lokal tidak tersedia.")
+
+        fields = extract_coordinate_ocr_fields(fixture, "invoice")
+        expected = {
+            "invoice_number": "000020308/ITP-DT/VIII/2026",
+            "invoice_date": "2026-08-27",
+            "vendor": "PT Buana Centra Swakarsa",
+            "customer": "Indocement Tunggal Prakarsa, PT",
+            "npwp": "0010621191092000",
+            "contract_number": None,
+            "purchase_order_number": "Usting",
+            "project_code": "2-01-002",
+            "subtotal": 10881203,
+            "discount": 0,
+            "delivery_cost": 0,
+            "dpp": 10881203,
+            "tax": 0,
+            "down_payment": 0,
+            "total_amount": 10881203,
+            "currency": "IDR",
+        }
+
+        self.assertEqual(expected, {field: fields[field]["value"] for field in expected})
+        self.assertEqual("manual_required", fields["contract_number"]["status"])
+        self.assertNotEqual("auto", fields["contract_number"]["status"])
+        self.assertTrue(all(
+            details["status"] != "auto" or details["confidence"] > 0
+            for details in fields.values()
+        ))
+        self.assertNotEqual(2545704446, fields["total_amount"]["value"])
+        for field in ("subtotal", "discount", "delivery_cost", "dpp", "tax", "down_payment", "total_amount"):
+            self.assertEqual("amounts_middle_right", fields[field]["position"]["region"])
 
 
 class AnalyzeTextTest(unittest.TestCase):

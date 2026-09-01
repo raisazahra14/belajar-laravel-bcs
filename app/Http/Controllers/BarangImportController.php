@@ -7,10 +7,9 @@ use App\Imports\BarangImport;
 use App\Models\Barang;
 use App\Services\BarangSpreadsheetImporter;
 use App\Services\StockPredictionService;
-use App\Exceptions\StockPredictionException;
 use Illuminate\Http\RedirectResponse;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -76,11 +75,14 @@ class BarangImportController extends Controller
             $predictions->analyzeAll($request->user());
         } catch (\Throwable $exception) {
             report($exception);
-            return redirect()->route('barang.index')->with('warning',
-                "Berhasil mengimpor {$result['total']} data barang, tetapi analisis prediksi gagal diperbarui.");
+
+            return redirect()->route('barang.index')
+                ->with('import_summary', [...$result, 'failed' => 0])
+                ->with('warning', "Berhasil mengimpor {$result['total']} data barang, tetapi analisis prediksi gagal diperbarui.");
         }
 
         return redirect()->route('barang.index')
+            ->with('import_summary', [...$result, 'failed' => 0])
             ->with('success', "Berhasil mengimpor {$result['total']} data barang");
     }
 }

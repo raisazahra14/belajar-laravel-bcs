@@ -32,6 +32,25 @@ class DocumentVerificationContractTest extends TestCase
         $this->assertFalse($this->validateContract($contract));
     }
 
+    public function test_structured_ocr_field_contract_is_validated_and_legacy_json_remains_supported(): void
+    {
+        $contract = self::contractFixture();
+        $contract['ocr_fields'] = [
+            'invoice_number' => [
+                'value' => 'INV-001', 'confidence' => 0.91, 'status' => 'auto',
+                'source_text' => 'No. Invoice: INV-001', 'message' => 'Terisi otomatis dari label OCR.',
+            ],
+            'dpp' => [
+                'value' => null, 'confidence' => 0.0, 'status' => 'manual_required',
+                'source_text' => 'DPP: -', 'message' => 'Nilai wajib diisi manual.',
+            ],
+        ];
+        $this->assertTrue($this->validateContract($contract));
+
+        unset($contract['ocr_fields']['invoice_number']['message']);
+        $this->assertFalse($this->validateContract($contract));
+    }
+
     public function test_new_verification_mark_contract_accepts_true_false_and_null(): void
     {
         foreach ([true, false, null] as $detected) {

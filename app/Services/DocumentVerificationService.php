@@ -51,7 +51,9 @@ class DocumentVerificationService
             'WINDIR' => $windowsDirectory,
             'PYTHONHASHSEED' => '0',
         ]);
-        $process->setTimeout((float) config('services.document_checker.timeout', 60));
+        // Large scans can legitimately exceed two minutes. Keep this below
+        // the queue job timeout (300s) and database retry_after (360s).
+        $process->setTimeout(max(240.0, (float) config('services.document_checker.timeout', 240)));
 
         try {
             $process->run();
@@ -109,6 +111,8 @@ class DocumentVerificationService
             )
             && (! array_key_exists('document_metadata', $result)
                 || $this->hasValidDocumentMetadata($result['document_metadata']))
+            && (! array_key_exists('ocr_fields', $result)
+                || $this->hasValidOcrFields($result['ocr_fields']))
             && (! array_key_exists('verification_mark', $result['analysis'])
                 || $this->hasValidVerificationMark($result['analysis']['verification_mark']))
             && (! isset($result['analysis']['manipulation']['method'])
@@ -139,6 +143,20 @@ class DocumentVerificationService
             && collect($mark['types'])->every(fn (mixed $type): bool => in_array($type, ['stamp', 'signature'], true))
             && is_bool($mark['requires_manual_review'] ?? null)
             && array_key_exists('reason', $mark);
+    }
+
+    private function hasValidOcrFields(mixed $fields): bool
+    {
+        return is_array($fields)
+            && collect($fields)->every(fn (mixed $field): bool => is_array($field)
+                && array_key_exists('value', $field)
+                && is_numeric($field['confidence'] ?? null)
+                && $field['confidence'] >= 0 && $field['confidence'] <= 1
+                && in_array($field['status'] ?? null, ['auto', 'review', 'manual_required'], true)
+                && array_key_exists('source_text', $field)
+                && ($field['source_text'] === null || is_string($field['source_text']))
+                && is_string($field['message'] ?? null)
+                && (($field['status'] ?? null) !== 'manual_required' || $field['value'] === null));
     }
 
     private function hasValidEla(mixed $ela): bool

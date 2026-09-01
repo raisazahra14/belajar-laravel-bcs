@@ -48,6 +48,7 @@ class BarangCodeGenerator
                 return $maximum;
             }
             $number = (int) $matches[1];
+
             return $number >= 1 && $number <= self::MAX_PRODUCTION_NUMBER
                 ? max($maximum, $number)
                 : $maximum;

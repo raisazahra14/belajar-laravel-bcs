@@ -18,7 +18,7 @@ return [
                 ? base_path('python/.venv/Scripts/python.exe')
                 : 'python',
         ),
-        'timeout' => (int) env('DOCUMENT_CHECKER_TIMEOUT', 120),
+        'timeout' => (int) env('DOCUMENT_CHECKER_TIMEOUT', 240),
     ],
 
     /*

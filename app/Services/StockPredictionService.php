@@ -57,6 +57,7 @@ class StockPredictionService
             if (! is_array($result) || ! $this->hasValidResult($result)) {
                 Log::error('Hasil batch prediksi tidak valid.', ['barang_id' => $item['barang']->id]);
                 $failed++;
+
                 continue;
             }
 
@@ -73,8 +74,7 @@ class StockPredictionService
         $transactions = $relationLoaded
             ? $barang->stokTransactions
             : $barang->stokTransactions()->where('jenis', 'keluar')
-            ->oldest('created_at')->oldest('id')->get(['id', 'jumlah', 'created_at'])
-        ;
+                ->oldest('created_at')->oldest('id')->get(['id', 'jumlah', 'created_at']);
         $history = $transactions
             ->map(fn ($row) => ['id' => $row->id, 'quantity' => $row->jumlah, 'date' => $row->created_at->toIso8601String()])->all();
 
@@ -121,6 +121,7 @@ class StockPredictionService
                     'stock_prediction_id' => $prediction->id, 'barang_id' => $barang->id, 'status' => $prediction->status,
                 ]);
             }
+
             return $prediction;
         });
     }
@@ -160,7 +161,9 @@ class StockPredictionService
         ]);
         $process->setInput(json_encode($payload, JSON_THROW_ON_ERROR));
         $process->setTimeout($timeout);
-        try { $process->run(); } catch (ProcessTimedOutException $e) {
+        try {
+            $process->run();
+        } catch (ProcessTimedOutException $e) {
             throw new StockPredictionException('Analisis melewati batas waktu. Silakan coba kembali.', 0, $e);
         }
         if (! $process->isSuccessful()) {
@@ -170,21 +173,27 @@ class StockPredictionService
             ]);
             throw new StockPredictionException('Layanan prediksi gagal memproses data. Silakan coba kembali.');
         }
-        try { $result = json_decode($process->getOutput(), true, 512, JSON_THROW_ON_ERROR); }
-        catch (JsonException $e) { throw new StockPredictionException('Respons layanan prediksi tidak valid.', 0, $e); }
+        try {
+            $result = json_decode($process->getOutput(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            throw new StockPredictionException('Respons layanan prediksi tidak valid.', 0, $e);
+        }
         if (array_is_list($payload)) {
             return $result;
         }
         if (! $this->hasValidResult($result)) {
             throw new StockPredictionException('Respons layanan prediksi tidak lengkap.');
         }
+
         return $result;
     }
 
     private function hasValidResult(array $result): bool
     {
-        foreach (['predicted_30_day_need','predicted_minimum_date','predicted_depletion_date','safety_stock','recommended_restock','status','method','analysis_status','metrics'] as $key) {
-            if (! array_key_exists($key, $result)) return false;
+        foreach (['predicted_30_day_need', 'predicted_minimum_date', 'predicted_depletion_date', 'safety_stock', 'recommended_restock', 'status', 'method', 'analysis_status', 'metrics'] as $key) {
+            if (! array_key_exists($key, $result)) {
+                return false;
+            }
         }
 
         return is_string($result['method']) && $result['method'] !== ''

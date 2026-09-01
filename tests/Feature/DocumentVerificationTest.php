@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProcessDocumentVerification;
 use App\Models\DocumentVerification;
 use App\Models\User;
 use App\Services\DocumentVerificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Tests\TestCase;
@@ -59,7 +61,7 @@ class DocumentVerificationTest extends TestCase
         ]);
 
         $verification = DocumentVerification::firstOrFail();
-        $response->assertRedirect(route('verifications.show', $verification));
+        $response->assertRedirect(route('verifications.processing', $verification));
         $this->assertSame($user->id, $verification->user_id);
         $this->assertSame('asli', $verification->status);
         $this->assertSame(76, $verification->overall_score);
@@ -87,9 +89,7 @@ class DocumentVerificationTest extends TestCase
         ]);
 
         $verification = DocumentVerification::firstOrFail();
-        $response->assertRedirect(route('verifications.show', $verification))
-            ->assertSessionHasErrors('document');
-        $this->assertStringNotContainsString('Traceback', session('errors')->first('document'));
+        $response->assertRedirect(route('verifications.processing', $verification));
         $this->assertSame('gagal_diproses', $verification->status);
         $this->assertSame(0, $verification->overall_score);
         $this->assertSame(
@@ -179,8 +179,91 @@ class DocumentVerificationTest extends TestCase
         ]);
 
         $verification = DocumentVerification::firstOrFail();
-        $response->assertRedirect(route('verifications.show', $verification));
+        $response->assertRedirect(route('verifications.processing', $verification));
         Storage::disk('local')->assertExists($verification->file_path);
+    }
+
+    public function test_upload_is_queued_once_and_processing_status_is_accessible_to_owner(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $user = User::factory()->create(['role' => 'staff']);
+
+        $upload = fn () => $this->actingAs($user)->post(route('verifications.store'), [
+            'document_type' => 'invoice',
+            'document' => UploadedFile::fake()->createWithContent('invoice-antrean.pdf', 'same-document-content'),
+        ]);
+
+        $first = $upload();
+        $verification = DocumentVerification::firstOrFail();
+        $first->assertRedirect(route('verifications.processing', $verification));
+        $this->assertSame('menunggu', $verification->status);
+        Queue::assertPushed(ProcessDocumentVerification::class, 1);
+
+        $upload()->assertRedirect(route('verifications.processing', $verification));
+        $this->assertDatabaseCount('document_verifications', 1);
+        Queue::assertPushed(ProcessDocumentVerification::class, 1);
+
+        $this->actingAs($user)->get(route('verifications.processing', $verification))
+            ->assertOk()->assertSee('Dokumen menunggu antrean');
+        $this->actingAs($user)->getJson(route('verifications.status', $verification))
+            ->assertOk()->assertJson(['state' => 'waiting', 'result_url' => null]);
+    }
+
+    public function test_processing_status_stops_at_completed_or_failed_and_retry_is_queued(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $user = User::factory()->create(['role' => 'staff']);
+        $completed = DocumentVerification::create($this->historyData($user, 'selesai.pdf'));
+        $failed = DocumentVerification::create([
+            ...$this->historyData($user, 'gagal.pdf'),
+            'status' => 'gagal_diproses',
+            'file_path' => 'document-verifications/'.$user->id.'/gagal.pdf',
+            'error_message' => 'Dokumen belum dapat dianalisis.',
+        ]);
+        Storage::disk('local')->put($failed->file_path, 'document');
+
+        $this->actingAs($user)->getJson(route('verifications.status', $completed))
+            ->assertOk()->assertJson(['state' => 'completed', 'result_url' => route('verifications.show', $completed)]);
+        $this->actingAs($user)->getJson(route('verifications.status', $failed))
+            ->assertOk()->assertJson(['state' => 'failed', 'retry_url' => route('verifications.retry', $failed)]);
+
+        $this->actingAs($user)->post(route('verifications.retry', $failed))
+            ->assertRedirect(route('verifications.processing', $failed));
+        $this->assertSame('menunggu', $failed->fresh()->status);
+        Queue::assertPushed(ProcessDocumentVerification::class, 1);
+    }
+
+    public function test_failed_processing_page_offers_retry_without_fake_percentage(): void
+    {
+        $user = User::factory()->create(['role' => 'staff']);
+        $verification = DocumentVerification::create([
+            ...$this->historyData($user, 'ocr-gagal.pdf'),
+            'status' => 'gagal_diproses',
+            'error_message' => 'Dokumen tidak dapat diproses. Pastikan file dapat dibaca, lalu coba lagi.',
+        ]);
+
+        $this->actingAs($user)->get(route('verifications.processing', $verification))
+            ->assertOk()
+            ->assertSee('Dokumen belum berhasil dianalisis')
+            ->assertSee('Coba Lagi')
+            ->assertSee(route('verifications.retry', $verification), false)
+            ->assertDontSee('100%');
+    }
+
+    public function test_other_user_cannot_read_processing_status_or_retry(): void
+    {
+        $owner = User::factory()->create(['role' => 'staff']);
+        $other = User::factory()->create(['role' => 'staff']);
+        $verification = DocumentVerification::create([
+            ...$this->historyData($owner, 'private-queue.pdf'),
+            'status' => 'gagal_diproses',
+        ]);
+
+        $this->actingAs($other)->get(route('verifications.processing', $verification))->assertForbidden();
+        $this->actingAs($other)->getJson(route('verifications.status', $verification))->assertForbidden();
+        $this->actingAs($other)->post(route('verifications.retry', $verification))->assertForbidden();
     }
 
     public function test_upload_validates_document_type_and_file_format(): void
@@ -387,7 +470,9 @@ class DocumentVerificationTest extends TestCase
         ];
         $this->mock(DocumentVerificationService::class)->shouldReceive('verify')->once()->andReturn($result);
 
-        $this->actingAs($owner)->post(route('verifications.reprocess', $verification))->assertRedirect();
+        $this->actingAs($owner)->post(route('verifications.reprocess', $verification), [
+            'replace_manual' => '1',
+        ])->assertRedirect();
 
         $verification->refresh();
         $this->assertSame('OCR-SJ-100', $verification->document_number);
@@ -555,6 +640,72 @@ class DocumentVerificationTest extends TestCase
         ]])->actingAs($owner)->get(route('verifications.show', $verification))->assertOk()
             ->assertSee('value="INV-OLD"', false)
             ->assertSee('value="Vendor Old"', false);
+    }
+
+    public function test_structured_ocr_fields_populate_form_with_status_and_source(): void
+    {
+        $owner = User::factory()->create(['role' => 'staff']);
+        $verification = DocumentVerification::create([
+            ...$this->historyData($owner, 'structured-invoice.pdf'),
+            'document_type' => 'invoice',
+            'document_number' => null,
+            'document_date' => null,
+            'extracted_metadata' => null,
+            'analysis_details' => [
+                'ocr_fields' => [
+                    'invoice_number' => [
+                        'value' => 'INV-2026-009', 'confidence' => 0.94, 'status' => 'auto',
+                        'source_text' => 'No. Invoice: INV-2026-009', 'message' => 'Terisi otomatis dari label OCR.',
+                    ],
+                    'invoice_date' => [
+                        'value' => '2026-08-27', 'confidence' => 0.71, 'status' => 'review',
+                        'source_text' => 'Tanggal: 27 Agustus 2026', 'message' => 'Nilai OCR perlu diperiksa pengguna.',
+                    ],
+                    'dpp' => [
+                        'value' => null, 'confidence' => 0.0, 'status' => 'manual_required',
+                        'source_text' => 'DPP: -', 'message' => "Dokumen menampilkan tanda '-' sehingga nilai wajib diisi manual.",
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->actingAs($owner)->get(route('verifications.show', $verification))
+            ->assertOk()
+            ->assertSee('Data Dokumen Hasil OCR')
+            ->assertSee('value="INV-2026-009"', false)
+            ->assertSee('value="2026-08-27"', false)
+            ->assertSee('Confidence 94%')
+            ->assertSee('Perlu diperiksa')
+            ->assertSee('Tidak tercantum / Input manual');
+    }
+
+    public function test_reprocess_without_explicit_confirmation_preserves_manual_correction(): void
+    {
+        Storage::fake('local');
+        $owner = User::factory()->create(['role' => 'staff']);
+        $verification = DocumentVerification::create([
+            ...$this->historyData($owner, 'manual-preserved.pdf'),
+            'document_type' => 'invoice',
+            'document_number' => 'INV-MANUAL',
+            'sender' => 'Vendor Manual',
+            'extracted_metadata' => ['vendor' => 'Vendor Manual', 'dpp' => 900000],
+            'ocr_corrected_at' => now(),
+            'ocr_corrected_by' => $owner->id,
+        ]);
+        Storage::disk('local')->put($verification->file_path, 'PDF content');
+        $result = $this->verificationResult();
+        $result['specialized_metadata'] = ['vendor' => 'Vendor OCR', 'dpp' => 100000];
+        $result['analysis']['metadata'] = ['fields' => $result['specialized_metadata']];
+        $this->mock(DocumentVerificationService::class)->shouldReceive('verify')->once()->andReturn($result);
+
+        $this->actingAs($owner)->post(route('verifications.reprocess', $verification))->assertRedirect();
+
+        $verification->refresh();
+        $this->assertSame('INV-MANUAL', $verification->document_number);
+        $this->assertSame('Vendor Manual', $verification->extracted_metadata['vendor']);
+        $this->assertSame(900000, $verification->extracted_metadata['dpp']);
+        $this->assertNotNull($verification->ocr_corrected_at);
+        $this->assertSame('Vendor OCR', data_get($verification->analysis_details, 'metadata.fields.vendor'));
     }
 
     private function verificationResult(): array

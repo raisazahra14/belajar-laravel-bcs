@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DocumentVerification extends Model
 {
@@ -56,5 +57,10 @@ class DocumentVerification extends Model
     public function ocrCorrector(): BelongsTo
     {
         return $this->belongsTo(User::class, 'ocr_corrected_by');
+    }
+
+    public function audits(): HasMany
+    {
+        return $this->hasMany(DocumentVerificationAudit::class)->oldest();
     }
 }

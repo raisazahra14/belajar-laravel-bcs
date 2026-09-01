@@ -5,13 +5,12 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreBarangRequest;
 use App\Http\Requests\UpdateBarangRequest;
 use App\Models\Barang;
-use App\Models\StokTransaction;
 use App\Models\StockPrediction;
-use App\Services\StockPredictionService;
-use App\Exceptions\StockPredictionException;
+use App\Models\StokTransaction;
 use App\Services\BarangCodeGenerator;
-use Illuminate\Support\Facades\DB;
+use App\Services\StockPredictionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -103,7 +102,9 @@ class BarangController extends Controller
         try {
             $codeGenerator->create([...$request->safe()->except('foto_barang'), 'foto_barang' => $path]);
         } catch (RuntimeException $exception) {
-            if ($path) Storage::disk('public')->delete($path);
+            if ($path) {
+                Storage::disk('public')->delete($path);
+            }
             throw ValidationException::withMessages(['nama_barang' => $exception->getMessage()]);
         }
 
@@ -141,7 +142,9 @@ class BarangController extends Controller
             'foto_barang' => $newPhoto ?? $oldPhoto,
         ]);
 
-        if ($newPhoto && $oldPhoto) Storage::disk('public')->delete($oldPhoto);
+        if ($newPhoto && $oldPhoto) {
+            Storage::disk('public')->delete($oldPhoto);
+        }
 
         return redirect('/barang')
             ->with('success', 'Data barang berhasil diperbarui.');
@@ -191,6 +194,7 @@ class BarangController extends Controller
             $barang->save();
             StokTransaction::create(['barang_id' => $barang->id, 'jenis' => $request->jenis,
                 'jumlah' => $request->jumlah, 'keterangan' => $request->keterangan]);
+
             return $barang;
         });
 
@@ -198,6 +202,7 @@ class BarangController extends Controller
             $predictionService->analyze($barang->fresh(), $request->user());
         } catch (\Throwable $exception) {
             report($exception);
+
             return redirect('/barang/'.$barang->id)->with('warning',
                 'Stok berhasil diperbarui, tetapi analisis prediksi gagal diperbarui. Hasil terakhir mungkin sudah tidak terbaru.');
         }

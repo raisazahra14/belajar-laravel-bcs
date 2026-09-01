@@ -7,9 +7,10 @@ use App\Http\Controllers\BarangReportController;
 use App\Http\Controllers\BarangTrashController;
 use App\Http\Controllers\DocumentToolController;
 use App\Http\Controllers\DocumentVerificationController;
-use App\Http\Controllers\UserController;
+use App\Http\Controllers\DocumentVerificationNotificationController;
 use App\Http\Controllers\StockPredictionController;
 use App\Http\Controllers\StockPredictionNotificationController;
+use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/barang');
@@ -24,6 +25,9 @@ Route::post('/logout', [AuthController::class, 'destroy'])->middleware('auth');
 Route::middleware('auth')->group(function () {
     Route::get('/verifications', [DocumentVerificationController::class, 'index'])->name('verifications.index');
     Route::post('/verifications', [DocumentVerificationController::class, 'store'])->name('verifications.store');
+    Route::get('/verifications/{documentVerification}/processing', [DocumentVerificationController::class, 'processing'])->name('verifications.processing');
+    Route::get('/verifications/{documentVerification}/status', [DocumentVerificationController::class, 'status'])->name('verifications.status');
+    Route::post('/verifications/{documentVerification}/retry', [DocumentVerificationController::class, 'retry'])->name('verifications.retry');
     Route::get('/verifications/{documentVerification}', [DocumentVerificationController::class, 'show'])->name('verifications.show');
     Route::get('/verifications/{documentVerification}/download', [DocumentVerificationController::class, 'download'])->name('verifications.download');
     Route::post('/verifications/{documentVerification}/reprocess', [DocumentVerificationController::class, 'reprocess'])->name('verifications.reprocess');
@@ -42,6 +46,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/prediksi-stok/{stockPrediction}/approve', [StockPredictionController::class, 'approve'])->name('stock-predictions.approve');
     Route::patch('/notifikasi-prediksi/read-all', [StockPredictionNotificationController::class, 'readAll'])->name('prediction-notifications.read-all');
     Route::patch('/notifikasi-prediksi/{notification}/read', [StockPredictionNotificationController::class, 'read'])->whereNumber('notification')->name('prediction-notifications.read');
+    Route::get('/notifikasi-ocr', [DocumentVerificationNotificationController::class, 'index'])->name('ocr-notifications.index');
+    Route::get('/notifikasi-ocr/{notification}', [DocumentVerificationNotificationController::class, 'open'])->name('ocr-notifications.open');
+    Route::patch('/notifikasi-ocr/{notification}/read', [DocumentVerificationNotificationController::class, 'read'])->name('ocr-notifications.read');
+    Route::patch('/notifikasi-ocr/read-all', [DocumentVerificationNotificationController::class, 'readAll'])->name('ocr-notifications.read-all');
 
     Route::middleware('role:admin')->group(function () {
         Route::get('/document-tools', [DocumentToolController::class, 'index'])->name('document-tools.index');

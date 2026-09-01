@@ -50,6 +50,25 @@ class BarangImportTest extends TestCase
         $this->assertDatabaseHas('barang', ['kode_barang' => 'BRG172', 'stok' => 3, 'lokasi' => 'Rak B']);
     }
 
+    public function test_successful_import_exposes_structured_created_updated_and_failed_summary(): void
+    {
+        Barang::create(['kode_barang' => 'BRG200', 'nama_barang' => 'Barang Lama', 'kategori' => 'ATK', 'stok' => 4, 'satuan' => 'Pcs', 'lokasi' => 'Rak Lama']);
+
+        $response = $this->actingAs($this->admin())->post(route('barang.import.store'), [
+            'spreadsheet' => $this->xlsx([
+                ['BRG-000201', 'Barang Baru', 'ATK', 8, 'Pcs', 'Rak Baru'],
+                ['BRG200', 'Barang Diperbarui', 'ATK', 9, 'Pcs', 'Rak Update'],
+            ]),
+        ]);
+
+        $response->assertRedirect(route('barang.index'))->assertSessionHas('import_summary', [
+            'total' => 2,
+            'created' => 1,
+            'updated' => 1,
+            'failed' => 0,
+        ]);
+    }
+
     public function test_duplicate_codes_are_rejected_without_partial_writes(): void
     {
         $file = $this->xlsx([

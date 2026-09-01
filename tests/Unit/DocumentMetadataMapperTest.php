@@ -78,4 +78,13 @@ class DocumentMetadataMapperTest extends TestCase
         $this->assertNull($mapped['vehicle_number']);
         $this->assertNull($mapped['recipient']);
     }
+
+    public function test_invoice_delivery_cost_new_name_maps_to_legacy_form_field(): void
+    {
+        $mapped = (new DocumentMetadataMapper)->map('invoice', [], [
+            'delivery_cost' => 0,
+        ]);
+
+        $this->assertSame(0, $mapped['delivery_fee']);
+    }
 }

@@ -400,6 +400,7 @@ app/
 ├── Http/Middleware/        Middleware role
 ├── Http/Requests/          Otorisasi dan validasi upload/metadata
 ├── Imports/                Validasi dan upsert baris Barang
+├── Jobs/                   Pekerjaan OCR melalui antrean Laravel
 ├── Models/                 Model Eloquent domain
 ├── Providers/              Gate dan konfigurasi pagination
 └── Services/               Spreadsheet, PDF, dan proses Python
@@ -420,11 +421,21 @@ tests/Unit/                 Pengujian kontrak/service
 
 1. `VerifyDocumentRequest` menerima tipe dokumen dan file maksimal 10 MB.
 2. `DocumentVerificationController` menyimpan file pada disk `local`.
-3. `DocumentVerificationService` membangun command dari executable pada `PYTHON_EXECUTABLE`, path `python/document_checker.py`, file, dan `--document-type`.
-4. Symfony Process menjalankan command dengan timeout `DOCUMENT_CHECKER_TIMEOUT`.
-5. Python memvalidasi file, mengekstrak teks, menjalankan OCR bila perlu, menghitung skor, lalu mencetak JSON ASCII-safe.
-6. Laravel memvalidasi kontrak JSON sebelum menyimpan `DocumentVerification` dan metadata OCR.
-7. Timeout, kegagalan proses, atau kontrak tidak valid disimpan sebagai `gagal_diproses` beserta `error_message`.
+3. Controller membuat riwayat berstatus `menunggu`, mencegah upload ganda dalam jeda singkat, lalu mengirim `ProcessDocumentVerification` ke antrean.
+4. Queue worker mengubah status menjadi `sedang_dianalisis` dan menjalankan `DocumentVerificationService`.
+5. Symfony Process menjalankan Python dengan timeout `DOCUMENT_CHECKER_TIMEOUT`.
+6. Python memvalidasi file, mengekstrak teks, menjalankan OCR bila perlu, menghitung skor, lalu mencetak JSON ASCII-safe.
+7. Laravel memvalidasi kontrak JSON dan menyimpan hasil melalui `DocumentVerificationResultWriter`.
+8. Halaman status melakukan polling ringan sampai proses selesai atau gagal. Tanpa JavaScript, status tetap tersedia setelah halaman dimuat ulang.
+9. Timeout, kegagalan proses, atau kontrak tidak valid disimpan sebagai `gagal_diproses` beserta pesan aman.
+
+Jalankan queue worker bersama aplikasi agar pekerjaan OCR diproses. Batas worker dibuat lebih panjang daripada batas proses Python agar dokumen besar tidak diambil oleh dua worker:
+
+```bash
+php artisan queue:work database --queue=default --sleep=1 --tries=1 --timeout=300
+```
+
+Perintah `composer run dev` juga menjalankan listener antrean. Pada Windows/XAMPP, worker dapat dijalankan otomatis melalui Task Scheduler dengan executable PHP, argument di atas, dan `Start in` yang menunjuk direktori root proyek.
 
 ### Cara kerja import spreadsheet
 
@@ -455,6 +466,22 @@ Dependency Python aktual berada di `python/requirements.txt`:
 - `scikit-learn`: model regresi linear untuk prediksi kebutuhan stok ketika riwayat transaksi mencukupi.
 
 Proyek menggunakan `PyMuPDF`, bukan `pypdf`, untuk pemrosesan PDF. Paket `pytesseract` hanya merupakan penghubung; program **Tesseract OCR tetap harus dipasang terpisah** pada sistem operasi. Engine memilih bahasa `ind+eng` ketika kedua data bahasa tersedia dan menggunakan salah satunya jika hanya satu yang terpasang.
+
+Versi dependency yang digunakan proyek dapat dipasang sekaligus dengan:
+
+```powershell
+python -m pip install -r python\requirements.txt
+```
+
+Saat dijalankan dari root proyek, engine verifikasi dapat diuji langsung tanpa Laravel:
+
+```powershell
+python python\document_checker.py "C:\path\ke\invoice.pdf" --document-type invoice
+python python\document_checker.py "C:\path\ke\surat-jalan.jpg" --document-type surat_jalan
+python python\document_checker.py "C:\path\ke\bukti.png" --document-type bukti_fisik
+```
+
+Engine menulis satu objek JSON ke standard output. Laravel membaca output tersebut melalui Symfony Process. Jangan menambahkan teks debug biasa ke standard output; gunakan logging yang aman agar kontrak JSON tidak rusak.
 
 ### Kemampuan engine verifikasi dokumen
 
@@ -610,6 +637,7 @@ Test wajib Modul 7 tersedia pada:
 
 - `tests/Feature/DocumentVerificationTest.php`: upload, validasi, otorisasi, penyimpanan hasil Python, proses ulang OCR, pemetaan/koreksi metadata, dan tampilan status hasil verifikasi.
 - `tests/Feature/BarangImportTest.php`: download template, import barang baru, update barang lama, validasi per baris, penolakan duplikat, file invalid, serta pembatasan akses.
+- `tests/Feature/DocumentVerificationAuditNotificationTest.php`: notifikasi OCR berhasil/gagal, idempotensi retry, authorization, mark as read, audit koreksi, dan kompatibilitas riwayat lama.
 - `python/tests/test_document_checker.py`: kontrak JSON, OCR dan ekstraksi metadata, analisis ELA, serta deteksi cap/tanda tangan.
 
 Automated test memakai fixture atau mock. Pengujian manual dengan dokumen simulasi tetap disarankan untuk menilai kualitas OCR pada scan, tulisan tangan, dan template eksternal yang bervariasi.

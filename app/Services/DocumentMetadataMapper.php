@@ -12,8 +12,10 @@ class DocumentMetadataMapper
     {
         $analysis = $this->asArray($verification->analysis_details);
         $document = $this->asArray(data_get($analysis, 'document_metadata'));
+        $coordinateFields = $this->fieldValues($this->asArray(data_get($analysis, 'ocr_fields')));
         $specialized = array_replace(
             $this->asArray(data_get($analysis, 'metadata.fields')),
+            $coordinateFields,
             $verification->ocr_corrected_at ? [] : $this->asArray($verification->extracted_metadata),
         );
 
@@ -60,7 +62,7 @@ class DocumentMetadataMapper
         $mapped = match ($documentType) {
             'invoice' => [
                 'invoice_number' => $specialized['invoice_number'] ?? $document['document_number'] ?? null,
-                'invoice_date' => $document['document_date'] ?? null,
+                'invoice_date' => $specialized['invoice_date'] ?? $document['document_date'] ?? null,
                 'vendor' => $specialized['vendor'] ?? $document['sender'] ?? null,
                 'customer' => $specialized['customer'] ?? $document['recipient'] ?? null,
                 'npwp' => $specialized['npwp'] ?? null,
@@ -70,7 +72,7 @@ class DocumentMetadataMapper
                 'project_code' => $specialized['project_code'] ?? null,
                 'subtotal' => $specialized['subtotal'] ?? null,
                 'discount' => $specialized['discount'] ?? null,
-                'delivery_fee' => $specialized['delivery_fee'] ?? null,
+                'delivery_fee' => $specialized['delivery_fee'] ?? $specialized['delivery_cost'] ?? null,
                 'dpp' => $specialized['dpp'] ?? null,
                 'tax' => $specialized['tax'] ?? null,
                 'down_payment' => $specialized['down_payment'] ?? null,
@@ -128,6 +130,19 @@ class DocumentMetadataMapper
         }
 
         return [];
+    }
+
+    /** @param array<string, mixed> $fields */
+    private function fieldValues(array $fields): array
+    {
+        $values = [];
+        foreach ($fields as $field => $details) {
+            if (is_array($details) && array_key_exists('value', $details) && $details['value'] !== null) {
+                $values[$field] = $details['value'];
+            }
+        }
+
+        return $values;
     }
 
     private function validReference(mixed $value): ?string
