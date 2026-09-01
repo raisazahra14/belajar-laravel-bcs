@@ -29,6 +29,7 @@ class DocumentVerification extends Model
         'ocr_corrected_by',
         'message',
         'analysis_details',
+        'extracted_metadata',
         'error_message',
     ];
 
@@ -36,6 +37,7 @@ class DocumentVerification extends Model
     {
         return [
             'analysis_details' => 'array',
+            'extracted_metadata' => 'array',
             'readability_score' => 'integer',
             'completeness_score' => 'integer',
             'authenticity_score' => 'integer',

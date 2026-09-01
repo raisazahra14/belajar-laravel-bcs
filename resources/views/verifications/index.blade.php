@@ -9,7 +9,7 @@
         @csrf
         <div class="col-md-4"><label class="form-label" for="document_type">Jenis dokumen</label><select class="form-select" id="document_type" name="document_type" required><option value="surat_jalan">Surat Jalan</option><option value="invoice">Invoice</option><option value="bukti_fisik">Bukti Fisik</option></select></div>
         <div class="col-md-5"><label class="form-label" for="document">PDF atau gambar</label><input class="form-control" id="document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required></div>
-        <div class="col-md-3"><button class="btn btn-primary w-100" type="submit"><i class="icon-check me-1"></i>Verifikasi Dokumen</button></div>
+        <div class="col-md-3"><button class="btn btn-primary w-100" type="submit"><i class="ti-check" aria-hidden="true"></i>Verifikasi Dokumen</button></div>
     </form>
 </div></div>
 <div class="card"><div class="card-body"><h4 class="card-title">Riwayat Verifikasi</h4><div class="table-responsive"><table class="table table-hover"><thead><tr><th>Waktu</th><th>Nama file</th><th>Jenis</th><th>Status</th><th>Skor</th><th></th></tr></thead><tbody>

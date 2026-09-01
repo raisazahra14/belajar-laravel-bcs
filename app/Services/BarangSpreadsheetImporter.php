@@ -2,25 +2,37 @@
 
 namespace App\Services;
 
-use App\Models\Barang;
+use App\Imports\BarangImport;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
-use PhpOffice\PhpSpreadsheet\IOFactory;
+use Maatwebsite\Excel\Facades\Excel;
+use Throwable;
 
 class BarangSpreadsheetImporter
 {
-    private const COLUMNS = ['kode_barang', 'nama_barang', 'kategori', 'stok', 'satuan', 'lokasi'];
-
-    public function import(UploadedFile $file): array
+    public function import(UploadedFile $file, ?BarangImport $import = null): array
     {
-        $rows = IOFactory::load($file->getRealPath())->getActiveSheet()->toArray(null, true, true, false);
+        $handler = $import ?? new BarangImport;
+
+        try {
+            $rows = Excel::toArray($handler, $file)[0] ?? [];
+        } catch (Throwable $exception) {
+            Log::warning('Barang spreadsheet could not be read.', [
+                'exception' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
+            throw ValidationException::withMessages([
+                'spreadsheet' => 'File tidak dapat dibaca. Pastikan file tidak rusak dan formatnya XLSX, XLS, atau CSV.',
+            ]);
+        }
+
         if ($rows === []) {
             throw ValidationException::withMessages(['spreadsheet' => 'Spreadsheet tidak berisi data.']);
         }
 
         $headers = array_map(fn ($value) => $this->normalizeHeader((string) $value), array_shift($rows));
-        $missing = array_diff(self::COLUMNS, $headers);
+        $missing = array_diff(BarangImport::COLUMNS, $headers);
         if ($missing !== []) {
             throw ValidationException::withMessages([
                 'spreadsheet' => 'Kolom wajib tidak ditemukan: '.implode(', ', $missing).'.',
@@ -29,47 +41,19 @@ class BarangSpreadsheetImporter
 
         $indexes = array_flip($headers);
         $prepared = [];
-        $errors = [];
         foreach ($rows as $offset => $row) {
             if (count(array_filter($row, fn ($value) => $value !== null && $value !== '')) === 0) {
                 continue;
             }
 
-            $line = $offset + 2;
             $item = [];
-            foreach (self::COLUMNS as $column) {
-                $item[$column] = trim((string) ($row[$indexes[$column]] ?? ''));
+            foreach (BarangImport::COLUMNS as $column) {
+                $item[$column] = $row[$indexes[$column]] ?? '';
             }
-
-            if ($item['kode_barang'] === '' || $item['nama_barang'] === '' || $item['kategori'] === '' ||
-                $item['satuan'] === '' || $item['lokasi'] === '' || filter_var($item['stok'], FILTER_VALIDATE_INT) === false ||
-                (int) $item['stok'] < 0) {
-                $errors[] = "Baris {$line} tidak lengkap atau stok bukan bilangan bulat non-negatif.";
-
-                continue;
-            }
-            $item['stok'] = (int) $item['stok'];
-            $prepared[] = $item;
+            $prepared[$offset + 2] = $item;
         }
 
-        if ($errors !== []) {
-            throw ValidationException::withMessages(['spreadsheet' => $errors]);
-        }
-        if ($prepared === []) {
-            throw ValidationException::withMessages(['spreadsheet' => 'Spreadsheet tidak memiliki baris data yang dapat diimpor.']);
-        }
-
-        $created = 0;
-        $updated = 0;
-        DB::transaction(function () use ($prepared, &$created, &$updated): void {
-            foreach ($prepared as $item) {
-                $barang = Barang::firstOrNew(['kode_barang' => $item['kode_barang']]);
-                $barang->exists ? $updated++ : $created++;
-                $barang->fill($item)->save();
-            }
-        });
-
-        return compact('created', 'updated');
+        return $handler->import($prepared);
     }
 
     private function normalizeHeader(string $header): string

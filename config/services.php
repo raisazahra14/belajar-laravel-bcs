@@ -2,6 +2,15 @@
 
 return [
 
+    'stock_prediction' => [
+        'python_executable' => env('PYTHON_EXECUTABLE', 'python'),
+        'timeout' => (int) env('STOCK_PREDICTION_TIMEOUT', 30),
+        'batch_timeout' => (int) env('STOCK_PREDICTION_BATCH_TIMEOUT', 120),
+        'minimum_history_days' => (int) env('STOCK_PREDICTION_MINIMUM_HISTORY_DAYS', 30),
+        'minimum_out_transaction_days' => (int) env('STOCK_PREDICTION_MINIMUM_OUT_DAYS', 5),
+        'forecast_horizon_days' => (int) env('STOCK_PREDICTION_HORIZON_DAYS', 30),
+    ],
+
     'document_checker' => [
         'python_executable' => env(
             'PYTHON_EXECUTABLE',

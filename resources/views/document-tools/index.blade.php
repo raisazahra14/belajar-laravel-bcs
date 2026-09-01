@@ -14,7 +14,7 @@
             <form method="POST" action="{{ route('document-tools.import') }}" enctype="multipart/form-data">
                 @csrf
                 <div class="mb-3"><label class="form-label" for="spreadsheet">Spreadsheet XLSX atau CSV</label><input class="form-control" id="spreadsheet" name="spreadsheet" type="file" accept=".xlsx,.csv" required></div>
-                <button class="btn btn-primary" type="submit"><i class="icon-upload me-1"></i>Import</button>
+                <button class="btn btn-primary" type="submit"><i class="ti-upload" aria-hidden="true"></i>Import</button>
             </form>
             <p class="text-muted mt-3 mb-0">Header: kode_barang, nama_barang, kategori, stok, satuan, lokasi.</p>
         </div></div>

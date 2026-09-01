@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('stok_transactions', function (Blueprint $table) {
             $table->id();
 
-            $table->integer('barang_id');
+            $table->unsignedBigInteger('barang_id');
 
             $table->foreign('barang_id')
                 ->references('id')

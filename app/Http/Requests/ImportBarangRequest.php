@@ -14,7 +14,16 @@ class ImportBarangRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'spreadsheet' => ['required', 'file', 'mimes:xlsx,csv,txt', 'max:5120'],
+            'spreadsheet' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:5120'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'spreadsheet.required' => 'Pilih file Excel yang akan diimpor.',
+            'spreadsheet.mimes' => 'File harus berformat XLSX, XLS, atau CSV.',
+            'spreadsheet.max' => 'Ukuran file maksimal 5 MB.',
         ];
     }
 }

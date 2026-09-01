@@ -14,14 +14,14 @@ class DocumentToolsTest extends TestCase
     public function test_admin_can_import_csv_inventory(): void
     {
         $user = User::factory()->make(['id' => 1, 'role' => 'admin']);
-        $csv = "kode_barang,nama_barang,kategori,stok,satuan,lokasi\nBRG-01,Kabel,Jaringan,12,Pcs,Rak A\n";
+        $csv = "kode_barang,nama_barang,kategori,stok,satuan,lokasi\nBRG-900001,[TEST] Kabel LAN,Jaringan,12,Pcs,Rak A\n";
 
         $response = $this->actingAs($user)->post(route('document-tools.import'), [
             'spreadsheet' => UploadedFile::fake()->createWithContent('barang.csv', $csv),
         ]);
 
         $response->assertRedirect()->assertSessionHas('success');
-        $this->assertDatabaseHas('barang', ['kode_barang' => 'BRG-01', 'stok' => 12]);
+        $this->assertDatabaseHas('barang', ['kode_barang' => 'BRG-900001', 'stok' => 12]);
     }
 
     public function test_import_rejects_missing_required_columns(): void
