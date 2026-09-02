@@ -45,7 +45,7 @@ class BarangImportTest extends TestCase
 
         $response = $this->actingAs($this->admin())->post(route('barang.import.store'), ['spreadsheet' => $file]);
 
-        $response->assertRedirect(route('barang.index'))->assertSessionHas('success', 'Berhasil mengimpor 2 data barang');
+        $response->assertRedirect(route('barang.index'))->assertSessionHas('success', 'Berhasil mengimpor 2 data barang. Prediksi barang yang berubah dijadwalkan.');
         $this->assertDatabaseHas('barang', ['kode_barang' => 'BRG-000123', 'nama_barang' => 'Router Baru', 'satuan' => 'Unit']);
         $this->assertDatabaseHas('barang', ['kode_barang' => 'BRG172', 'stok' => 3, 'lokasi' => 'Rak B']);
     }

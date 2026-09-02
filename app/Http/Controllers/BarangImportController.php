@@ -6,7 +6,7 @@ use App\Http\Requests\ImportBarangRequest;
 use App\Imports\BarangImport;
 use App\Models\Barang;
 use App\Services\BarangSpreadsheetImporter;
-use App\Services\StockPredictionService;
+use App\Services\StockPredictionScheduler;
 use Illuminate\Http\RedirectResponse;
 use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -67,22 +67,13 @@ class BarangImportController extends Controller
         ]);
     }
 
-    public function store(ImportBarangRequest $request, BarangSpreadsheetImporter $importer, StockPredictionService $predictions): RedirectResponse
+    public function store(ImportBarangRequest $request, BarangSpreadsheetImporter $importer, StockPredictionScheduler $scheduler): RedirectResponse
     {
         $result = $importer->import($request->file('spreadsheet'));
-
-        try {
-            $predictions->analyzeAll($request->user());
-        } catch (\Throwable $exception) {
-            report($exception);
-
-            return redirect()->route('barang.index')
-                ->with('import_summary', [...$result, 'failed' => 0])
-                ->with('warning', "Berhasil mengimpor {$result['total']} data barang, tetapi analisis prediksi gagal diperbarui.");
-        }
+        $scheduler->scheduleAll($request->user());
 
         return redirect()->route('barang.index')
             ->with('import_summary', [...$result, 'failed' => 0])
-            ->with('success', "Berhasil mengimpor {$result['total']} data barang");
+            ->with('success', "Berhasil mengimpor {$result['total']} data barang. Prediksi barang yang berubah dijadwalkan.");
     }
 }

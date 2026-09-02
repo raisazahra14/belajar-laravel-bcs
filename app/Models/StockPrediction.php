@@ -44,4 +44,9 @@ class StockPrediction extends Model
     {
         return $this->hasMany(StockPredictionNotification::class);
     }
+
+    public function process()
+    {
+        return $this->hasOne(StockPredictionProcess::class);
+    }
 }

@@ -11,6 +11,8 @@ class BarangCodeGenerator
 {
     public const MAX_PRODUCTION_NUMBER = 899999;
 
+    public function __construct(private StockAdjustmentService $stock) {}
+
     public function preview(): string
     {
         return $this->nextCode(false);
@@ -21,7 +23,11 @@ class BarangCodeGenerator
         for ($attempt = 0; $attempt < 3; $attempt++) {
             try {
                 return DB::transaction(function () use ($attributes): Barang {
-                    return Barang::create(['kode_barang' => $this->nextCode(true), ...$attributes]);
+                    $initialStock = (int) ($attributes['stok'] ?? 0);
+                    unset($attributes['stok']);
+                    $barang = Barang::create(['kode_barang' => $this->nextCode(true), 'stok' => 0, ...$attributes]);
+
+                    return $this->stock->setTarget($barang, $initialStock, 'Saldo awal barang');
                 });
             } catch (QueryException $exception) {
                 if (! $this->isDuplicateKey($exception)) {

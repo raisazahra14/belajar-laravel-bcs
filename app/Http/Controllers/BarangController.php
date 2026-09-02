@@ -6,11 +6,9 @@ use App\Http\Requests\StoreBarangRequest;
 use App\Http\Requests\UpdateBarangRequest;
 use App\Models\Barang;
 use App\Models\StockPrediction;
-use App\Models\StokTransaction;
 use App\Services\BarangCodeGenerator;
-use App\Services\StockPredictionService;
+use App\Services\StockAdjustmentService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -136,7 +134,8 @@ class BarangController extends Controller
         $barang->update([
             'nama_barang' => $request->nama_barang,
             'kategori' => $request->kategori,
-            'stok' => $request->stok,
+            'daily_usage_estimate' => $request->validated('daily_usage_estimate'),
+            'lead_time_days' => $request->validated('lead_time_days'),
             'satuan' => $request->satuan,
             'lokasi' => $request->lokasi,
             'foto_barang' => $newPhoto ?? $oldPhoto,
@@ -175,8 +174,11 @@ class BarangController extends Controller
         return view('barang.stok', compact('barang'));
     }
 
-    public function updateStok(Request $request, $id, StockPredictionService $predictionService)
-    {
+    public function updateStok(
+        Request $request,
+        $id,
+        StockAdjustmentService $stock,
+    ) {
         $this->authorize('update-stock');
 
         $request->validate([
@@ -185,30 +187,15 @@ class BarangController extends Controller
             'keterangan' => 'nullable|string',
         ]);
 
-        $barang = DB::transaction(function () use ($request, $id) {
-            $barang = Barang::lockForUpdate()->findOrFail($id);
-            if ($request->jenis === 'keluar' && $request->jumlah > $barang->stok) {
-                abort(422, 'Stok tidak mencukupi.');
-            }
-            $barang->stok = $request->jenis === 'masuk' ? $barang->stok + $request->jumlah : $barang->stok - $request->jumlah;
-            $barang->save();
-            StokTransaction::create(['barang_id' => $barang->id, 'jenis' => $request->jenis,
-                'jumlah' => $request->jumlah, 'keterangan' => $request->keterangan]);
-
-            return $barang;
-        });
-
-        try {
-            $predictionService->analyze($barang->fresh(), $request->user());
-        } catch (\Throwable $exception) {
-            report($exception);
-
-            return redirect('/barang/'.$barang->id)->with('warning',
-                'Stok berhasil diperbarui, tetapi analisis prediksi gagal diperbarui. Hasil terakhir mungkin sudah tidak terbaru.');
-        }
+        $barang = $stock->adjust(
+            Barang::findOrFail($id),
+            $request->string('jenis')->toString(),
+            $request->integer('jumlah'),
+            $request->string('keterangan')->toString() ?: null,
+        );
 
         return redirect('/barang/'.$barang->id)
-            ->with('success', 'Stok berhasil diperbarui.');
+            ->with('success', 'Stok berhasil diperbarui. Analisis prediksi dijadwalkan.');
     }
 
     public function riwayatStok($id)

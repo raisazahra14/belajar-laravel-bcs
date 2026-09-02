@@ -7,6 +7,7 @@ use App\Models\Barang;
 use App\Models\StockPrediction;
 use App\Models\StockPredictionNotification;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use JsonException;
@@ -15,57 +16,28 @@ use Symfony\Component\Process\Process;
 
 class StockPredictionService
 {
-    public function analyze(Barang $barang, ?User $user = null): StockPrediction
+    public function analyze(Barang $barang, ?User $user = null, ?int $processGeneration = null): StockPrediction
     {
+        if ($processGeneration !== null && $existing = StockPrediction::where('barang_id', $barang->id)
+            ->where('process_generation', $processGeneration)->first()) {
+            return $existing;
+        }
+
         [$payload, $history] = $this->payloadFor($barang);
 
         try {
             $result = $this->runPython($payload);
         } catch (\Throwable $exception) {
-            $this->handlePythonFailure($exception, $barang->id);
+            $result = $this->fallbackResult($payload, $exception);
         }
 
-        return $this->storePrediction($barang, $user, $result, $history);
+        return $this->storePrediction($barang, $user, $result, $history, $processGeneration);
     }
 
-    /** @return array{success: int, failed: int} */
+    /** @return array{scheduled: int, skipped: int, failed: int} */
     public function analyzeAll(?User $user = null): array
     {
-        $items = Barang::query()->with(['stokTransactions' => fn ($query) => $query
-            ->where('jenis', 'keluar')->oldest('created_at')->oldest('id')])->orderBy('id')->get();
-
-        if ($items->isEmpty()) {
-            return ['success' => 0, 'failed' => 0];
-        }
-
-        $prepared = $items->mapWithKeys(function (Barang $barang): array {
-            [$payload, $history] = $this->payloadFor($barang, true);
-
-            return [$barang->id => compact('barang', 'payload', 'history')];
-        });
-
-        try {
-            $results = $this->runPythonBatch($prepared->pluck('payload')->values()->all());
-        } catch (\Throwable $exception) {
-            $this->handlePythonFailure($exception, null);
-        }
-
-        $success = 0;
-        $failed = 0;
-        foreach ($prepared->values() as $index => $item) {
-            $result = $results[$index] ?? null;
-            if (! is_array($result) || ! $this->hasValidResult($result)) {
-                Log::error('Hasil batch prediksi tidak valid.', ['barang_id' => $item['barang']->id]);
-                $failed++;
-
-                continue;
-            }
-
-            $this->storePrediction($item['barang'], $user, $result, $item['history']);
-            $success++;
-        }
-
-        return compact('success', 'failed');
+        return app(StockPredictionScheduler::class)->scheduleAll($user);
     }
 
     /** @return array{0: array<string, mixed>, 1: array<int, array<string, mixed>>} */
@@ -79,7 +51,9 @@ class StockPredictionService
             ->map(fn ($row) => ['id' => $row->id, 'quantity' => $row->jumlah, 'date' => $row->created_at->toIso8601String()])->all();
 
         $payload = ['item' => ['id' => $barang->id, 'current_stock' => $barang->stok,
-            'minimum_stock' => Barang::MINIMUM_STOCK], 'out_transactions' => $history,
+            'minimum_stock' => Barang::MINIMUM_STOCK,
+            'daily_usage_estimate' => $barang->daily_usage_estimate !== null ? (float) $barang->daily_usage_estimate : null,
+            'lead_time_days' => $barang->lead_time_days], 'out_transactions' => $history,
             'forecast_days' => config('services.stock_prediction.forecast_horizon_days', 30),
             'minimum_history_days' => config('services.stock_prediction.minimum_history_days', 30),
             'minimum_out_transaction_days' => config('services.stock_prediction.minimum_out_transaction_days', 5)];
@@ -87,12 +61,13 @@ class StockPredictionService
         return [$payload, $history];
     }
 
-    private function storePrediction(Barang $barang, ?User $user, array $result, array $history): StockPrediction
+    private function storePrediction(Barang $barang, ?User $user, array $result, array $history, ?int $processGeneration = null): StockPrediction
     {
-        return DB::transaction(function () use ($barang, $user, $result, $history): StockPrediction {
+        return DB::transaction(function () use ($barang, $user, $result, $history, $processGeneration): StockPrediction {
             $previous = StockPrediction::where('barang_id', $barang->id)->latest('analyzed_at')->latest('id')->first();
             $prediction = StockPrediction::create([
-                'barang_id' => $barang->id, 'analyzed_by' => $user?->exists ? $user->id : null, 'current_stock' => $barang->stok,
+                'barang_id' => $barang->id, 'analyzed_by' => $user?->exists ? $user->id : null,
+                'process_generation' => $processGeneration, 'current_stock' => $barang->stok,
                 'predicted_30_day_need' => $result['predicted_30_day_need'],
                 'predicted_minimum_date' => $result['predicted_minimum_date'],
                 'predicted_depletion_date' => $result['predicted_depletion_date'],
@@ -110,6 +85,8 @@ class StockPredictionService
                     'reason' => $result['reason'] ?? $result['message'] ?? null,
                     'requires_review' => (bool) ($result['requires_review'] ?? false),
                     'anomaly_reason' => $result['anomaly_reason'] ?? null,
+                    'fallback_used' => (bool) ($result['fallback_used'] ?? false),
+                    'missing_inputs' => $result['missing_inputs'] ?? [],
                     'last_out_transaction_id' => end($history)['id'] ?? null,
                 ],
                 'analyzed_at' => now(),
@@ -117,36 +94,30 @@ class StockPredictionService
 
             if (in_array($prediction->status, [StockPrediction::STATUS_RESTOCK, StockPrediction::STATUS_URGENT], true)
                 && $previous?->status !== $prediction->status) {
-                StockPredictionNotification::firstOrCreate([
+                $notification = StockPredictionNotification::firstOrCreate([
                     'stock_prediction_id' => $prediction->id, 'barang_id' => $barang->id, 'status' => $prediction->status,
                 ]);
+                $now = now();
+                $notification->receipts()->upsert(
+                    User::query()->pluck('id')->map(fn ($userId): array => [
+                        'stock_prediction_notification_id' => $notification->id,
+                        'user_id' => (int) $userId,
+                        'read_at' => null,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ])->all(),
+                    ['stock_prediction_notification_id', 'user_id'],
+                    [],
+                );
             }
 
             return $prediction;
         });
     }
 
-    private function handlePythonFailure(\Throwable $exception, ?int $barangId): never
-    {
-        Log::error('Prediksi stok Python gagal.', ['barang_id' => $barangId, 'exception' => $exception]);
-        throw $exception instanceof StockPredictionException ? $exception
-            : new StockPredictionException('Layanan prediksi sedang tidak tersedia. Data stok Anda tidak berubah.', 0, $exception);
-    }
-
     protected function runPython(array $payload): array
     {
         return $this->runProcess($payload, (float) config('services.stock_prediction.timeout', 30));
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    protected function runPythonBatch(array $payloads): array
-    {
-        $results = $this->runProcess($payloads, (float) config('services.stock_prediction.batch_timeout', 120));
-        if (! array_is_list($results) || count($results) !== count($payloads)) {
-            throw new StockPredictionException('Respons batch layanan prediksi tidak lengkap.');
-        }
-
-        return $results;
     }
 
     private function runProcess(array $payload, float $timeout): array
@@ -158,6 +129,8 @@ class StockPredictionService
             'SYSTEMROOT' => $windowsDirectory,
             'WINDIR' => $windowsDirectory,
             'PYTHONHASHSEED' => '0',
+            'PYTHONUNBUFFERED' => '1',
+            'PYTHONIOENCODING' => 'utf-8',
         ]);
         $process->setInput(json_encode($payload, JSON_THROW_ON_ERROR));
         $process->setTimeout($timeout);
@@ -173,16 +146,27 @@ class StockPredictionService
             ]);
             throw new StockPredictionException('Layanan prediksi gagal memproses data. Silakan coba kembali.');
         }
-        try {
-            $result = json_decode($process->getOutput(), true, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException $e) {
-            throw new StockPredictionException('Respons layanan prediksi tidak valid.', 0, $e);
-        }
+        $result = $this->decodeResult($process->getOutput());
         if (array_is_list($payload)) {
             return $result;
         }
         if (! $this->hasValidResult($result)) {
             throw new StockPredictionException('Respons layanan prediksi tidak lengkap.');
+        }
+
+        return $result;
+    }
+
+    protected function decodeResult(string $output): array
+    {
+        try {
+            $result = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            throw new StockPredictionException('Respons layanan prediksi tidak valid.', 0, $e);
+        }
+
+        if (! is_array($result)) {
+            throw new StockPredictionException('Respons layanan prediksi harus berupa objek atau daftar JSON.');
         }
 
         return $result;
@@ -198,5 +182,98 @@ class StockPredictionService
 
         return is_string($result['method']) && $result['method'] !== ''
             && in_array($result['status'], ['Aman', 'Waspada', 'Perlu Restock', 'Mendesak', 'Perlu Ditinjau'], true);
+    }
+
+    private function fallbackResult(array $payload, \Throwable $exception): array
+    {
+        Log::warning('Prediksi stok Python gagal; fallback lokal digunakan.', [
+            'barang_id' => data_get($payload, 'item.id'),
+            'exception' => $exception,
+        ]);
+
+        $item = $payload['item'];
+        $stock = max(0, (int) $item['current_stock']);
+        $minimum = max(0, (int) ($item['minimum_stock'] ?? Barang::MINIMUM_STOCK));
+        $horizon = max(1, (int) ($payload['forecast_days'] ?? 30));
+        $todayDate = today();
+        $rows = collect($payload['out_transactions'] ?? [])->filter(function (array $row) use ($todayDate): bool {
+            try {
+                return (float) ($row['quantity'] ?? 0) > 0
+                    && Carbon::parse($row['date'])->startOfDay()->lte($todayDate);
+            } catch (\Throwable) {
+                return false;
+            }
+        })->unique('id')->sortBy('date')->values();
+
+        $count = $rows->count();
+        $firstDate = $rows->isNotEmpty() ? Carbon::parse($rows->first()['date'])->startOfDay() : null;
+        $historyDays = $firstDate ? $firstDate->diffInDays($todayDate) + 1 : 0;
+        $outDays = $rows->groupBy(fn (array $row) => Carbon::parse($row['date'])->toDateString())->count();
+        $estimate = is_numeric($item['daily_usage_estimate'] ?? null) ? (float) $item['daily_usage_estimate'] : null;
+        $leadTime = is_numeric($item['lead_time_days'] ?? null) ? (int) $item['lead_time_days'] : null;
+        $minimumHistory = max(1, (int) ($payload['minimum_history_days'] ?? 30));
+        $minimumOutDays = max(1, (int) ($payload['minimum_out_transaction_days'] ?? 5));
+        $missing = [];
+
+        if ($count === 0) {
+            if (! $estimate || $estimate <= 0) {
+                $missing[] = 'estimasi pemakaian harian';
+            }
+            if (! $leadTime || $leadTime <= 0) {
+                $missing[] = 'lead time';
+            }
+            $dailyRate = $missing === [] ? $estimate : null;
+            $method = 'cold_start';
+            $confidence = $dailyRate ? 0.35 : null;
+            $reason = $dailyRate
+                ? 'Belum ada transaksi OUT; estimasi manual digunakan.'
+                : 'Lengkapi '.implode(' dan ', $missing).' untuk menghitung prediksi Cold Start.';
+        } else {
+            $dailyRate = $historyDays > 0 ? $rows->sum('quantity') / $historyDays : null;
+            $enough = $historyDays >= $minimumHistory && $outDays >= $minimumOutDays;
+            $method = 'simple_average';
+            $confidence = round(min(0.6, 0.25 + 0.35 * min($historyDays / $minimumHistory, 1)), 2);
+            $reason = $enough
+                ? 'Engine ML tidak tersedia; fallback rata-rata pemakaian harian digunakan.'
+                : 'Histori belum cukup untuk ML; rata-rata pemakaian harian digunakan.';
+        }
+
+        $available = $dailyRate !== null && $dailyRate > 0;
+        $demand = $available ? round($dailyRate * $horizon, 2) : null;
+        $safety = $available ? max($minimum, (int) ceil($dailyRate * ($leadTime ?: 7))) : null;
+        $restock = $available ? max((int) ceil($demand + $safety - $stock), 0) : 0;
+        $depletion = $available ? $todayDate->copy()->addDays((int) ceil($stock / $dailyRate))->toDateString() : null;
+        $minimumDate = $available && $stock > $safety
+            ? $todayDate->copy()->addDays((int) ceil(($stock - $safety) / $dailyRate))->toDateString()
+            : null;
+
+        return [
+            'barang_id' => $item['id'] ?? null,
+            'current_stock' => $stock,
+            'prediction_available' => $available,
+            'predicted_30_day_need' => $demand,
+            'demand_30_days' => $demand,
+            'predicted_minimum_date' => $minimumDate,
+            'predicted_depletion_date' => $depletion,
+            'safety_stock' => $safety,
+            'recommended_restock' => $restock,
+            'status' => ! $available ? StockPrediction::STATUS_REVIEW
+                : ($stock < $safety ? StockPrediction::STATUS_URGENT
+                    : ($restock > 0 ? StockPrediction::STATUS_RESTOCK : StockPrediction::STATUS_SAFE)),
+            'method' => $method,
+            'confidence' => $confidence,
+            'out_transaction_count' => $count,
+            'out_transaction_days' => $outDays,
+            'history_days' => $historyDays,
+            'reason' => $reason,
+            'analysis_status' => $available ? 'completed_with_fallback' : 'missing_input',
+            'message' => $reason,
+            'metrics' => $available ? ['daily_demand' => round($dailyRate, 4), 'calendar_days' => $historyDays] : null,
+            'requires_review' => ! $available,
+            'anomaly_reason' => null,
+            'analyzed_at' => now()->toIso8601String(),
+            'fallback_used' => true,
+            'missing_inputs' => $missing,
+        ];
     }
 }

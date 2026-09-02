@@ -3,6 +3,7 @@
 namespace App\Imports;
 
 use App\Models\Barang;
+use App\Services\StockAdjustmentService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -13,6 +14,8 @@ use Maatwebsite\Excel\Concerns\ToArray;
 class BarangImport implements ToArray
 {
     public const COLUMNS = ['kode_barang', 'nama_barang', 'kategori', 'stok', 'satuan', 'lokasi'];
+
+    public function __construct(private StockAdjustmentService $stock) {}
 
     /**
      * Maatwebsite calls this concern while converting a workbook to arrays.
@@ -104,11 +107,15 @@ class BarangImport implements ToArray
             DB::transaction(function () use ($prepared, &$created, &$updated): void {
                 foreach ($prepared as $item) {
                     $existingId = $item['_existing_id'];
-                    unset($item['_existing_id']);
+                    $targetStock = (int) $item['stok'];
+                    unset($item['_existing_id'], $item['stok']);
                     $barang = $existingId ? Barang::lockForUpdate()->findOrFail($existingId) : new Barang;
                     $existingId ? $updated++ : $created++;
-                    // fill() deliberately replaces the existing stock with the Excel value.
+                    if (! $existingId) {
+                        $item['stok'] = 0;
+                    }
                     $barang->fill($item)->save();
+                    $this->stock->setTarget($barang, $targetStock, 'Penyesuaian melalui import Excel');
                 }
             });
         } catch (QueryException $exception) {

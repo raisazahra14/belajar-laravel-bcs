@@ -19,10 +19,10 @@
         </div>
         <div class="navbar-menu-wrapper d-flex align-items-center justify-content-end">
             <button class="navbar-toggler align-self-center" type="button" data-toggle="minimize" aria-label="Perkecil sidebar"><span class="ti-menu"></span></button>
-            @php($totalUnreadNotifications = $unreadPredictions->count() + $unreadOcrCount)
+            @php($totalUnreadNotifications = $unreadPredictionCount + $unreadOcrCount)
             <div class="dropdown notification-menu">
                 <button class="notification-trigger" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Notifikasi aplikasi"><i class="ti-bell"></i><span id="notification-count" class="notification-dot" @if($totalUnreadNotifications === 0) hidden @endif>{{ $totalUnreadNotifications }}</span></button>
-                <div class="dropdown-menu dropdown-menu-end prediction-notifications app-notifications" id="app-notifications" data-endpoint="{{ route('ocr-notifications.index') }}" data-prediction-unread="{{ $unreadPredictions->count() }}">
+                <div class="dropdown-menu dropdown-menu-end prediction-notifications app-notifications" id="app-notifications" data-endpoint="{{ route('ocr-notifications.index') }}" data-prediction-unread="{{ $unreadPredictionCount }}">
                     <div class="dropdown-header d-flex justify-content-between align-items-center"><strong>Notifikasi OCR</strong>@if($unreadOcrCount > 0)<form method="POST" action="{{ route('ocr-notifications.read-all') }}">@csrf @method('PATCH')<button class="btn-link border-0 bg-transparent p-0" type="submit">Tandai semua dibaca</button></form>@endif</div>
                     <div id="ocr-notification-list">
                         @forelse($ocrNotifications as $notification)
@@ -105,7 +105,8 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch(menu.dataset.endpoint, {headers: {'Accept': 'application/json'}, credentials: 'same-origin'})
             .then(function (response) { if (!response.ok) throw new Error('Notifikasi tidak tersedia'); return response.json(); })
             .then(render)
-            .catch(function () {});
+            .catch(function () {})
+            .finally(function () { document.dispatchEvent(new CustomEvent('app:poll')); });
     };
     window.setInterval(poll, 15000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });

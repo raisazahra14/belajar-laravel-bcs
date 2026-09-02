@@ -39,10 +39,20 @@ class Barang extends Model
         'nama_barang',
         'kategori',
         'stok',
+        'daily_usage_estimate',
+        'lead_time_days',
         'satuan',
         'lokasi',
         'foto_barang',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'daily_usage_estimate' => 'decimal:2',
+            'lead_time_days' => 'integer',
+        ];
+    }
 
     protected static function booted(): void
     {
@@ -66,6 +76,11 @@ class Barang extends Model
     public function latestStockPrediction()
     {
         return $this->hasOne(StockPrediction::class)->latestOfMany('analyzed_at');
+    }
+
+    public function stockPredictionProcess()
+    {
+        return $this->hasOne(StockPredictionProcess::class);
     }
 
     public function illustrationPosition(): string

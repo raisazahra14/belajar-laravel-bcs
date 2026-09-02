@@ -435,6 +435,14 @@ Jalankan queue worker bersama aplikasi agar pekerjaan OCR diproses. Batas worker
 php artisan queue:work database --queue=default --sleep=1 --tries=1 --timeout=300
 ```
 
+Prediksi stok diproses pada antrean khusus agar transaksi stok dan import tidak menunggu Python. Jalankan worker berikut bersama aplikasi:
+
+```bash
+php artisan queue:work database --queue=stock-predictions --sleep=1 --tries=3 --timeout=60
+```
+
+Batas proses Python adalah 30 detik, batas job 60 detik, dan `DB_QUEUE_RETRY_AFTER` 360 detik. Urutan ini mencegah job yang masih berjalan diambil worker lain. Restart worker setelah deployment dengan `php artisan queue:restart`.
+
 Perintah `composer run dev` juga menjalankan listener antrean. Pada Windows/XAMPP, worker dapat dijalankan otomatis melalui Task Scheduler dengan executable PHP, argument di atas, dan `Start in` yang menunjuk direktori root proyek.
 
 ### Cara kerja import spreadsheet

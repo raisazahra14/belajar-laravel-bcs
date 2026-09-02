@@ -13,7 +13,7 @@ class BarangSpreadsheetImporter
 {
     public function import(UploadedFile $file, ?BarangImport $import = null): array
     {
-        $handler = $import ?? new BarangImport;
+        $handler = $import ?? app(BarangImport::class);
 
         try {
             $rows = Excel::toArray($handler, $file)[0] ?? [];

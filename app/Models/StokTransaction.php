@@ -10,6 +10,8 @@ class StokTransaction extends Model
         'barang_id',
         'jenis',
         'jumlah',
+        'stok_sebelum',
+        'stok_sesudah',
         'keterangan',
     ];
 

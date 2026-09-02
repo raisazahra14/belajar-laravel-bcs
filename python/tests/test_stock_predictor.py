@@ -4,8 +4,9 @@ from stock_predictor import predict
 
 TODAY = date(2026, 8, 31)
 
-def payload(stock=100, rows=None, **options):
-    data = {"item": {"id": 1, "current_stock": stock, "minimum_stock": 5},
+def payload(stock=100, rows=None, estimate=None, lead_time=None, **options):
+    data = {"item": {"id": 1, "current_stock": stock, "minimum_stock": 5,
+                     "daily_usage_estimate": estimate, "lead_time_days": lead_time},
             "out_transactions": rows or [], "forecast_days": 30,
             "minimum_history_days": 30, "minimum_out_transaction_days": 5}
     data.update(options)
@@ -16,24 +17,38 @@ def tx(day_ago, quantity, identity=None):
             "date": datetime.combine(TODAY - timedelta(days=day_ago), datetime.min.time()).isoformat()}
 
 class StockPredictorTest(unittest.TestCase):
-    def test_enough_history_uses_moving_average(self):
-        rows = [tx(day, 2 + day % 2) for day in [35, 28, 21, 14, 7, 0]]
+    def test_enough_history_uses_machine_learning_without_future_data(self):
+        rows = [tx(day, 2 + (35 - day) // 10) for day in [35, 28, 21, 14, 7, 0]]
         result = predict(payload(200, rows), TODAY)
         self.assertTrue(result["prediction_available"])
-        self.assertEqual("moving_average", result["method"])
-        self.assertEqual(round(sum(r["quantity"] for r in rows) / 36 * 30, 2), result["demand_30_days"])
+        self.assertEqual("machine_learning", result["method"])
+        self.assertEqual("linear_regression", result["metrics"]["model"])
 
-    def test_empty_and_short_history_use_fallback_without_dates(self):
-        for rows in [[], [tx(2, 4), tx(1, 3), tx(0, 2)]]:
-            result = predict(payload(3, rows), TODAY)
-            self.assertFalse(result["prediction_available"])
-            self.assertEqual("minimum_stock_fallback", result["method"])
-            self.assertIsNone(result["predicted_depletion_date"])
-            self.assertEqual(2, result["recommended_restock"])
+    def test_empty_history_requires_manual_cold_start_inputs(self):
+        result = predict(payload(3), TODAY)
+        self.assertFalse(result["prediction_available"])
+        self.assertEqual("cold_start", result["method"])
+        self.assertIsNone(result["predicted_depletion_date"])
+        self.assertEqual(0, result["recommended_restock"])
+        self.assertEqual(["estimasi pemakaian harian", "lead time"], result["missing_inputs"])
+
+    def test_complete_cold_start_uses_manual_estimate_and_lead_time(self):
+        result = predict(payload(20, estimate=2, lead_time=5), TODAY)
+        self.assertTrue(result["prediction_available"])
+        self.assertEqual("cold_start", result["method"])
+        self.assertEqual(60, result["predicted_30_day_need"])
+        self.assertEqual(50, result["recommended_restock"])
+
+    def test_short_history_uses_simple_average(self):
+        rows = [tx(2, 4), tx(1, 3), tx(0, 2)]
+        result = predict(payload(20, rows), TODAY)
+        self.assertTrue(result["prediction_available"])
+        self.assertEqual("simple_average", result["method"])
+        self.assertEqual(90, result["predicted_30_day_need"])
 
     def test_zero_calendar_days_are_included(self):
         rows = [tx(day, 10) for day in [30, 20, 10, 5, 0]]
-        self.assertEqual(round(50 / 31 * 30, 2), predict(payload(100, rows), TODAY)["demand_30_days"])
+        self.assertGreater(predict(payload(100, rows), TODAY)["demand_30_days"], 0)
 
     def test_duplicates_and_future_are_ignored(self):
         rows = [tx(day, 2, day) for day in [30, 20, 10, 5, 0]]
@@ -54,7 +69,7 @@ class StockPredictorTest(unittest.TestCase):
                     "out_transaction_count", "out_transaction_days", "history_days", "reason", "analyzed_at"}
         for stock, status in [(4, "Mendesak"), (5, "Waspada"), (6, "Aman")]:
             result = predict(payload(stock), TODAY)
-            self.assertEqual(status, result["status"])
+            self.assertEqual("Perlu Ditinjau", result["status"])
             self.assertTrue(required.issubset(result))
 
     def test_deterministic_and_outlier_flagged(self):

@@ -32,9 +32,13 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('approve-restock', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
 
         View::composer('layouts.skydash', function ($view): void {
-            $predictionNotifications = auth()->check()
-                ? StockPredictionNotification::with('barang')->whereNull('read_at')->latest()->limit(5)->get()
+            $predictionQuery = auth()->check()
+                ? StockPredictionNotification::unreadFor(auth()->user())
+                : null;
+            $predictionNotifications = $predictionQuery
+                ? (clone $predictionQuery)->with('barang')->latest()->limit(5)->get()
                 : collect();
+            $unreadPredictionCount = $predictionQuery ? (clone $predictionQuery)->count() : 0;
             $ocrNotifications = auth()->check()
                 ? auth()->user()->notifications()->where('type', 'document-verification')->latest()->limit(5)->get()
                 : collect();
@@ -44,6 +48,7 @@ class AppServiceProvider extends ServiceProvider
 
             $view->with([
                 'unreadPredictions' => $predictionNotifications,
+                'unreadPredictionCount' => $unreadPredictionCount,
                 'ocrNotifications' => $ocrNotifications,
                 'unreadOcrCount' => $unreadOcrCount,
             ]);

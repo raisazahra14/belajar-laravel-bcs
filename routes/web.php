@@ -41,6 +41,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/barang/{id}/stok', [BarangController::class, 'stok'])->name('barang.stok');
     Route::post('/barang/{id}/stok', [BarangController::class, 'updateStok']);
     Route::get('/prediksi-stok', [StockPredictionController::class, 'index'])->name('stock-predictions.index');
+    Route::get('/prediksi-stok/processes', [StockPredictionController::class, 'processes'])->name('stock-predictions.processes');
     Route::post('/prediksi-stok/analyze-all', [StockPredictionController::class, 'analyzeAll'])->name('stock-predictions.analyze-all');
     Route::post('/prediksi-stok/barang/{barang}', [StockPredictionController::class, 'analyze'])->name('stock-predictions.analyze');
     Route::post('/prediksi-stok/{stockPrediction}/approve', [StockPredictionController::class, 'approve'])->name('stock-predictions.approve');

@@ -6,6 +6,9 @@ class UpdateBarangRequest extends StoreBarangRequest
 {
     public function rules(): array
     {
-        return parent::rules();
+        $rules = parent::rules();
+        unset($rules['stok']);
+
+        return $rules;
     }
 }

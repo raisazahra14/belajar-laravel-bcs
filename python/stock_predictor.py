@@ -69,19 +69,21 @@ def _base_result(
         "predicted_minimum_date": None,
         "predicted_depletion_date": None,
         "safety_stock": minimum,
-        "recommended_restock": max(minimum - stock, 0),
-        "status": _stock_status(stock, minimum),
-        "method": "minimum_stock_fallback",
+        "recommended_restock": 0,
+        "status": "Perlu Ditinjau",
+        "method": "cold_start",
         "confidence": None,
         "out_transaction_count": count,
         "out_transaction_days": out_days,
         "history_days": history_days,
-        "reason": "Riwayat transaksi OUT belum mencukupi",
-        "analysis_status": "insufficient_data",
-        "message": "Riwayat transaksi OUT belum mencukupi",
+        "reason": "Input Cold Start belum lengkap",
+        "analysis_status": "missing_input",
+        "message": "Input Cold Start belum lengkap",
         "metrics": None,
         "requires_review": False,
         "anomaly_reason": None,
+        "missing_inputs": [],
+        "fallback_used": False,
         "analyzed_at": datetime.combine(today, datetime.min.time()).isoformat(),
     }
 
@@ -105,19 +107,57 @@ def predict(payload: dict[str, Any], today: date | None = None) -> dict[str, Any
         nonzero_days,
         history_days,
     )
-    if history_days < minimum_history or nonzero_days < minimum_out_days:
-        result["reason"] = (
-            f"Riwayat hanya {history_days} dari minimal {minimum_history} hari dan "
-            f"{nonzero_days} dari minimal {minimum_out_days} hari transaksi OUT"
+    lead_time = item.get("lead_time_days")
+    lead_time = int(lead_time) if lead_time not in (None, "") else None
+
+    if valid_count == 0:
+        estimate = item.get("daily_usage_estimate")
+        estimate = float(estimate) if estimate not in (None, "") else None
+        missing = []
+        if estimate is None or estimate <= 0:
+            missing.append("estimasi pemakaian harian")
+        if lead_time is None or lead_time <= 0:
+            missing.append("lead time")
+        result["missing_inputs"] = missing
+        if missing:
+            result["reason"] = result["message"] = (
+                "Lengkapi " + " dan ".join(missing) + " untuk menghitung prediksi Cold Start."
+            )
+            return result
+        daily_rate = estimate
+        forecast_values = [daily_rate] * horizon
+        method = "cold_start"
+        confidence = 0.35
+        reason = "Belum ada transaksi OUT; estimasi manual digunakan."
+    elif history_days < minimum_history or nonzero_days < minimum_out_days:
+        daily_rate = sum(usage) / history_days
+        forecast_values = [daily_rate] * horizon
+        method = "simple_average"
+        confidence = round(
+            min(0.6, 0.25 + 0.35 * min(history_days / minimum_history, 1.0)), 2
         )
-        result["message"] = result["reason"]
-        return result
-    daily_rate = sum(usage) / history_days
+        reason = (
+            f"Histori {history_days} hari/{nonzero_days} hari OUT belum cukup untuk ML; "
+            "rata-rata pemakaian harian digunakan."
+        )
+    else:
+        from sklearn.linear_model import LinearRegression  # lazy import: hanya saat histori cukup
+        features = [[index] for index in range(history_days)]
+        model = LinearRegression()
+        model.fit(features, usage)
+        future = [[history_days + index] for index in range(horizon)]
+        forecast_values = [max(0.0, float(value)) for value in model.predict(future)]
+        daily_rate = sum(forecast_values) / horizon
+        score = max(0.0, float(model.score(features, usage)))
+        confidence = round(min(0.95, 0.65 + 0.3 * score), 2)
+        method = "machine_learning"
+        reason = "Regresi tren menggunakan histori OUT hingga waktu analisis."
+
     if daily_rate <= 0:
         result["reason"] = result["message"] = "Permintaan harian bernilai nol"
         return result
-    demand = daily_rate * horizon
-    safety = max(minimum, int(math.ceil(daily_rate * 7)))
+    demand = sum(forecast_values)
+    safety = max(minimum, int(math.ceil(daily_rate * (lead_time or 7))))
     restock = max(int(math.ceil(demand + safety - stock)), 0)
     minimum_date = (
         today + timedelta(days=max(0, math.ceil((stock - safety) / daily_rate)))
@@ -125,14 +165,6 @@ def predict(payload: dict[str, Any], today: date | None = None) -> dict[str, Any
         else None
     )
     depletion_date = today + timedelta(days=max(0, math.ceil(stock / daily_rate)))
-    deviation = statistics.pstdev(usage) if len(usage) > 1 else 0.0
-    stability = max(0.0, 1.0 - min(deviation / daily_rate, 1.0))
-    confidence = round(
-        0.4 * min(history_days / minimum_history, 1.0)
-        + 0.3 * min(nonzero_days / minimum_out_days, 1.0)
-        + 0.3 * stability,
-        2,
-    )
     positive = [value for value in usage if value > 0]
     median = statistics.median(positive) if positive else 0
     outlier = bool(median and max(positive) > median * 5)
@@ -151,16 +183,21 @@ def predict(payload: dict[str, Any], today: date | None = None) -> dict[str, Any
             "status": (
                 "Perlu Ditinjau"
                 if outlier or extreme
-                else _stock_status(stock, safety)
+                else (
+                    "Mendesak"
+                    if stock < safety
+                    else ("Perlu Restock" if restock > 0 else _stock_status(stock, safety))
+                )
             ),
-            "method": "moving_average",
+            "method": method,
             "confidence": confidence,
-            "reason": None,
+            "reason": reason,
             "analysis_status": "completed",
             "message": None,
             "metrics": {
                 "daily_demand": round(daily_rate, 4),
                 "calendar_days": history_days,
+                "model": "linear_regression" if method == "machine_learning" else method,
             },
             "requires_review": outlier or extreme,
             "anomaly_reason": (
