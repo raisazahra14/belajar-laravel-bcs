@@ -449,6 +449,21 @@ class DocumentVerificationTest extends TestCase
         $this->assertSame(64, $verification->fresh()->overall_score);
     }
 
+    public function test_reprocess_with_missing_private_file_returns_not_found_without_changing_result(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create(['role' => 'staff']);
+        $verification = DocumentVerification::create($this->historyData($user, 'missing.pdf'));
+        $before = $verification->only(['status', 'overall_score', 'message', 'analysis_details']);
+        $this->mock(DocumentVerificationService::class)->shouldNotReceive('verify');
+
+        $this->actingAs($user)->post(route('verifications.reprocess', $verification))
+            ->assertNotFound();
+
+        $verification->refresh();
+        $this->assertSame($before, $verification->only(array_keys($before)));
+    }
+
     public function test_successful_reprocess_replaces_old_manual_metadata_after_confirmation(): void
     {
         Storage::fake('local');

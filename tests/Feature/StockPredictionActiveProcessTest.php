@@ -56,7 +56,7 @@ class StockPredictionActiveProcessTest extends TestCase
         StockPrediction::create($this->prediction($barang, 'Aman'));
 
         $response = $this->actingAs($admin)->get(route('stock-predictions.index'))->assertOk()
-            ->assertDontSee('Proses Prediksi Aktif')->assertSee('Barang Belum Diprediksi')->assertSee('Aman');
+            ->assertSee('Tidak ada proses aktif')->assertSee('Barang Belum Diprediksi')->assertSee('Aman');
 
         $response->assertViewHas('activeProcesses', fn ($items): bool => $items->isEmpty());
         $response->assertViewHas('predictions', fn ($items): bool => $items->count() === 1 && $items->first()->status === 'Aman');
@@ -84,6 +84,42 @@ class StockPredictionActiveProcessTest extends TestCase
         $response->assertViewHas('predictions', fn ($items): bool => $items->count() === 1);
         $this->actingAs($admin)->getJson(route('stock-predictions.processes'))
             ->assertJsonCount(1, 'processes');
+    }
+
+    public function test_active_summary_is_counted_sorted_and_limited_to_five_rows(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        foreach (['waiting', 'waiting', 'waiting', 'processing', 'processing', 'failed', 'completed'] as $index => $status) {
+            $barang = Barang::create([
+                'kode_barang' => 'PROCESS-'.($index + 1), 'nama_barang' => 'Proses '.($index + 1),
+                'kategori' => 'ATK', 'stok' => 10, 'satuan' => 'Pcs', 'lokasi' => 'Rak Aktif',
+            ]);
+            $this->process($barang, $status);
+        }
+
+        $response = $this->actingAs($admin)->get(route('stock-predictions.index'))->assertOk()
+            ->assertSee('3</strong> Menunggu', false)
+            ->assertSee('2</strong> Diproses', false)
+            ->assertSee('1</strong> Gagal', false)
+            ->assertSee('id="prediction-process-list" class="prediction-process-list" hidden', false)
+            ->assertSee('Lihat semua (<span>6</span>)', false);
+
+        $response->assertViewHas('activeProcesses', fn ($items): bool => $items->pluck('status')->all() === ['failed', 'processing', 'processing', 'waiting', 'waiting', 'waiting']);
+        $response->assertViewHas('visibleActiveProcesses', fn ($items): bool => $items->count() === 5);
+    }
+
+    public function test_polling_payload_contains_counts_and_safe_presentation_data(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->process($this->barang(), 'failed', 'Traceback C:\\private\\engine.py');
+
+        $this->actingAs($admin)->getJson(route('stock-predictions.processes'))->assertOk()
+            ->assertJsonPath('counts.waiting', 0)
+            ->assertJsonPath('counts.processing', 0)
+            ->assertJsonPath('counts.failed', 1)
+            ->assertJsonPath('processes.0.status_label', 'Gagal')
+            ->assertJsonPath('processes.0.message', 'Analisis belum berhasil. Silakan jadwalkan ulang.')
+            ->assertJsonMissing(['message' => 'Traceback C:\\private\\engine.py']);
     }
 
     private function barang(): Barang

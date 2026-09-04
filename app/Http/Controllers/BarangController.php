@@ -2,61 +2,34 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\DashboardActivityRequest;
+use App\Http\Requests\InventoryFilterRequest;
 use App\Http\Requests\StoreBarangRequest;
 use App\Http\Requests\UpdateBarangRequest;
 use App\Models\Barang;
 use App\Models\StockPrediction;
 use App\Services\BarangCodeGenerator;
+use App\Services\InventoryDashboardService;
 use App\Services\StockAdjustmentService;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Illuminate\View\View;
 use RuntimeException;
 
 class BarangController extends Controller
 {
-    public function index(Request $request)
+    public function index(InventoryFilterRequest $request, InventoryDashboardService $dashboard): View
     {
-        $query = Barang::query();
-
-        // Search
-        if ($request->filled('search')) {
-            $search = $request->search;
-
-            $query->where(function ($q) use ($search) {
-                $q->where('kode_barang', 'like', "%$search%")
-                    ->orWhere('nama_barang', 'like', "%$search%")
-                    ->orWhere('lokasi', 'like', "%$search%");
-            });
-        }
-
-        // Filter kategori
-        if ($request->filled('kategori')) {
-            $query->where('kategori', $request->kategori);
-        }
-
-        // sorting
-        $sort = $request->sort;
-
-        $sorts = [
-            'nama_asc' => ['nama_barang', 'asc'],
-            'nama_desc' => ['nama_barang', 'desc'],
-            'stok_asc' => ['stok', 'asc'],
-            'stok_desc' => ['stok', 'desc'],
-        ];
-
-        if (isset($sorts[$sort])) {
-            $query->orderBy(...$sorts[$sort]);
-        } else {
-            $query->latest('id');
-        }
-        // Pagination
-        $barang = $query->paginate(5)->withQueryString();
+        $filters = $request->safe()->only(['search', 'kategori', 'status', 'sort']);
+        $barang = $this->filteredInventory($filters)->paginate(5)->withQueryString();
         // Statistik
         $totalJenis = Barang::count();
         $totalStok = Barang::sum('stok');
         $totalKategori = Barang::distinct('kategori')->count('kategori');
-        $stokMenipis = Barang::where('stok', '<=', 5)->count();
+        $stokMenipis = Barang::lowStock()->count();
         $latestPredictionIds = StockPrediction::query()->selectRaw('MAX(id)')->groupBy('barang_id');
         $latestPredictions = StockPrediction::with('barang')->whereIn('id', $latestPredictionIds);
         // Setiap kartu harus menghitung status yang sama dengan filter pada tautannya.
@@ -70,14 +43,31 @@ class BarangController extends Controller
             ->orderBy('kategori')
             ->pluck('kategori');
 
+        $stockActivity = $dashboard->activity(7);
+        $attentionItems = $dashboard->attention($request->user());
+
         return view('barang.index', compact(
             'barang',
             'totalJenis',
             'totalStok',
             'totalKategori',
             'stokMenipis',
-            'kategori_options', 'predictedRestockCount', 'urgentPredictionCount', 'predictionWarnings'
+            'kategori_options', 'predictedRestockCount', 'urgentPredictionCount', 'predictionWarnings',
+            'stockActivity', 'attentionItems', 'filters'
         ));
+    }
+
+    public function inventoryResults(InventoryFilterRequest $request): View
+    {
+        $filters = $request->safe()->only(['search', 'kategori', 'status', 'sort']);
+        $barang = $this->filteredInventory($filters)->paginate(5)->withQueryString();
+
+        return view('barang.partials.inventory-results', compact('barang', 'filters'));
+    }
+
+    public function dashboardActivity(DashboardActivityRequest $request, InventoryDashboardService $dashboard): JsonResponse
+    {
+        return response()->json($dashboard->activity($request->integer('period')));
     }
 
     public function create(BarangCodeGenerator $codeGenerator)
@@ -201,18 +191,89 @@ class BarangController extends Controller
     public function riwayatStok($id)
     {
         $barang = Barang::findOrFail($id);
-
+        $validTime = now();
         $transactions = $barang->stokTransactions()
-            ->latest()
-            ->get();
+            ->where('created_at', '<=', $validTime)
+            ->latest('created_at')
+            ->latest('id')
+            ->paginate(20)
+            ->withQueryString();
+        $chartTransactions = $barang->stokTransactions()
+            ->where('created_at', '<=', $validTime)
+            ->latest('created_at')
+            ->latest('id')
+            ->limit(100)
+            ->get()
+            ->sortBy(fn ($transaction) => sprintf('%s-%010d', $transaction->created_at->format('YmdHis.u'), $transaction->id))
+            ->values();
 
-        return view('barang.riwayat-stok', compact('barang', 'transactions'));
+        $chartLabels = [];
+        $chartBalances = [];
+        $chartPointTypes = [];
+        $hasStartingPoint = false;
+        foreach ($chartTransactions as $transaction) {
+            $validSnapshot = $transaction->stok_sebelum !== null
+                && $transaction->stok_sesudah !== null
+                && $transaction->stok_sebelum >= 0
+                && $transaction->stok_sesudah >= 0;
+            $label = $transaction->created_at->copy()->timezone(config('app.display_timezone'))->format('d/m H:i');
+
+            if ($validSnapshot && ! $hasStartingPoint) {
+                $chartLabels[] = $label.' · Saldo awal';
+                $chartBalances[] = (int) $transaction->stok_sebelum;
+                $chartPointTypes[] = 'awal';
+                $hasStartingPoint = true;
+            }
+
+            $chartLabels[] = $label;
+            $chartBalances[] = $validSnapshot ? (int) $transaction->stok_sesudah : null;
+            $chartPointTypes[] = $validSnapshot ? $transaction->jenis : 'legacy';
+        }
+        $historyChart = [
+            'labels' => $chartLabels,
+            'balances' => $chartBalances,
+            'point_types' => $chartPointTypes,
+            'has_snapshots' => collect($chartBalances)->contains(fn ($balance) => $balance !== null),
+            'limit' => 100,
+        ];
+
+        return view('barang.riwayat-stok', compact('barang', 'transactions', 'historyChart'));
     }
 
     public function lowStock()
     {
-        $barang = Barang::where('stok', '<=', 5)->orderBy('stok')->paginate(10);
+        $barang = Barang::lowStock()->orderBy('stok')->paginate(10);
 
         return view('barang.low-stock', compact('barang'));
+    }
+
+    /** @param array<string,mixed> $filters */
+    private function filteredInventory(array $filters): Builder
+    {
+        $query = Barang::query();
+        $search = $filters['search'] ?? null;
+        if ($search !== null && $search !== '') {
+            $query->where(function (Builder $query) use ($search): void {
+                $query->where('kode_barang', 'like', "%{$search}%")
+                    ->orWhere('nama_barang', 'like', "%{$search}%")
+                    ->orWhere('lokasi', 'like', "%{$search}%");
+            });
+        }
+        if (! empty($filters['kategori'])) {
+            $query->where('kategori', $filters['kategori']);
+        }
+        if (($filters['status'] ?? null) === 'menipis') {
+            $query->lowStock();
+        } elseif (($filters['status'] ?? null) === 'aman') {
+            $query->safeStock();
+        }
+
+        $sorts = [
+            'nama_asc' => ['nama_barang', 'asc'], 'nama_desc' => ['nama_barang', 'desc'],
+            'stok_asc' => ['stok', 'asc'], 'stok_desc' => ['stok', 'desc'],
+        ];
+        $sort = $filters['sort'] ?? null;
+
+        return isset($sorts[$sort]) ? $query->orderBy(...$sorts[$sort]) : $query->latest('id');
     }
 }

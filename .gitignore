@@ -37,4 +37,10 @@ python/debug/
 # Temporary files
 *.log
 *.tmp
+*.bak
+*.orig
+* copy.*
 ~$*
+
+# Local recovery data and database snapshots
+/storage/recovery/

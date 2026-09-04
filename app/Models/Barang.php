@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -81,6 +82,21 @@ class Barang extends Model
     public function stockPredictionProcess()
     {
         return $this->hasOne(StockPredictionProcess::class);
+    }
+
+    public function scopeLowStock(Builder $query): Builder
+    {
+        return $query->where('stok', '<=', self::MINIMUM_STOCK);
+    }
+
+    public function scopeSafeStock(Builder $query): Builder
+    {
+        return $query->where('stok', '>', self::MINIMUM_STOCK);
+    }
+
+    public function isLowStock(): bool
+    {
+        return $this->stok <= self::MINIMUM_STOCK;
     }
 
     public function illustrationPosition(): string

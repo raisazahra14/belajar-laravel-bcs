@@ -2,10 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProcessStockPrediction;
 use App\Models\Barang;
+use App\Models\StokTransaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -147,6 +150,110 @@ class BarangImportTest extends TestCase
         $this->actingAs($staff)->post(route('barang.import.store'), ['spreadsheet' => $this->xlsx([])])->assertForbidden();
     }
 
+    public function test_guest_cannot_download_template_or_import_file(): void
+    {
+        $this->get(route('barang.import.template'))->assertRedirect(route('login'));
+        $this->post(route('barang.import.store'), [
+            'spreadsheet' => $this->xlsx([['BRG-000301', 'Barang', 'ATK', 1, 'Pcs', 'Rak A']]),
+        ])->assertRedirect(route('login'));
+
+        $this->assertDatabaseCount('barang', 0);
+    }
+
+    public function test_missing_header_and_corrupted_workbook_are_rejected_without_writes(): void
+    {
+        $missingHeader = $this->xlsxWithHeaders(
+            ['kode_barang', 'nama_barang', 'kategori', 'stok', 'satuan'],
+            [['BRG-000302', 'Barang', 'ATK', 1, 'Pcs']],
+        );
+
+        $this->actingAs($this->admin())->post(route('barang.import.store'), [
+            'spreadsheet' => $missingHeader,
+        ])->assertSessionHasErrors('spreadsheet');
+
+        $corrupted = UploadedFile::fake()->createWithContent('barang.xlsx', 'not-an-excel-workbook');
+        $response = $this->actingAs($this->admin())->post(route('barang.import.store'), [
+            'spreadsheet' => $corrupted,
+        ]);
+
+        $response->assertSessionHasErrors('spreadsheet');
+        $this->assertDatabaseCount('barang', 0);
+    }
+
+    public function test_import_records_stock_differences_and_reupload_is_idempotent(): void
+    {
+        Queue::fake();
+        $existing = Barang::create([
+            'kode_barang' => 'BRG400', 'nama_barang' => 'Lama', 'kategori' => 'ATK',
+            'stok' => 10, 'satuan' => 'Pcs', 'lokasi' => 'Rak Lama',
+        ]);
+        $existingHigher = Barang::create([
+            'kode_barang' => 'BRG401', 'nama_barang' => 'Lama Naik', 'kategori' => 'ATK',
+            'stok' => 3, 'satuan' => 'Pcs', 'lokasi' => 'Rak Lama',
+        ]);
+        $admin = $this->admin();
+        $rows = [
+            ['BRG-000401', 'Barang Baru', 'ATK', 7, 'Pcs', 'Rak Baru'],
+            ['BRG400', 'Barang Existing', 'ATK', 4, 'Pcs', 'Rak Update'],
+            ['BRG401', 'Barang Existing Naik', 'ATK', 8, 'Pcs', 'Rak Update'],
+        ];
+
+        $this->actingAs($admin)->post(route('barang.import.store'), ['spreadsheet' => $this->xlsx($rows)])
+            ->assertRedirect(route('barang.index'));
+
+        $created = Barang::where('kode_barang', 'BRG-000401')->firstOrFail();
+        $this->assertDatabaseHas('stok_transactions', [
+            'barang_id' => $created->id, 'jenis' => 'masuk', 'jumlah' => 7,
+            'stok_sebelum' => 0, 'stok_sesudah' => 7,
+            'keterangan' => 'Penyesuaian melalui import Excel',
+        ]);
+        $this->assertDatabaseHas('stok_transactions', [
+            'barang_id' => $existing->id, 'jenis' => 'keluar', 'jumlah' => 6,
+            'stok_sebelum' => 10, 'stok_sesudah' => 4,
+            'keterangan' => 'Penyesuaian melalui import Excel',
+        ]);
+        $this->assertDatabaseHas('stok_transactions', [
+            'barang_id' => $existingHigher->id, 'jenis' => 'masuk', 'jumlah' => 5,
+            'stok_sebelum' => 3, 'stok_sesudah' => 8,
+            'keterangan' => 'Penyesuaian melalui import Excel',
+        ]);
+        $this->assertSame(3, StokTransaction::count());
+        Queue::assertPushed(ProcessStockPrediction::class);
+
+        $this->actingAs($admin)->post(route('barang.import.store'), ['spreadsheet' => $this->xlsx($rows)])
+            ->assertRedirect(route('barang.index'));
+
+        $this->assertSame(3, StokTransaction::count());
+        $this->assertSame(7, $created->fresh()->stok);
+        $this->assertSame(4, $existing->fresh()->stok);
+        $this->assertSame(8, $existingHigher->fresh()->stok);
+    }
+
+    public function test_soft_deleted_code_and_invalid_batch_leave_all_rows_unchanged(): void
+    {
+        Queue::fake();
+        $deleted = Barang::create([
+            'kode_barang' => 'BRG500', 'nama_barang' => 'Terhapus', 'kategori' => 'ATK',
+            'stok' => 2, 'satuan' => 'Pcs', 'lokasi' => 'Rak Lama',
+        ]);
+        $deleted->delete();
+
+        $response = $this->actingAs($this->admin())->post(route('barang.import.store'), [
+            'spreadsheet' => $this->xlsx([
+                ['BRG-000501', 'Seharusnya Tidak Dibuat', 'ATK', 5, 'Pcs', 'Rak Baru'],
+                ['BRG500', 'Kode Terhapus', 'ATK', 3, 'Pcs', 'Rak Update'],
+            ]),
+        ]);
+
+        $response->assertSessionHasErrors('spreadsheet');
+        $messages = implode(' ', session('errors')->get('spreadsheet'));
+        $this->assertStringContainsString('Baris 3, kolom kode_barang', $messages);
+        $this->assertDatabaseMissing('barang', ['kode_barang' => 'BRG-000501']);
+        $this->assertSame(2, $deleted->fresh()->stok);
+        $this->assertDatabaseCount('stok_transactions', 0);
+        Queue::assertNothingPushed();
+    }
+
     private function admin(): User
     {
         return User::factory()->create(['role' => 'admin']);
@@ -154,8 +261,13 @@ class BarangImportTest extends TestCase
 
     private function xlsx(array $rows): UploadedFile
     {
+        return $this->xlsxWithHeaders(BarangImportHeaders::VALUE, $rows);
+    }
+
+    private function xlsxWithHeaders(array $headers, array $rows): UploadedFile
+    {
         $spreadsheet = new Spreadsheet;
-        $spreadsheet->getActiveSheet()->fromArray([BarangImportHeaders::VALUE, ...$rows]);
+        $spreadsheet->getActiveSheet()->fromArray([$headers, ...$rows]);
         $path = tempnam(sys_get_temp_dir(), 'barang-import-').'.xlsx';
         (new Xlsx($spreadsheet))->save($path);
         $spreadsheet->disconnectWorksheets();

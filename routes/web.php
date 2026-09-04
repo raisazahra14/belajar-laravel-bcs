@@ -34,6 +34,8 @@ Route::middleware('auth')->group(function () {
     Route::patch('/verifications/{documentVerification}/metadata', [DocumentVerificationController::class, 'updateMetadata'])->name('verifications.metadata.update');
 
     Route::get('/barang', [BarangController::class, 'index'])->name('barang.index');
+    Route::get('/barang/results', [BarangController::class, 'inventoryResults'])->name('barang.results');
+    Route::get('/barang/dashboard/activity', [BarangController::class, 'dashboardActivity'])->name('barang.dashboard.activity');
     Route::get('/barang/create', [BarangController::class, 'create'])->middleware('role:admin');
     Route::get('/barang/low-stock', [BarangController::class, 'lowStock']);
     Route::get('/barang/{id}', [BarangController::class, 'show']);
