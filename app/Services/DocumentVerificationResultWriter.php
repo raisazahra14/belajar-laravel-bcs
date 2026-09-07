@@ -14,7 +14,7 @@ class DocumentVerificationResultWriter
     public function complete(
         DocumentVerification $verification,
         array $result,
-        bool $replaceManual = true,
+        bool $replaceManual = false,
         string $source = 'ocr',
         ?string $idempotencyKey = null,
         array $technicalMetadata = [],
@@ -22,6 +22,9 @@ class DocumentVerificationResultWriter
         DB::transaction(function () use ($verification, $result, $replaceManual, $source, $idempotencyKey, $technicalMetadata): void {
             $before = $this->audit->values($verification);
             $ocrMetadata = $this->metadataFromResult($result, $verification->document_type);
+            $autoInputFields = $this->extractOcrFieldsForAutoInput($result, $verification->document_type);
+
+            // Build base updates from OCR result scores and metadata
             $updates = [
                 'status' => strtolower($result['status']),
                 'readability_score' => $result['scores']['readability_score'],
@@ -34,14 +37,18 @@ class DocumentVerificationResultWriter
                 'ocr_raw_text' => $ocrMetadata['ocr_raw_text'] ?? null,
             ];
 
+            // Replace mode overwrites identity fields via $ocrMetadata below; preserve
+            // mode keeps manual values and fills empty fields via preserveManualFields().
             if ($replaceManual) {
-                $updates = [
-                    ...$updates,
+                $updates = array_merge($updates, [
                     'extracted_metadata' => $this->specializedMetadata($result, $verification->document_type),
                     'ocr_corrected_at' => null,
                     'ocr_corrected_by' => null,
                     ...$ocrMetadata,
-                ];
+                ]);
+            } else {
+                // When preserving manual corrections, keep existing values where auto-input would overwrite
+                $updates = array_merge($updates, $this->preserveManualFields($verification, $autoInputFields));
             }
 
             $verification->update($updates);
@@ -55,6 +62,9 @@ class DocumentVerificationResultWriter
                 after: $this->audit->values($verification),
                 technicalMetadata: $technicalMetadata,
             );
+
+            // The preserve/replace choice itself is audited by the caller
+            // (DocumentVerificationController@reprocess) with the requesting user as actor.
             if (($before['status'] ?? null) !== $verification->status) {
                 $this->audit->record(
                     $verification,
@@ -67,6 +77,97 @@ class DocumentVerificationResultWriter
                 );
             }
         });
+    }
+
+    private function preserveManualFields(DocumentVerification $verification, array $autoInputFields): array
+    {
+        // Keep existing extracted_metadata and correction tracking when preserving manual
+        $updates = [
+            'extracted_metadata' => $verification->extracted_metadata,
+            'ocr_corrected_at' => $verification->ocr_corrected_at,
+            'ocr_corrected_by' => $verification->ocr_corrected_by,
+        ];
+
+        // Only add auto-input fields that were previously null (first-time OCR run)
+        $fallbackFields = [
+            'document_number' => $autoInputFields['document_number'] ?? null,
+            'document_date' => $autoInputFields['document_date'] ?? null,
+            'purchase_order_number' => $autoInputFields['purchase_order_number'] ?? null,
+            'do_number' => $autoInputFields['do_number'] ?? null,
+            'vehicle_number' => $autoInputFields['vehicle_number'] ?? null,
+            'sender' => $autoInputFields['sender'] ?? null,
+            'recipient' => $autoInputFields['recipient'] ?? null,
+            'total_items' => $autoInputFields['total_items'] ?? null,
+        ];
+
+        // Merge: use auto-input value if current DB value is null, otherwise keep existing
+        foreach ($fallbackFields as $field => $value) {
+            if ($verification->$field === null && $value !== null) {
+                $updates[$field] = $value;
+            }
+        }
+
+        return $updates;
+    }
+
+    private function extractOcrFieldsForAutoInput(array $result, string $documentType): array
+    {
+        // Handle legacy test data that doesn't have ocr_fields
+        $ocrFields = $result['ocr_fields'] ?? $result['analysis']['ocr_fields'] ?? $result['specialized_metadata'] ?? [];
+        $autoInput = [];
+
+        if ($documentType === 'surat_jalan') {
+            // Legacy data uses 'document_number', structured data uses 'document_number' field
+            $autoInput['document_number'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['document_number']) ? $ocrFields['document_number'] : null
+            );
+            $autoInput['document_date'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['document_date']) ? $ocrFields['document_date'] : null
+            );
+            $autoInput['purchase_order_number'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['po_number']) ? $ocrFields['po_number'] :
+                (is_array($ocrFields) && isset($ocrFields['purchase_order_number']) ? $ocrFields['purchase_order_number'] : null)
+            );
+            $autoInput['vehicle_number'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['vehicle_number']) ? $ocrFields['vehicle_number'] : null
+            );
+            $autoInput['sender'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['sender']) ? $ocrFields['sender'] : null
+            );
+            $autoInput['recipient'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['recipient']) ? $ocrFields['recipient'] : null
+            );
+            $autoInput['total_items'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['total_items']) ? $ocrFields['total_items'] : null
+            );
+        } elseif ($documentType === 'invoice') {
+            // Invoice uses invoice_number, vendor, customer, total_amount in structured data
+            $autoInput['document_number'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['invoice_number']) ? $ocrFields['invoice_number'] : null
+            );
+            $autoInput['document_date'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['invoice_date']) ? $ocrFields['invoice_date'] : null
+            );
+            $autoInput['purchase_order_number'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['purchase_order_number']) ? $ocrFields['purchase_order_number'] : null
+            );
+            $autoInput['sender'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['vendor']) ? $ocrFields['vendor'] : null
+            );
+            $autoInput['recipient'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['customer']) ? $ocrFields['customer'] : null
+            );
+            $autoInput['total_items'] = $this->extractValueFromOcrField(
+                is_array($ocrFields) && isset($ocrFields['total_amount']) ? $ocrFields['total_amount'] : null
+            );
+        }
+
+        return $autoInput;
+    }
+
+    private function extractValueFromOcrField(mixed $ocrField): mixed
+    {
+        return is_array($ocrField) && array_key_exists('value', $ocrField) ? $ocrField['value'] : null;
     }
 
     private function metadataFromResult(array $result, string $documentType): array

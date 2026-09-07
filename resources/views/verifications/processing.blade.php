@@ -8,7 +8,7 @@
     };
     $labels = [
         'waiting' => 'Dokumen menunggu antrean',
-        'processing' => 'Engine OCR sedang membaca dokumen',
+        'processing' => 'Status akan diperbarui otomatis.',
         'completed' => 'Analisis dokumen selesai',
         'failed' => 'Dokumen belum berhasil dianalisis',
     ];
@@ -29,7 +29,7 @@
         <div class="ocr-status-copy" aria-live="polite" aria-atomic="true">
             <span class="section-eyebrow">Proses OCR</span>
             <h2 id="ocr-status-label">{{ $labels[$state] }}</h2>
-            <p id="ocr-status-message">{{ $state === 'failed' ? $verification->error_message : ($verification->message ?: 'Status akan diperbarui otomatis.') }}</p>
+            <p id="ocr-status-message">{{ $state === 'failed' ? $verification->error_message : 'Status akan diperbarui otomatis.' }}</p>
         </div>
         <div class="ocr-indeterminate" role="progressbar" aria-label="Proses analisis sedang berlangsung"><span></span></div>
         <p class="ocr-wait-note">Anda boleh meninggalkan halaman ini. Hasil tetap tersimpan di riwayat verifikasi.</p>

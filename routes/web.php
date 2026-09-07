@@ -68,7 +68,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/barang/{id}/edit', [BarangController::class, 'edit']);
         Route::put('/barang/{id}', [BarangController::class, 'update']);
         Route::delete('/barang/{id}', [BarangController::class, 'destroy']);
-
+        Route::post('/barang-trash/bulk-action', [BarangTrashController::class, 'bulkAction'])->name('barang.trash.bulk');
         Route::resource('users', UserController::class)->except('show');
     });
 });

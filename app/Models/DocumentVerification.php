@@ -21,6 +21,7 @@ class DocumentVerification extends Model
         'document_number',
         'document_date',
         'purchase_order_number',
+        'do_number',
         'sender',
         'recipient',
         'vehicle_number',

@@ -199,6 +199,40 @@ Setelah deployment atau perubahan kode worker:
 php artisan queue:restart
 ```
 
+## Menjalankan script Python manual
+
+Kedua engine Python dapat diuji langsung dari terminal tanpa melalui Laravel — berguna saat memeriksa kenapa sebuah dokumen gagal dianalisis atau prediksi menghasilkan angka yang tidak terduga. Jalankan dari dalam `python/` dengan interpreter yang sama dengan `PYTHON_EXECUTABLE` (misal `python/.venv/Scripts/python.exe` di Windows) agar dependency-nya konsisten.
+
+### document_checker.py (verifikasi dokumen OCR)
+
+Script menerima satu argumen posisi berupa path dokumen (`pdf`, `jpg`, `jpeg`, `png`, maksimal 10 MB) dan opsi `--document-type` dengan pilihan `surat_jalan` (default), `invoice`, atau `bukti_fisik`:
+
+```bash
+cd python
+python document_checker.py dokumen/surat-jalan.pdf --document-type surat_jalan
+```
+
+Hasil analisis dicetak ke stdout sebagai JSON (status, confidence, scores, document_metadata, analysis) — sama dengan yang diterima Laravel melalui bridge. Exit code `0` berarti analisis berjalan; exit code `2` berarti dokumen tidak dapat diproses (`DocumentError`), dan JSON `status: "PALSU"` beserta catatan penyebabnya tetap dicetak ke stdout.
+
+Output lengkap biasanya panjang; simpan ke file agar mudah dibaca:
+
+```bash
+python document_checker.py dokumen/invoice.pdf --document-type invoice > hasil.json
+```
+
+Perintah ini membutuhkan Tesseract OCR pada `PATH` yang sama dengan terminal yang dipakai; jika `tesseract --version` gagal, OCR juga akan gagal di sini.
+
+### stock_predictor.py (prediksi stok)
+
+Berbeda dari document_checker, script ini membaca payload JSON dari stdin dan mencetak hasil prediksi ke stdout:
+
+```bash
+cd python
+echo '{"item":{"id":1,"current_stock":10,"minimum_stock":5},"out_transactions":[{"id":"t1","quantity":3,"date":"2026-09-01"}]}' | python stock_predictor.py
+```
+
+Payload intinya: `item` (`id`, `current_stock`, `minimum_stock`, opsional `daily_usage_estimate` dan `lead_time_days` untuk cold start) serta `out_transactions` berisi histori transaksi keluar (`id`, `quantity`, `date`). Exit code dan format kesalahan mengikuti pola yang sama: `0` berhasil, `2` gagal dengan pesan `error` pada stderr.
+
 ## Menjalankan test dan pemeriksaan
 
 ```bash

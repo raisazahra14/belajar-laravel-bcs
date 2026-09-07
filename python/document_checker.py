@@ -1605,7 +1605,14 @@ def apply_evidence_scores(result: dict[str, Any], file_metadata: dict[str, Any],
 
     if manipulation.get("suspicious") and authenticity < 30:
         result["status"] = "PALSU"
-    elif manipulation.get("requires_manual_review") or verification_mark["detected"] is not True or authenticity < 65 or result["scores"]["completeness_score"] < 60:
+    elif manipulation.get("requires_manual_review") and authenticity < 50:
+        # Hanya MENCURIGAKAN jika both manual review dibutuhkan AND authenticity rendah
+        result["status"] = "MENCURIGAKAN"
+    elif verification_mark["detected"] is None and authenticity < 60:
+        # Tanda pengesahan tidak terdeteksi dan authenticity rendah -> MENCURIGAKAN
+        result["status"] = "MENCURIGAKAN"
+    elif result["scores"]["completeness_score"] < 40:
+        # Hanya sangat rendah completeness yang jadi mencurigakan
         result["status"] = "MENCURIGAKAN"
     else:
         result["status"] = "ASLI"

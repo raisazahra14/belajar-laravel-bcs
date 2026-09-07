@@ -12,11 +12,23 @@ use Illuminate\Support\Facades\Queue;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Tests\Support\BarangImportHeaders;
 use Tests\TestCase;
 
 class BarangImportTest extends TestCase
 {
     use RefreshDatabase;
+
+    private array $tempFiles = [];
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tempFiles as $path) {
+            @unlink($path);
+        }
+
+        parent::tearDown();
+    }
 
     public function test_admin_can_download_excel_template(): void
     {
@@ -269,14 +281,10 @@ class BarangImportTest extends TestCase
         $spreadsheet = new Spreadsheet;
         $spreadsheet->getActiveSheet()->fromArray([$headers, ...$rows]);
         $path = tempnam(sys_get_temp_dir(), 'barang-import-').'.xlsx';
+        $this->tempFiles[] = $path;
         (new Xlsx($spreadsheet))->save($path);
         $spreadsheet->disconnectWorksheets();
 
         return new UploadedFile($path, 'barang.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
-}
-
-final class BarangImportHeaders
-{
-    public const VALUE = ['kode_barang', 'nama_barang', 'kategori', 'stok', 'satuan', 'lokasi'];
 }
