@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Barang;
 
 class StokTransaction extends Model
 {
@@ -11,6 +10,8 @@ class StokTransaction extends Model
         'barang_id',
         'jenis',
         'jumlah',
+        'stok_sebelum',
+        'stok_sesudah',
         'keterangan',
     ];
 
