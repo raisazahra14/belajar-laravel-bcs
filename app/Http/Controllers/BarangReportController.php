@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Imports\BarangImport;
 use App\Models\Barang;
+use App\Services\BarangCsv;
 use App\Services\InventoryPdfReport;
 use Illuminate\Http\Response;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -11,6 +13,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class BarangReportController extends Controller
 {
+    public function csv(BarangCsv $csv): StreamedResponse
+    {
+        // Match the existing Excel/PDF scope: all active items, ordered by name.
+        $rows = Barang::query()->select(BarangImport::COLUMNS)->orderBy('nama_barang')->orderBy('id')
+            ->lazy(500)->map(fn (Barang $barang) => array_map(fn ($column) => $barang->{$column}, BarangImport::COLUMNS));
+
+        return $csv->download($rows, 'laporan-stok-barang');
+    }
+
     public function pdf(InventoryPdfReport $report): Response
     {
         $pdf = $report->make(Barang::orderBy('nama_barang')->get());

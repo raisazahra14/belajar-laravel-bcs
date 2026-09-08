@@ -15,6 +15,10 @@ class BarangSpreadsheetImporter
     {
         $handler = $import ?? app(BarangImport::class);
 
+        if (strtolower($file->getClientOriginalExtension()) === 'csv') {
+            return $handler->import(app(BarangCsv::class)->rows($file), 'CSV');
+        }
+
         try {
             $rows = Excel::toArray($handler, $file)[0] ?? [];
         } catch (Throwable $exception) {

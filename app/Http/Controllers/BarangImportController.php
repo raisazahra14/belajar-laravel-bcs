@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\BarangImportValidationException;
 use App\Http\Requests\ImportBarangRequest;
 use App\Imports\BarangImport;
 use App\Models\Barang;
+use App\Services\BarangCsv;
 use App\Services\BarangSpreadsheetImporter;
 use App\Services\StockPredictionScheduler;
 use Illuminate\Http\RedirectResponse;
@@ -15,6 +17,11 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class BarangImportController extends Controller
 {
+    public function templateCsv(BarangCsv $csv): StreamedResponse
+    {
+        return $csv->download([], 'template-import-barang');
+    }
+
     public function template(): StreamedResponse
     {
         return response()->streamDownload(function (): void {
@@ -69,7 +76,12 @@ class BarangImportController extends Controller
 
     public function store(ImportBarangRequest $request, BarangSpreadsheetImporter $importer, StockPredictionScheduler $scheduler): RedirectResponse
     {
-        $result = $importer->import($request->file('spreadsheet'));
+        try {
+            $result = $importer->import($request->file('spreadsheet'));
+        } catch (BarangImportValidationException $exception) {
+            return redirect()->route('barang.index')->withErrors($exception->errors())
+                ->with('import_summary', $exception->summary);
+        }
         $scheduler->scheduleAll($request->user());
 
         return redirect()->route('barang.index')

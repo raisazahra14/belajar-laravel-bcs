@@ -60,10 +60,12 @@ Route::middleware('auth')->group(function () {
         Route::post('/barang', [BarangController::class, 'store']);
         Route::get('/barang-report/pdf', [BarangReportController::class, 'pdf'])->name('barang.report.pdf');
         Route::get('/barang-report/excel', [BarangReportController::class, 'excel'])->name('barang.report.excel');
+        Route::get('/barang-report/csv', [BarangReportController::class, 'csv'])->name('barang.report.csv');
         Route::get('/barang-trash', [BarangTrashController::class, 'index'])->name('barang.trash.index');
         Route::patch('/barang-trash/{id}', [BarangTrashController::class, 'restore'])->name('barang.trash.restore');
         Route::delete('/barang-trash/{id}', [BarangTrashController::class, 'destroy'])->name('barang.trash.destroy');
         Route::get('/barang-import/template', [BarangImportController::class, 'template'])->name('barang.import.template');
+        Route::get('/barang-import/template/csv', [BarangImportController::class, 'templateCsv'])->name('barang.import.template.csv');
         Route::post('/barang-import', [BarangImportController::class, 'store'])->name('barang.import.store');
         Route::get('/barang/{id}/edit', [BarangController::class, 'edit']);
         Route::put('/barang/{id}', [BarangController::class, 'update']);

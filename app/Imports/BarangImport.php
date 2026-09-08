@@ -2,14 +2,17 @@
 
 namespace App\Imports;
 
+use App\Exceptions\BarangImportValidationException;
 use App\Models\Barang;
 use App\Services\StockAdjustmentService;
+use Generator;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Concerns\ToArray;
+use RuntimeException;
 
 class BarangImport implements ToArray
 {
@@ -31,17 +34,33 @@ class BarangImport implements ToArray
     /**
      * Validate heading-row data and persist it atomically.
      *
-     * @param  array<int, array<string, mixed>>  $rows
+     * @param  iterable<int, array<string, mixed>>  $rows
      * @return array{created: int, updated: int, total: int}
      */
-    public function import(array $rows): array
+    public function import(iterable $rows, string $source = 'Excel'): array
     {
-        $prepared = [];
+        $prepared = tmpfile();
+        if ($prepared === false) {
+            throw ValidationException::withMessages(['spreadsheet' => 'Penyimpanan sementara import tidak tersedia. Coba kembali.']);
+        }
+        try {
+            return $this->prepareAndPersist($rows, $prepared, $source);
+        } finally {
+            fclose($prepared);
+        }
+    }
+
+    /** @param resource $prepared */
+    private function prepareAndPersist(iterable $rows, $prepared, string $source): array
+    {
         $errors = [];
         $seenCodes = [];
-        $existing = Barang::withTrashed()->get()->keyBy(fn (Barang $barang): string => mb_strtolower(trim($barang->kode_barang)));
+        $total = 0;
+        $invalid = 0;
 
-        foreach ($rows as $rowNumber => $row) {
+        foreach ($this->rowsWithExisting($rows) as $rowNumber => [$row, $matched]) {
+            $total++;
+            $previousErrors = count($errors);
             $item = $this->normalize($row);
             $validator = Validator::make($item, [
                 'kode_barang' => ['required', 'string', 'max:255'],
@@ -76,7 +95,6 @@ class BarangImport implements ToArray
                 $seenCodes[$codeKey] = $rowNumber;
             }
 
-            $matched = $existing->get($codeKey);
             if ($matched?->trashed()) {
                 $errors[] = "Baris {$rowNumber}, kolom kode_barang: Kode barang sudah digunakan oleh data di tong sampah.";
             } elseif ($matched) {
@@ -89,14 +107,27 @@ class BarangImport implements ToArray
                 $item['_existing_id'] = null;
             }
 
-            $prepared[] = $item;
+            if (count($errors) > $previousErrors) {
+                $invalid++;
+                // Keep the error response/session bounded even for very large invalid batches.
+                $errors = array_slice($errors, 0, 100);
+
+                continue;
+            }
+            $encoded = json_encode($item, JSON_THROW_ON_ERROR)."\n";
+            if (fwrite($prepared, $encoded) !== strlen($encoded)) {
+                throw ValidationException::withMessages(['spreadsheet' => 'Penyimpanan sementara import penuh. Tidak ada data disimpan.']);
+            }
         }
 
         if ($errors !== []) {
-            throw ValidationException::withMessages(['spreadsheet' => $errors]);
+            if (count($errors) === 100) {
+                $errors[] = 'Ditampilkan maksimal 100 alasan kesalahan. Perbaiki file lalu unggah kembali untuk memeriksa sisanya.';
+            }
+            throw new BarangImportValidationException($errors, $total, $invalid);
         }
 
-        if ($prepared === []) {
+        if ($total === 0) {
             throw ValidationException::withMessages(['spreadsheet' => 'Spreadsheet tidak memiliki baris data untuk diimpor.']);
         }
 
@@ -104,8 +135,10 @@ class BarangImport implements ToArray
         $updated = 0;
 
         try {
-            DB::transaction(function () use ($prepared, &$created, &$updated): void {
-                foreach ($prepared as $item) {
+            rewind($prepared);
+            DB::transaction(function () use ($prepared, $source, &$created, &$updated): void {
+                while (($line = fgets($prepared)) !== false) {
+                    $item = json_decode($line, true, flags: JSON_THROW_ON_ERROR);
                     $existingId = $item['_existing_id'];
                     $targetStock = (int) $item['stok'];
                     unset($item['_existing_id'], $item['stok']);
@@ -115,7 +148,10 @@ class BarangImport implements ToArray
                         $item['stok'] = 0;
                     }
                     $barang->fill($item)->save();
-                    $this->stock->setTarget($barang, $targetStock, 'Penyesuaian melalui import Excel');
+                    $this->stock->setTarget($barang, $targetStock, 'Penyesuaian melalui import '.$source);
+                }
+                if (! feof($prepared)) {
+                    throw new RuntimeException('Penyimpanan sementara import tidak dapat dibaca.');
                 }
             });
         } catch (QueryException $exception) {
@@ -126,7 +162,35 @@ class BarangImport implements ToArray
             throw $exception;
         }
 
-        return ['created' => $created, 'updated' => $updated, 'total' => count($prepared)];
+        return ['created' => $created, 'updated' => $updated, 'total' => $total];
+    }
+
+    /** Match only the current batch instead of loading the entire inventory or querying every row. */
+    private function rowsWithExisting(iterable $rows): Generator
+    {
+        $batch = [];
+        foreach ($rows as $number => $row) {
+            $batch[$number] = $row;
+            if (count($batch) === 500) {
+                yield from $this->matchBatch($batch);
+                $batch = [];
+            }
+        }
+        if ($batch !== []) {
+            yield from $this->matchBatch($batch);
+        }
+    }
+
+    private function matchBatch(array $rows): Generator
+    {
+        $keys = array_map(fn ($row) => mb_strtolower((string) $this->normalize($row)['kode_barang']), $rows);
+        $existing = Barang::withTrashed()->select(['id', 'kode_barang', 'deleted_at'])
+            ->whereIn(DB::raw('LOWER(TRIM(kode_barang))'), array_values(array_unique($keys)))
+            ->get()->keyBy(fn (Barang $barang) => mb_strtolower(trim($barang->kode_barang)));
+
+        foreach ($rows as $number => $row) {
+            yield $number => [$row, $existing->get($keys[$number])];
+        }
     }
 
     /** @param array<string, mixed> $row */
