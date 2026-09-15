@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use RuntimeException;
+use Throwable;
 
 class BarangController extends Controller
 {
@@ -87,13 +88,25 @@ class BarangController extends Controller
     public function store(StoreBarangRequest $request, BarangCodeGenerator $codeGenerator)
     {
         $path = $request->file('foto_barang')?->store('barang', 'public');
+        if ($request->hasFile('foto_barang') && (! is_string($path) || $path === '')) {
+            throw ValidationException::withMessages([
+                'foto_barang' => 'Foto barang tidak dapat disimpan. Periksa kapasitas penyimpanan lalu coba lagi.',
+            ]);
+        }
         try {
             $codeGenerator->create([...$request->safe()->except('foto_barang'), 'foto_barang' => $path]);
-        } catch (RuntimeException $exception) {
+        } catch (Throwable $exception) {
             if ($path) {
                 Storage::disk('public')->delete($path);
             }
-            throw ValidationException::withMessages(['nama_barang' => $exception->getMessage()]);
+            if ($exception instanceof RuntimeException) {
+                throw ValidationException::withMessages(['nama_barang' => $exception->getMessage()]);
+            }
+            report($exception);
+
+            throw ValidationException::withMessages([
+                'foto_barang' => 'Foto atau data barang tidak dapat disimpan. Coba lagi.',
+            ]);
         }
 
         return redirect('/barang')
@@ -120,16 +133,32 @@ class BarangController extends Controller
 
         $oldPhoto = $barang->foto_barang;
         $newPhoto = $request->file('foto_barang')?->store('barang', 'public');
+        if ($request->hasFile('foto_barang') && (! is_string($newPhoto) || $newPhoto === '')) {
+            throw ValidationException::withMessages([
+                'foto_barang' => 'Foto barang tidak dapat disimpan. Periksa kapasitas penyimpanan lalu coba lagi.',
+            ]);
+        }
 
-        $barang->update([
-            'nama_barang' => $request->nama_barang,
-            'kategori' => $request->kategori,
-            'daily_usage_estimate' => $request->validated('daily_usage_estimate'),
-            'lead_time_days' => $request->validated('lead_time_days'),
-            'satuan' => $request->satuan,
-            'lokasi' => $request->lokasi,
-            'foto_barang' => $newPhoto ?? $oldPhoto,
-        ]);
+        try {
+            $barang->update([
+                'nama_barang' => $request->nama_barang,
+                'kategori' => $request->kategori,
+                'daily_usage_estimate' => $request->validated('daily_usage_estimate'),
+                'lead_time_days' => $request->validated('lead_time_days'),
+                'satuan' => $request->satuan,
+                'lokasi' => $request->lokasi,
+                'foto_barang' => $newPhoto ?? $oldPhoto,
+            ]);
+        } catch (Throwable $exception) {
+            if ($newPhoto) {
+                Storage::disk('public')->delete($newPhoto);
+            }
+            report($exception);
+
+            throw ValidationException::withMessages([
+                'foto_barang' => 'Foto atau data barang tidak dapat diperbarui. Coba lagi.',
+            ]);
+        }
 
         if ($newPhoto && $oldPhoto) {
             Storage::disk('public')->delete($oldPhoto);

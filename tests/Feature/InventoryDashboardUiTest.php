@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\InventoryDashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -60,6 +61,24 @@ class InventoryDashboardUiTest extends TestCase
         $response = $this->actingAs($admin)->getJson(route('barang.dashboard.activity'));
         $response->assertOk()->assertJsonPath('period', 7)->assertJsonPath('totals.masuk', 4)->assertJsonPath('totals.keluar', 0);
         $this->assertSame(4, $response->json('masuk.6'));
+    }
+
+    public function test_activity_aggregates_representative_rows_in_one_query(): void
+    {
+        $barang = $this->barang();
+        foreach (range(1, 100) as $index) {
+            $this->transaction($barang, $index % 2 === 0 ? 'masuk' : 'keluar', 1, '2026-09-03 02:00:00');
+        }
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $activity = app(InventoryDashboardService::class)->activity(30);
+        $queryCount = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        $this->assertSame(1, $queryCount);
+        $this->assertSame(50, $activity['totals']['masuk']);
+        $this->assertSame(50, $activity['totals']['keluar']);
     }
 
     public function test_invalid_period_is_rejected_and_activity_endpoint_requires_authentication(): void
@@ -123,12 +142,12 @@ class InventoryDashboardUiTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $barang = $this->barang(['stok' => 2, 'foto_barang' => 'barang/foto.jpg']);
         $this->document($admin, 'selesai');
-        $this->document($admin, 'gagal_diproses');
+        $this->document($admin, 'gagal');
         StockPredictionProcess::create(['barang_id' => $barang->id, 'status' => StockPredictionProcess::STATUS_FAILED, 'generation' => 1]);
 
         $items = app(InventoryDashboardService::class)->attention($admin);
 
-        $this->assertSame(['low-stock', 'prediction-process-failed', 'document-gagal_diproses'], $items->pluck('id')->all());
+        $this->assertSame(['low-stock', 'prediction-process-failed', 'document-gagal'], $items->pluck('id')->all());
         $this->assertNotContains('document-selesai', $items->pluck('id')->all());
     }
 
@@ -138,7 +157,7 @@ class InventoryDashboardUiTest extends TestCase
         $other = User::factory()->create(['role' => 'staff']);
         $barang = $this->barang(['stok' => 20, 'foto_barang' => null]);
         $this->document($staff, 'menunggu');
-        $this->document($other, 'gagal_diproses');
+        $this->document($other, 'gagal');
         StockPredictionProcess::create(['barang_id' => $barang->id, 'status' => StockPredictionProcess::STATUS_FAILED, 'generation' => 1]);
 
         $items = app(InventoryDashboardService::class)->attention($staff, 2);
@@ -176,9 +195,9 @@ class InventoryDashboardUiTest extends TestCase
         return $transaction;
     }
 
-    private function document(User $user, string $status): DocumentVerification
+    private function document(User $user, string $processStatus): DocumentVerification
     {
-        return DocumentVerification::create(['user_id' => $user->id, 'document_type' => 'invoice', 'original_filename' => uniqid('document-', true).'.pdf', 'file_path' => 'documents/test.pdf', 'status' => $status, 'readability_score' => 0, 'completeness_score' => 0, 'authenticity_score' => 0, 'overall_score' => 0, 'message' => 'Status pengujian.', 'analysis_details' => []]);
+        return DocumentVerification::create(['user_id' => $user->id, 'document_type' => 'invoice', 'original_filename' => uniqid('document-', true).'.pdf', 'file_path' => 'documents/test.pdf', 'process_status' => $processStatus, 'authenticity_status' => $processStatus === 'selesai' ? 'asli' : null, 'readability_score' => 0, 'completeness_score' => 0, 'authenticity_score' => 0, 'overall_score' => 0, 'message' => 'Status pengujian.', 'analysis_details' => []]);
     }
 
     private function prediction(Barang $barang, User $user, string $status, string $analyzedAt): StockPrediction

@@ -7,9 +7,9 @@
     $completedCount = max(0, count($metadataFieldStates) - $reviewCount);
     $completion = count($metadataFieldStates) > 0 ? (int) round($completedCount / count($metadataFieldStates) * 100) : 0;
     $statusDescriptions = [
-        'ASLI' => 'Tidak ditemukan indikasi kuat manipulasi. Tetap cocokkan isi dengan dokumen sumber.',
-        'MENCURIGAKAN' => 'Ada indikator yang perlu diperiksa oleh pengguna sebelum dokumen digunakan.',
-        'PALSU' => 'Ditemukan indikator risiko tinggi. Jangan gunakan sebelum pemeriksaan lanjutan.',
+        'asli' => 'Tidak ditemukan indikasi kuat manipulasi. Tetap cocokkan isi dengan dokumen sumber.',
+        'mencurigakan' => 'Ada indikator yang perlu diperiksa oleh pengguna sebelum dokumen digunakan.',
+        'palsu' => 'Ditemukan indikator risiko tinggi. Jangan gunakan sebelum pemeriksaan lanjutan.',
     ];
 @endphp
 
@@ -32,11 +32,11 @@
 <section class="verification-summary card mb-4" aria-labelledby="verification-summary-title">
     <div class="card-body">
         <div class="verification-summary-main">
-            <div class="verification-status-icon" aria-hidden="true"><i class="{{ $verification->status === 'ASLI' ? 'ti-check' : ($verification->status === 'PALSU' ? 'ti-close' : 'ti-alert') }}"></i></div>
+            <div class="verification-status-icon" aria-hidden="true"><i class="{{ $verification->authenticity_status === 'asli' ? 'ti-check' : ($verification->authenticity_status === 'palsu' ? 'ti-close' : 'ti-alert') }}"></i></div>
             <div>
                 <span class="section-eyebrow">Ringkasan</span>
-                <h2 id="verification-summary-title">@include('verifications.partials.status', ['status' => $verification->status])</h2>
-                <p>{{ $statusDescriptions[$verification->status] ?? $verification->message }}</p>
+                <h2 id="verification-summary-title">@include('verifications.partials.authenticity-status', ['authenticityStatus' => $verification->authenticity_status])</h2>
+                <p>{{ $statusDescriptions[$verification->authenticity_status] ?? $verification->message }}</p>
             </div>
         </div>
         <div class="verification-metrics">
@@ -87,7 +87,7 @@
             'manual_corrections_preserved' => 'mempertahankan koreksi pengguna', 'manual_corrections_replaced' => 'mengganti koreksi dengan hasil OCR baru',
             'final_status_changed' => 'memperbarui keputusan akhir dokumen', 'ocr_reprocess_failed' => 'mencatat proses ulang yang belum berhasil',
         ];
-        $fieldLabels = ['status' => 'Status', 'document_number' => 'Nomor Dokumen', 'document_date' => 'Tanggal Dokumen', 'purchase_order_number' => 'Nomor PO', 'sender' => 'Pengirim/Vendor', 'recipient' => 'Penerima/Pelanggan', 'vehicle_number' => 'Nomor Kendaraan', 'total_items' => 'Jumlah Barang', 'total_amount' => 'Total Tagihan', 'subtotal' => 'Subtotal', 'dpp' => 'DPP', 'tax' => 'PPN/Pajak', 'currency' => 'Mata Uang'];
+        $fieldLabels = ['process_status' => 'Status Proses OCR', 'authenticity_status' => 'Hasil Keaslian', 'document_number' => 'Nomor Dokumen', 'document_date' => 'Tanggal Dokumen', 'purchase_order_number' => 'Nomor PO', 'sender' => 'Pengirim/Vendor', 'recipient' => 'Penerima/Pelanggan', 'vehicle_number' => 'Nomor Kendaraan', 'total_items' => 'Jumlah Barang', 'total_amount' => 'Total Tagihan', 'subtotal' => 'Subtotal', 'dpp' => 'DPP', 'tax' => 'PPN/Pajak', 'currency' => 'Mata Uang'];
         $formatAuditValue = function ($value, $field) {
             if ($value === null || $value === '') return 'kosong';
             if (in_array($field, ['total_amount', 'subtotal', 'dpp', 'tax', 'discount', 'delivery_fee', 'down_payment'], true) && is_numeric($value)) return number_format((float) $value, 0, ',', '.');

@@ -11,7 +11,8 @@ class DocumentVerificationAuditService
     public function values(DocumentVerification $verification): array
     {
         return [
-            'status' => $verification->status,
+            'process_status' => $verification->process_status,
+            'authenticity_status' => $verification->authenticity_status,
             'document_number' => $verification->document_number,
             'document_date' => $verification->document_date?->format('Y-m-d'),
             'purchase_order_number' => $verification->purchase_order_number,

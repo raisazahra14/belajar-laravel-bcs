@@ -22,6 +22,7 @@ class ImportBarangRequest extends FormRequest
     {
         return [
             'spreadsheet.required' => 'Pilih file Excel atau CSV yang akan diimpor.',
+            'spreadsheet.file' => 'Upload import harus berupa file.',
             'spreadsheet.mimes' => 'File harus berformat XLSX, XLS, atau CSV.',
             'spreadsheet.extensions' => 'Ekstensi file harus XLSX, XLS, atau CSV.',
             'spreadsheet.max' => 'Ukuran file maksimal 5 MB.',

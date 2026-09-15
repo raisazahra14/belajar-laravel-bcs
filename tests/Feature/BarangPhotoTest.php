@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\Barang;
 use App\Models\User;
+use App\Services\BarangCodeGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 use Tests\TestCase;
 
 class BarangPhotoTest extends TestCase
@@ -34,6 +36,111 @@ class BarangPhotoTest extends TestCase
         Storage::fake('public');
         $admin = User::factory()->create(['role' => 'admin']);
         $this->actingAs($admin)->post('/barang', ['kode_barang' => 'IMG-2', 'nama_barang' => 'Invalid', 'kategori' => 'ATK', 'stok' => 1, 'satuan' => 'Pcs', 'lokasi' => 'Rak', 'foto_barang' => UploadedFile::fake()->create('bad.pdf', 10, 'application/pdf')])->assertSessionHasErrors('foto_barang');
+    }
+
+    public function test_photo_upload_enforces_size_boundary(): void
+    {
+        Storage::fake('public');
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        foreach ([2047, 2048] as $size) {
+            $this->actingAs($admin)->post('/barang', [
+                'nama_barang' => "Foto {$size}",
+                'kategori' => 'ATK',
+                'stok' => 1,
+                'satuan' => 'Pcs',
+                'lokasi' => 'Rak',
+                'foto_barang' => UploadedFile::fake()->image("foto-{$size}.jpg")->size($size),
+            ])->assertSessionDoesntHaveErrors();
+        }
+
+        $this->assertDatabaseCount('barang', 2);
+        $this->assertCount(2, Storage::disk('public')->allFiles('barang'));
+
+        $this->actingAs($admin)->post('/barang', [
+            'nama_barang' => 'Foto terlalu besar',
+            'kategori' => 'ATK',
+            'stok' => 1,
+            'satuan' => 'Pcs',
+            'lokasi' => 'Rak',
+            'foto_barang' => UploadedFile::fake()->image('foto-2049.jpg')->size(2049),
+        ])->assertSessionHasErrors('foto_barang');
+
+        $this->assertDatabaseCount('barang', 2);
+        $this->assertCount(2, Storage::disk('public')->allFiles('barang'));
+    }
+
+    public function test_all_documented_photo_formats_are_accepted(): void
+    {
+        Storage::fake('public');
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        foreach (['jpg', 'jpeg', 'png', 'webp'] as $extension) {
+            $this->actingAs($admin)->post('/barang', [
+                'nama_barang' => "Foto {$extension}",
+                'kategori' => 'ATK',
+                'stok' => 1,
+                'satuan' => 'Pcs',
+                'lokasi' => 'Rak',
+                'foto_barang' => UploadedFile::fake()->image("foto.{$extension}"),
+            ])->assertSessionDoesntHaveErrors();
+        }
+
+        $this->assertDatabaseCount('barang', 4);
+        $this->assertCount(4, Storage::disk('public')->allFiles('barang'));
+    }
+
+    public function test_photo_upload_rejects_spoofing_double_extension_corrupt_and_empty_files_without_artifacts(): void
+    {
+        Storage::fake('public');
+        $admin = User::factory()->create(['role' => 'admin']);
+        $files = [
+            UploadedFile::fake()->image('photo.exe'),
+            UploadedFile::fake()->create('photo.jpg', 10, 'application/pdf')->mimeType('application/pdf'),
+            UploadedFile::fake()->image('photo.jpg.exe'),
+            UploadedFile::fake()->createWithContent('corrupt.png', "\x89PNG\r\n\x1a\ncorrupt")->mimeType('image/png'),
+            UploadedFile::fake()->create('empty.webp', 0, 'image/webp')->mimeType('application/x-empty'),
+        ];
+
+        foreach ($files as $index => $file) {
+            $response = $this->actingAs($admin)->post('/barang', [
+                'nama_barang' => "Foto invalid {$index}",
+                'kategori' => 'ATK',
+                'stok' => 1,
+                'satuan' => 'Pcs',
+                'lokasi' => 'Rak',
+                'foto_barang' => $file,
+            ]);
+            $this->assertTrue(
+                session('errors')?->has('foto_barang') === true,
+                "File {$file->getClientOriginalName()} seharusnya ditolak; status HTTP {$response->getStatusCode()}.",
+            );
+        }
+
+        $this->assertDatabaseCount('barang', 0);
+        $this->assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_photo_is_removed_when_barang_persistence_fails(): void
+    {
+        Storage::fake('public');
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->mock(BarangCodeGenerator::class)
+            ->shouldReceive('create')
+            ->once()
+            ->andThrow(new RuntimeException('Penyimpanan barang gagal.'));
+
+        $this->actingAs($admin)->post('/barang', [
+            'nama_barang' => 'Foto rollback',
+            'kategori' => 'ATK',
+            'stok' => 1,
+            'satuan' => 'Pcs',
+            'lokasi' => 'Rak',
+            'foto_barang' => UploadedFile::fake()->image('rollback.png'),
+        ])->assertSessionHasErrors('nama_barang');
+
+        $this->assertDatabaseCount('barang', 0);
+        $this->assertSame([], Storage::disk('public')->allFiles());
     }
 
     public function test_barang_without_upload_uses_matching_catalog_illustration(): void

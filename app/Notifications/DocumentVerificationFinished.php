@@ -34,7 +34,10 @@ class DocumentVerificationFinished extends Notification
             'document_verification_id' => $this->verification->id,
             'filename' => $this->verification->original_filename,
             'document_type' => $this->verification->document_type,
-            'status' => $this->successful ? 'completed' : 'failed',
+            'process_status' => $this->successful
+                ? DocumentVerification::PROCESS_COMPLETED
+                : DocumentVerification::PROCESS_FAILED,
+            'authenticity_status' => $this->successful ? $this->verification->authenticity_status : null,
             'title' => $this->successful ? 'Verifikasi dokumen selesai' : 'Verifikasi dokumen gagal',
             'message' => $this->successful
                 ? 'Hasil OCR siap diperiksa.'

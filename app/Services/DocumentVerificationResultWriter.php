@@ -26,7 +26,8 @@ class DocumentVerificationResultWriter
 
             // Build base updates from OCR result scores and metadata
             $updates = [
-                'status' => strtolower($result['status']),
+                'process_status' => DocumentVerification::PROCESS_COMPLETED,
+                'authenticity_status' => $result['authenticity_status'],
                 'readability_score' => $result['scores']['readability_score'],
                 'completeness_score' => $result['scores']['completeness_score'],
                 'authenticity_score' => $result['scores']['authenticity_score'],
@@ -65,14 +66,14 @@ class DocumentVerificationResultWriter
 
             // The preserve/replace choice itself is audited by the caller
             // (DocumentVerificationController@reprocess) with the requesting user as actor.
-            if (($before['status'] ?? null) !== $verification->status) {
+            if (($before['authenticity_status'] ?? null) !== $verification->authenticity_status) {
                 $this->audit->record(
                     $verification,
                     'final_status_changed',
                     $source,
                     ($idempotencyKey ?? "verification:{$verification->id}:ocr_completed").':status',
-                    before: ['status' => $before['status'] ?? null],
-                    after: ['status' => $verification->status],
+                    before: ['authenticity_status' => $before['authenticity_status'] ?? null],
+                    after: ['authenticity_status' => $verification->authenticity_status],
                     technicalMetadata: $technicalMetadata,
                 );
             }

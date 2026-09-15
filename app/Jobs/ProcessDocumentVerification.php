@@ -40,14 +40,14 @@ class ProcessDocumentVerification implements ShouldBeUnique, ShouldQueue
         DocumentVerificationNotificationService $notifications,
     ): void {
         $verification = DocumentVerification::find($this->verificationId);
-        if (! $verification || ! in_array($verification->status, ['menunggu', 'sedang_dianalisis'], true)) {
+        if (! $verification || ! in_array($verification->process_status, [DocumentVerification::PROCESS_WAITING, DocumentVerification::PROCESSING], true)) {
             return;
         }
 
         $jobId = (string) ($this->job?->getJobId() ?? "sync-{$verification->id}");
         DB::transaction(function () use ($verification, $audit, $jobId): void {
             $before = $audit->values($verification);
-            $verification->update(['status' => 'sedang_dianalisis', 'message' => 'Engine OCR sedang membaca dokumen.', 'error_message' => null]);
+            $verification->update(['process_status' => DocumentVerification::PROCESSING, 'message' => 'Engine OCR sedang membaca dokumen.', 'error_message' => null]);
             $audit->record($verification, 'ocr_started', 'system', "verification:{$verification->id}:ocr_started:{$jobId}", before: $before, after: $audit->values($verification), technicalMetadata: ['job_id' => $jobId, 'queue' => 'default']);
         });
 
@@ -85,7 +85,9 @@ class ProcessDocumentVerification implements ShouldBeUnique, ShouldQueue
         DB::transaction(function () use ($verification, $audit, $jobId): void {
             $before = $audit->values($verification);
             $verification->update([
-                'status' => 'gagal_diproses', 'readability_score' => 0, 'completeness_score' => 0,
+                'process_status' => DocumentVerification::PROCESS_FAILED,
+                'authenticity_status' => null,
+                'readability_score' => 0, 'completeness_score' => 0,
                 'authenticity_score' => 0, 'overall_score' => 0,
                 'message' => 'Verifikasi dokumen gagal.', 'analysis_details' => [],
                 'error_message' => 'Dokumen tidak dapat diproses. Pastikan file dapat dibaca, lalu coba lagi.',

@@ -29,7 +29,7 @@ class DocumentVerificationNotificationController extends Controller
         $notification->markAsRead();
 
         return redirect()->route(
-            ($notification->data['status'] ?? null) === 'completed' ? 'verifications.show' : 'verifications.processing',
+            $this->processStatus($notification) === DocumentVerification::PROCESS_COMPLETED ? 'verifications.show' : 'verifications.processing',
             $verification,
         );
     }
@@ -72,11 +72,25 @@ class DocumentVerificationNotificationController extends Controller
             'title' => $notification->data['title'] ?? 'Status verifikasi dokumen',
             'filename' => $notification->data['filename'] ?? 'Dokumen',
             'document_type' => ucwords(str_replace('_', ' ', $notification->data['document_type'] ?? 'dokumen')),
-            'status' => $notification->data['status'] ?? 'completed',
+            'process_status' => $this->processStatus($notification),
+            'authenticity_status' => $notification->data['authenticity_status'] ?? null,
             'time' => Carbon::parse($notification->data['completed_at'] ?? $notification->created_at)->locale('id')->diffForHumans(),
             'read' => $notification->read_at !== null,
             'open_url' => route('ocr-notifications.open', $notification->id),
             'read_url' => route('ocr-notifications.read', $notification->id),
         ];
+    }
+
+    private function processStatus(DatabaseNotification $notification): string
+    {
+        if (isset($notification->data['process_status'])) {
+            return $notification->data['process_status'];
+        }
+
+        // Kompatibilitas untuk notifikasi yang tersimpan sebelum status proses
+        // dan hasil keaslian dipisahkan. Payload baru tidak lagi memakai `status`.
+        return ($notification->data['status'] ?? null) === 'failed'
+            ? DocumentVerification::PROCESS_FAILED
+            : DocumentVerification::PROCESS_COMPLETED;
     }
 }

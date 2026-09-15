@@ -14,7 +14,7 @@ class DocumentVerificationContractTest extends TestCase
         $this->assertTrue($this->validateContract($this->validContract()));
     }
 
-    public function test_legacy_contract_without_document_metadata_is_still_accepted(): void
+    public function test_contract_without_document_metadata_is_still_accepted(): void
     {
         $this->assertTrue($this->validateContract(self::contractFixture()));
     }
@@ -112,10 +112,23 @@ class DocumentVerificationContractTest extends TestCase
         $mismatchedConfidence = self::contractFixture();
         $mismatchedConfidence['confidence'] = 70.0;
 
+        $legacyStatus = self::contractFixture();
+        unset($legacyStatus['authenticity_status']);
+        $legacyStatus['status'] = 'ASLI';
+
+        $invalidAuthenticity = self::contractFixture();
+        $invalidAuthenticity['authenticity_status'] = 'perlu_ditinjau';
+
+        $invalidProcess = self::contractFixture();
+        $invalidProcess['process_status'] = 'completed';
+
         return [
             'missing analysis section' => [$missingAnalysisSection],
             'confidence must be a JSON float' => [$integerConfidence],
             'confidence must match overall score' => [$mismatchedConfidence],
+            'legacy mixed status is rejected' => [$legacyStatus],
+            'nonstandard authenticity status is rejected' => [$invalidAuthenticity],
+            'nonstandard process status is rejected' => [$invalidProcess],
         ];
     }
 
@@ -134,7 +147,8 @@ class DocumentVerificationContractTest extends TestCase
     private static function contractFixture(): array
     {
         return [
-            'status' => 'MENCURIGAKAN',
+            'process_status' => 'selesai',
+            'authenticity_status' => 'mencurigakan',
             'confidence' => 72.0,
             'notes' => 'Tanggal tidak ditemukan.',
             'scores' => [

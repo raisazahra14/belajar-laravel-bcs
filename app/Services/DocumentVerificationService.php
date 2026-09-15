@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\DocumentVerification;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
@@ -9,8 +10,6 @@ use Symfony\Component\Process\Process;
 
 class DocumentVerificationService
 {
-    private const STATUSES = ['ASLI', 'MENCURIGAKAN', 'PALSU'];
-
     private const SCORES = [
         'readability_score',
         'completeness_score',
@@ -67,11 +66,6 @@ class DocumentVerificationService
 
         $result = json_decode(trim($process->getOutput()), true);
 
-        // Keep compatibility with results produced by the previous checker build.
-        if (is_array($result) && ($result['status'] ?? null) === 'PERLU_DITINJAU') {
-            $result['status'] = 'MENCURIGAKAN';
-        }
-
         if (! $process->isSuccessful()) {
             Log::error('Python document verification failed.', [
                 'exit_code' => $process->getExitCode(),
@@ -94,7 +88,8 @@ class DocumentVerificationService
     private function hasValidContract(mixed $result): bool
     {
         return is_array($result)
-            && in_array($result['status'] ?? null, self::STATUSES, true)
+            && ($result['process_status'] ?? null) === DocumentVerification::PROCESS_COMPLETED
+            && in_array($result['authenticity_status'] ?? null, DocumentVerification::AUTHENTICITY_STATUSES, true)
             && is_float($result['confidence'] ?? null)
             && $result['confidence'] >= 0
             && $result['confidence'] <= 100

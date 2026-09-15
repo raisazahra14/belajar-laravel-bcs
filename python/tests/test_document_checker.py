@@ -6,10 +6,12 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+import pymupdf
 from PIL import Image, ImageDraw, ImageFilter
 
 from document_checker import (
     DocumentError,
+    MAX_FILE_SIZE,
     analyze_file_evidence,
     analyze_text,
     detect_verification_marks,
@@ -145,7 +147,8 @@ class AnalyzeTextTest(unittest.TestCase):
             "SURAT JALAN Nomor: SJ-2026/001 Tanggal 27/08/2026 Pengirim: Gudang Penerima: Toko"
         )
 
-        self.assertEqual("ASLI", result["status"])
+        self.assertEqual("selesai", result["process_status"])
+        self.assertEqual("asli", result["authenticity_status"])
         self.assertEqual("SJ-2026/001", result["analysis"]["ocr"]["document_number"])
         self.assertEqual("27/08/2026", result["analysis"]["ocr"]["date"])
         self.assertLessEqual(result["scores"]["overall_score"], 100)
@@ -154,13 +157,14 @@ class AnalyzeTextTest(unittest.TestCase):
     def test_unrelated_text_is_not_valid(self):
         result = analyze_text("Catatan rapat internal")
 
-        self.assertEqual("PALSU", result["status"])
+        self.assertEqual("palsu", result["authenticity_status"])
         self.assertEqual(0, result["scores"]["completeness_score"])
 
     def test_contract_contains_supported_status_and_details(self):
         result = analyze_text("INVOICE No INV-100 tanggal 27/08/2026 total 100000 TTD", "invoice")
 
-        self.assertIn(result["status"], {"ASLI", "MENCURIGAKAN", "PALSU"})
+        self.assertEqual("selesai", result["process_status"])
+        self.assertIn(result["authenticity_status"], {"asli", "mencurigakan", "palsu"})
         self.assertIsInstance(result["confidence"], float)
         self.assertIsInstance(result["notes"], str)
         self.assertTrue({"ocr", "metadata", "file_metadata", "document_metadata", "manipulation", "barcode"}.issubset(result["analysis"]))
@@ -483,6 +487,84 @@ class FileHandlingTest(unittest.TestCase):
             ):
                 self.assertIn("SURAT JALAN", extract_text(path))
 
+    def test_every_supported_format_can_be_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            paths = [base / "fixture.jpg", base / "fixture.jpeg", base / "fixture.png"]
+            for path in paths:
+                Image.new("RGB", (20, 20), "white").save(path)
+
+            pdf = base / "fixture.pdf"
+            with pymupdf.open() as document:
+                page = document.new_page()
+                page.insert_text((72, 72), "SURAT JALAN")
+                document.save(pdf)
+
+            with (
+                patch("document_checker.pytesseract.get_languages", return_value=["eng"]),
+                patch("document_checker.pytesseract.image_to_string", return_value="SURAT JALAN"),
+            ):
+                for path in paths + [pdf]:
+                    with self.subTest(extension=path.suffix):
+                        self.assertIn("SURAT JALAN", extract_text(path))
+
+    def test_size_boundary_rejects_only_files_above_ten_mib(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fixture.pdf"
+            for size, accepted in [
+                (MAX_FILE_SIZE - 1, True),
+                (MAX_FILE_SIZE, True),
+                (MAX_FILE_SIZE + 1, False),
+            ]:
+                with path.open("wb") as file:
+                    file.truncate(size)
+                if accepted:
+                    validate_file(path)
+                else:
+                    with self.assertRaisesRegex(DocumentError, "melebihi 10 MB"):
+                        validate_file(path)
+
+    def test_empty_corrupt_and_mismatched_content_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            fixtures = {
+                "empty.pdf": b"",
+                "corrupt.pdf": b"%PDF-1.7\nnot a valid PDF",
+                "corrupt.png": b"not a valid image",
+            }
+            for name, content in fixtures.items():
+                path = base / name
+                path.write_bytes(content)
+                with self.subTest(name=name), self.assertRaises(DocumentError):
+                    extract_text(path)
+
+            image_as_pdf = base / "image.pdf"
+            Image.new("RGB", (20, 20), "white").save(image_as_pdf, format="PNG")
+            with self.assertRaisesRegex(DocumentError, "Isi file tidak sesuai"):
+                extract_text(image_as_pdf)
+
+            pdf_as_image = base / "document.jpg"
+            with pymupdf.open() as document:
+                document.new_page()
+                document.save(pdf_as_image)
+            with self.assertRaisesRegex(DocumentError, "Isi file tidak sesuai|rusak atau tidak dapat dibaca"):
+                extract_text(pdf_as_image)
+
+    def test_encrypted_pdf_is_rejected_with_safe_message(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "encrypted.pdf"
+            with pymupdf.open() as document:
+                document.new_page()
+                document.save(
+                    path,
+                    encryption=pymupdf.PDF_ENCRYPT_AES_256,
+                    owner_pw="owner-secret",
+                    user_pw="user-secret",
+                )
+
+            with self.assertRaisesRegex(DocumentError, "PDF terenkripsi tidak didukung"):
+                extract_text(path)
+
     def test_cli_json_is_ascii_safe_for_noisy_ocr_characters(self):
         result = analyze_text("SURAT JALAN No SJ-1 Tanggal 27/08/2026 Pengirim Penerima TTD")
         result["analysis"]["ocr"]["raw_text"] = "Teks OCR rusak: \ufffd dan é"
@@ -516,7 +598,7 @@ class FileHandlingTest(unittest.TestCase):
         self.assertIn("verification_mark", result["analysis"])
         self.assertIn("verification_mark_detected", result["analysis"]["ocr"])
         self.assertIn("verification_mark_types", result["analysis"]["ocr"])
-        self.assertEqual("MENCURIGAKAN", result["status"])
+        self.assertEqual("mencurigakan", result["authenticity_status"])
 
     def test_ela_returns_structured_risk_and_sensitive_region_contract(self):
         with tempfile.TemporaryDirectory() as directory:

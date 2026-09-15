@@ -12,7 +12,9 @@ use App\Services\DocumentVerificationResultWriter;
 use App\Services\DocumentVerificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Mockery\MockInterface;
 use RuntimeException;
 use Tests\TestCase;
@@ -35,7 +37,9 @@ class DocumentVerificationAuditNotificationTest extends TestCase
 
         $verification = DocumentVerification::firstOrFail();
         $notification = $uploader->notifications()->firstOrFail();
-        $this->assertSame('completed', $notification->data['status']);
+        $this->assertSame('selesai', $notification->data['process_status']);
+        $this->assertSame('asli', $notification->data['authenticity_status']);
+        $this->assertArrayNotHasKey('status', $notification->data);
         $this->assertSame($verification->id, $notification->data['document_verification_id']);
         $this->assertSame(route('verifications.show', $verification), $notification->data['url']);
         $this->assertCount(0, $other->notifications);
@@ -56,12 +60,14 @@ class DocumentVerificationAuditNotificationTest extends TestCase
         $job = new ProcessDocumentVerification($verification->id);
 
         $job->handle($service, app(DocumentVerificationResultWriter::class), app(DocumentVerificationAuditService::class), app(DocumentVerificationNotificationService::class));
-        $verification->refresh()->update(['status' => 'menunggu']);
+        $verification->refresh()->update(['process_status' => 'menunggu']);
         $job->handle($service, app(DocumentVerificationResultWriter::class), app(DocumentVerificationAuditService::class), app(DocumentVerificationNotificationService::class));
 
-        $this->assertSame('gagal_diproses', $verification->fresh()->status);
+        $this->assertSame('gagal', $verification->fresh()->process_status);
+        $this->assertNull($verification->fresh()->authenticity_status);
         $this->assertCount(1, $user->fresh()->notifications);
-        $this->assertSame('failed', $user->fresh()->notifications->first()->data['status']);
+        $this->assertSame('gagal', $user->fresh()->notifications->first()->data['process_status']);
+        $this->assertNull($user->fresh()->notifications->first()->data['authenticity_status']);
         $this->assertSame(1, DocumentVerificationAudit::where('event', 'ocr_started')->count());
         $this->assertSame(1, DocumentVerificationAudit::where('event', 'ocr_failed')->count());
     }
@@ -83,6 +89,34 @@ class DocumentVerificationAuditNotificationTest extends TestCase
         $notifier->send(DocumentVerification::create($this->verificationData($owner, 'kedua.pdf')), false);
         $this->actingAs($owner)->patch(route('ocr-notifications.read-all'))->assertRedirect();
         $this->assertSame(0, $owner->unreadNotifications()->count());
+    }
+
+    public function test_legacy_failed_notification_is_read_as_failed_process_status(): void
+    {
+        $user = User::factory()->create(['role' => 'staff']);
+        $verification = DocumentVerification::create($this->verificationData($user, 'legacy-failed.pdf', 'gagal'));
+        $notificationId = (string) Str::uuid();
+
+        DB::table('notifications')->insert([
+            'id' => $notificationId,
+            'type' => 'document-verification',
+            'notifiable_type' => $user->getMorphClass(),
+            'notifiable_id' => $user->id,
+            'data' => json_encode([
+                'document_verification_id' => $verification->id,
+                'status' => 'failed',
+                'filename' => $verification->original_filename,
+            ], JSON_THROW_ON_ERROR),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($user)->getJson(route('ocr-notifications.index'))
+            ->assertOk()
+            ->assertJsonPath('notifications.0.process_status', 'gagal')
+            ->assertJsonPath('notifications.0.authenticity_status', null);
+        $this->actingAs($user)->get(route('ocr-notifications.open', $notificationId))
+            ->assertRedirect(route('verifications.processing', $verification));
     }
 
     public function test_manual_correction_audits_only_changed_values_before_and_after(): void
@@ -158,15 +192,18 @@ class DocumentVerificationAuditNotificationTest extends TestCase
             $notifications,
         );
 
-        $this->assertSame('asli', $verification->fresh()->status);
+        $this->assertSame('selesai', $verification->fresh()->process_status);
+        $this->assertSame('asli', $verification->fresh()->authenticity_status);
         $this->assertSame(76, $verification->fresh()->overall_score);
     }
 
-    private function verificationData(User $user, string $filename, string $status = 'asli'): array
+    private function verificationData(User $user, string $filename, string $processStatus = 'selesai'): array
     {
         return [
             'user_id' => $user->id, 'document_type' => 'invoice', 'original_filename' => $filename,
-            'file_path' => 'document-verifications/'.$user->id.'/'.$filename, 'status' => $status,
+            'file_path' => 'document-verifications/'.$user->id.'/'.$filename,
+            'process_status' => $processStatus,
+            'authenticity_status' => $processStatus === 'selesai' ? 'asli' : null,
             'readability_score' => 80, 'completeness_score' => 70, 'authenticity_score' => 50,
             'overall_score' => 76, 'message' => 'Dokumen selesai.', 'analysis_details' => [],
         ];
@@ -175,7 +212,8 @@ class DocumentVerificationAuditNotificationTest extends TestCase
     private function verificationResult(): array
     {
         return [
-            'status' => 'ASLI', 'confidence' => 76.0, 'notes' => 'Dokumen memenuhi indikator.',
+            'process_status' => 'selesai', 'authenticity_status' => 'asli',
+            'confidence' => 76.0, 'notes' => 'Dokumen memenuhi indikator.',
             'scores' => ['readability_score' => 90, 'completeness_score' => 85, 'authenticity_score' => 50, 'overall_score' => 76],
             'analysis' => ['ocr' => ['raw_text' => 'Invoice'], 'metadata' => [], 'manipulation' => [], 'barcode' => []],
             'specialized_metadata' => ['invoice_number' => 'INV-001', 'invoice_date' => '2026-08-27', 'total_amount' => 10881203, 'currency' => 'IDR'],

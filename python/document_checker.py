@@ -279,8 +279,13 @@ def extract_text(path: Path) -> str:
     validate_file(path)
     try:
         if path.suffix.lower() == ".pdf":
+            with path.open("rb") as file:
+                if file.read(5) != b"%PDF-":
+                    raise DocumentError("Isi file tidak sesuai dengan ekstensi PDF.")
             chunks: list[str] = []
             with pymupdf.open(path) as document:
+                if document.needs_pass:
+                    raise DocumentError("PDF terenkripsi tidak didukung.")
                 if document.page_count == 0:
                     raise DocumentError("PDF tidak memiliki halaman.")
                 for page in document:
@@ -294,6 +299,9 @@ def extract_text(path: Path) -> str:
             return "\n".join(chunks).strip()
 
         with Image.open(path) as image:
+            expected_format = "PNG" if path.suffix.lower() == ".png" else "JPEG"
+            if image.format != expected_format:
+                raise DocumentError("Isi file tidak sesuai dengan ekstensi gambar.")
             image.verify()
         with Image.open(path) as image:
             return ocr_image(image.convert("RGB")).strip()
@@ -696,13 +704,13 @@ def analyze_text(text: str, document_type: str = "surat_jalan") -> dict[str, Any
         + authenticity_score * 0.2
     )
     if completeness_score >= 80:
-        status = "ASLI"
+        authenticity_status = "asli"
         default_note = "Dokumen terbaca dan memenuhi sebagian besar indikator kelengkapan."
     elif completeness_score >= 50:
-        status = "MENCURIGAKAN"
+        authenticity_status = "mencurigakan"
         default_note = "Dokumen memerlukan peninjauan lebih lanjut."
     else:
-        status = "PALSU"
+        authenticity_status = "palsu"
         default_note = "Indikator dokumen belum cukup dan perlu diperiksa secara manual."
 
     missing = []
@@ -715,7 +723,8 @@ def analyze_text(text: str, document_type: str = "surat_jalan") -> dict[str, Any
     notes = "; ".join(missing) + "." if missing else default_note
 
     return {
-        "status": status,
+        "process_status": "selesai",
+        "authenticity_status": authenticity_status,
         "confidence": float(overall_score),
         "notes": notes,
         "scores": {
@@ -1604,18 +1613,18 @@ def apply_evidence_scores(result: dict[str, Any], file_metadata: dict[str, Any],
     result["confidence"] = float(overall)
 
     if manipulation.get("suspicious") and authenticity < 30:
-        result["status"] = "PALSU"
+        result["authenticity_status"] = "palsu"
     elif manipulation.get("requires_manual_review") and authenticity < 50:
-        # Hanya MENCURIGAKAN jika both manual review dibutuhkan AND authenticity rendah
-        result["status"] = "MENCURIGAKAN"
+        # Hanya mencurigakan jika both manual review dibutuhkan AND authenticity rendah
+        result["authenticity_status"] = "mencurigakan"
     elif verification_mark["detected"] is None and authenticity < 60:
-        # Tanda pengesahan tidak terdeteksi dan authenticity rendah -> MENCURIGAKAN
-        result["status"] = "MENCURIGAKAN"
+        # Tanda pengesahan tidak terdeteksi dan authenticity rendah -> mencurigakan
+        result["authenticity_status"] = "mencurigakan"
     elif result["scores"]["completeness_score"] < 40:
         # Hanya sangat rendah completeness yang jadi mencurigakan
-        result["status"] = "MENCURIGAKAN"
+        result["authenticity_status"] = "mencurigakan"
     else:
-        result["status"] = "ASLI"
+        result["authenticity_status"] = "asli"
 
     notes = []
     if manipulation.get("suspicious"):
@@ -1678,7 +1687,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except DocumentError as exc:
         print(json.dumps({
-            "status": "PALSU",
+            "process_status": "gagal",
+            "authenticity_status": None,
             "confidence": 0.0,
             "notes": str(exc),
             "scores": {

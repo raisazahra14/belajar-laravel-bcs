@@ -17,9 +17,11 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class DocumentVerificationController extends Controller
 {
@@ -45,18 +47,38 @@ class DocumentVerificationController extends Controller
         }
 
         $path = $file->store('document-verifications/'.auth()->id(), 'local');
-        $verification = DocumentVerification::create([
-            'user_id' => auth()->id(), 'document_type' => $documentType,
-            'original_filename' => $file->getClientOriginalName(), 'file_path' => $path,
-            'status' => 'menunggu', 'readability_score' => 0, 'completeness_score' => 0,
-            'authenticity_score' => 0, 'overall_score' => 0,
-            'message' => 'Dokumen menunggu antrean.', 'analysis_details' => [],
-        ]);
-        $requestId = (string) Str::uuid();
-        $audit->record($verification, 'document_uploaded', 'user', "verification:{$verification->id}:uploaded", $request->user(), after: ['status' => 'menunggu'], technicalMetadata: ['request_id' => $requestId]);
-        $audit->record($verification, 'ocr_queued', 'system', "verification:{$verification->id}:queued:initial", technicalMetadata: ['request_id' => $requestId, 'queue' => 'default']);
-        Cache::put($fingerprint, $verification->id, now()->addMinute());
-        ProcessDocumentVerification::dispatch($verification->id);
+        if (! is_string($path) || $path === '') {
+            throw ValidationException::withMessages([
+                'document' => 'Dokumen tidak dapat disimpan. Periksa kapasitas penyimpanan lalu coba lagi.',
+            ]);
+        }
+
+        $verification = null;
+        try {
+            $verification = DocumentVerification::create([
+                'user_id' => auth()->id(), 'document_type' => $documentType,
+                'original_filename' => $file->getClientOriginalName(), 'file_path' => $path,
+                'process_status' => DocumentVerification::PROCESS_WAITING,
+                'authenticity_status' => null,
+                'readability_score' => 0, 'completeness_score' => 0,
+                'authenticity_score' => 0, 'overall_score' => 0,
+                'message' => 'Dokumen menunggu antrean.', 'analysis_details' => [],
+            ]);
+            $requestId = (string) Str::uuid();
+            $audit->record($verification, 'document_uploaded', 'user', "verification:{$verification->id}:uploaded", $request->user(), after: ['process_status' => DocumentVerification::PROCESS_WAITING], technicalMetadata: ['request_id' => $requestId]);
+            $audit->record($verification, 'ocr_queued', 'system', "verification:{$verification->id}:queued:initial", technicalMetadata: ['request_id' => $requestId, 'queue' => 'default']);
+            Cache::put($fingerprint, $verification->id, now()->addMinute());
+            ProcessDocumentVerification::dispatch($verification->id);
+        } catch (Throwable $exception) {
+            Cache::forget($fingerprint);
+            $verification?->delete();
+            Storage::disk('local')->delete($path);
+            report($exception);
+
+            throw ValidationException::withMessages([
+                'document' => 'Dokumen tidak dapat disimpan atau dimasukkan ke antrean. Coba lagi.',
+            ]);
+        }
 
         return redirect()->route('verifications.processing', $verification)
             ->with('success', 'Dokumen berhasil diunggah dan masuk antrean.');
@@ -92,13 +114,18 @@ class DocumentVerificationController extends Controller
     public function retry(DocumentVerification $documentVerification, DocumentVerificationAuditService $audit): RedirectResponse
     {
         $this->authorizeAccess($documentVerification);
-        abort_unless($documentVerification->status === 'gagal_diproses', 422);
+        abort_unless($documentVerification->process_status === DocumentVerification::PROCESS_FAILED, 422);
         abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
 
         $requestId = (string) Str::uuid();
         DB::transaction(function () use ($documentVerification, $audit, $requestId): void {
             $before = $audit->values($documentVerification);
-            $documentVerification->update(['status' => 'menunggu', 'message' => 'Dokumen menunggu antrean.', 'error_message' => null]);
+            $documentVerification->update([
+                'process_status' => DocumentVerification::PROCESS_WAITING,
+                'authenticity_status' => null,
+                'message' => 'Dokumen menunggu antrean.',
+                'error_message' => null,
+            ]);
             $audit->record($documentVerification, 'ocr_retried', 'user', "verification:{$documentVerification->id}:retry:{$requestId}", request()->user(), before: $before, after: $audit->values($documentVerification), technicalMetadata: ['request_id' => $requestId]);
             $audit->record($documentVerification, 'ocr_queued', 'system', "verification:{$documentVerification->id}:queued:{$requestId}", technicalMetadata: ['request_id' => $requestId, 'queue' => 'default']);
         });
@@ -130,14 +157,25 @@ class DocumentVerificationController extends Controller
         abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
         $requestId = (string) Str::uuid();
         $replaceManual = $request->boolean('replace_manual') || ! $documentVerification->ocr_corrected_at;
-        $audit->record(
-            $documentVerification,
-            'ocr_reprocess_requested',
-            'reprocess',
-            "verification:{$documentVerification->id}:reprocess_requested:{$requestId}",
-            $request->user(),
-            technicalMetadata: ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
-        );
+        DB::transaction(function () use ($documentVerification, $audit, $request, $requestId, $replaceManual): void {
+            $before = $audit->values($documentVerification);
+            $documentVerification->update([
+                'process_status' => DocumentVerification::PROCESSING,
+                'authenticity_status' => null,
+                'message' => 'Engine OCR sedang membaca dokumen.',
+                'error_message' => null,
+            ]);
+            $audit->record(
+                $documentVerification,
+                'ocr_reprocess_requested',
+                'reprocess',
+                "verification:{$documentVerification->id}:reprocess_requested:{$requestId}",
+                $request->user(),
+                before: $before,
+                after: $audit->values($documentVerification),
+                technicalMetadata: ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
+            );
+        });
 
         try {
             $result = $service->verify(
@@ -163,14 +201,26 @@ class DocumentVerificationController extends Controller
             );
             $documentVerification->refresh();
         } catch (RuntimeException $exception) {
-            $audit->record(
-                $documentVerification->fresh(),
-                'ocr_reprocess_failed',
-                'reprocess',
-                "verification:{$documentVerification->id}:reprocess_failed:{$requestId}",
-                $request->user(),
-                technicalMetadata: ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
-            );
+            DB::transaction(function () use ($documentVerification, $audit, $request, $requestId, $replaceManual): void {
+                $documentVerification->refresh();
+                $before = $audit->values($documentVerification);
+                $documentVerification->update([
+                    'process_status' => DocumentVerification::PROCESS_FAILED,
+                    'authenticity_status' => null,
+                    'message' => 'Verifikasi dokumen gagal.',
+                    'error_message' => 'Dokumen tidak dapat diproses. Pastikan file dapat dibaca, lalu coba lagi.',
+                ]);
+                $audit->record(
+                    $documentVerification,
+                    'ocr_reprocess_failed',
+                    'reprocess',
+                    "verification:{$documentVerification->id}:reprocess_failed:{$requestId}",
+                    $request->user(),
+                    before: $before,
+                    after: $audit->values($documentVerification),
+                    technicalMetadata: ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
+                );
+            });
 
             return redirect()->route('verifications.show', $documentVerification)
                 ->withErrors([
@@ -201,24 +251,18 @@ class DocumentVerificationController extends Controller
 
     private function statusPayload(DocumentVerification $verification): array
     {
-        $state = match ($verification->status) {
-            'menunggu' => 'waiting',
-            'sedang_dianalisis' => 'processing',
-            'gagal_diproses' => 'failed',
-            default => 'completed',
-        };
-
         return [
-            'state' => $state,
-            'label' => match ($state) {
-                'waiting' => 'Dokumen menunggu antrean',
-                'processing' => 'Engine OCR sedang membaca dokumen',
-                'failed' => 'Dokumen belum berhasil dianalisis',
+            'process_status' => $verification->process_status,
+            'authenticity_status' => $verification->authenticity_status,
+            'label' => match ($verification->process_status) {
+                DocumentVerification::PROCESS_WAITING => 'Dokumen menunggu antrean',
+                DocumentVerification::PROCESSING => 'Engine OCR sedang membaca dokumen',
+                DocumentVerification::PROCESS_FAILED => 'Dokumen belum berhasil dianalisis',
                 default => 'Analisis dokumen selesai',
             },
-            'message' => $state === 'failed' ? $verification->error_message : $verification->message,
-            'result_url' => $state === 'completed' ? route('verifications.show', $verification) : null,
-            'retry_url' => $state === 'failed' ? route('verifications.retry', $verification) : null,
+            'message' => $verification->process_status === DocumentVerification::PROCESS_FAILED ? $verification->error_message : $verification->message,
+            'result_url' => $verification->process_status === DocumentVerification::PROCESS_COMPLETED ? route('verifications.show', $verification) : null,
+            'retry_url' => $verification->process_status === DocumentVerification::PROCESS_FAILED ? route('verifications.retry', $verification) : null,
         ];
     }
 

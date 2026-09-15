@@ -5,9 +5,11 @@ namespace Tests\Feature;
 use App\Jobs\ProcessDocumentVerification;
 use App\Models\DocumentVerification;
 use App\Models\User;
+use App\Services\DocumentVerificationAuditService;
 use App\Services\DocumentVerificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
@@ -26,7 +28,8 @@ class DocumentVerificationTest extends TestCase
             ->once()
             ->withArgs(fn (string $path, string $type) => str_ends_with($path, '.pdf') && $type === 'surat_jalan')
             ->andReturn([
-                'status' => 'ASLI',
+                'process_status' => 'selesai',
+                'authenticity_status' => 'asli',
                 'confidence' => 76.0,
                 'notes' => 'Dokumen memenuhi indikator kelengkapan.',
                 'scores' => [
@@ -63,7 +66,8 @@ class DocumentVerificationTest extends TestCase
         $verification = DocumentVerification::firstOrFail();
         $response->assertRedirect(route('verifications.processing', $verification));
         $this->assertSame($user->id, $verification->user_id);
-        $this->assertSame('asli', $verification->status);
+        $this->assertSame('selesai', $verification->process_status);
+        $this->assertSame('asli', $verification->authenticity_status);
         $this->assertSame(76, $verification->overall_score);
         $this->assertSame('SJ-001', $verification->document_number);
         $this->assertSame('2026-08-26', $verification->document_date->format('Y-m-d'));
@@ -90,7 +94,8 @@ class DocumentVerificationTest extends TestCase
 
         $verification = DocumentVerification::firstOrFail();
         $response->assertRedirect(route('verifications.processing', $verification));
-        $this->assertSame('gagal_diproses', $verification->status);
+        $this->assertSame('gagal', $verification->process_status);
+        $this->assertNull($verification->authenticity_status);
         $this->assertSame(0, $verification->overall_score);
         $this->assertSame(
             'Dokumen tidak dapat diproses. Pastikan file dapat dibaca, lalu coba lagi.',
@@ -104,7 +109,7 @@ class DocumentVerificationTest extends TestCase
         Storage::fake('local');
         $user = User::factory()->create(['role' => 'staff']);
         $result = $this->verificationResult();
-        $result['status'] = 'MENCURIGAKAN';
+        $result['authenticity_status'] = 'mencurigakan';
         $result['confidence'] = 68.0;
         $result['scores']['overall_score'] = 68;
         $result['notes'] = 'Tanda pengesahan belum dapat dipastikan. Silakan lakukan pemeriksaan manual.';
@@ -121,7 +126,8 @@ class DocumentVerificationTest extends TestCase
         ])->assertRedirect();
 
         $verification = DocumentVerification::firstOrFail();
-        $this->assertSame('mencurigakan', $verification->status);
+        $this->assertSame('selesai', $verification->process_status);
+        $this->assertSame('mencurigakan', $verification->authenticity_status);
         $this->assertSame($result['notes'], $verification->message);
         $this->actingAs($user)->get(route('verifications.show', $verification))
             ->assertOk()->assertSee('Silakan lakukan pemeriksaan manual.');
@@ -197,7 +203,8 @@ class DocumentVerificationTest extends TestCase
         $first = $upload();
         $verification = DocumentVerification::firstOrFail();
         $first->assertRedirect(route('verifications.processing', $verification));
-        $this->assertSame('menunggu', $verification->status);
+        $this->assertSame('menunggu', $verification->process_status);
+        $this->assertNull($verification->authenticity_status);
         Queue::assertPushed(ProcessDocumentVerification::class, 1);
 
         $upload()->assertRedirect(route('verifications.processing', $verification));
@@ -207,7 +214,7 @@ class DocumentVerificationTest extends TestCase
         $this->actingAs($user)->get(route('verifications.processing', $verification))
             ->assertOk()->assertSee('Dokumen menunggu antrean');
         $this->actingAs($user)->getJson(route('verifications.status', $verification))
-            ->assertOk()->assertJson(['state' => 'waiting', 'result_url' => null]);
+            ->assertOk()->assertJson(['process_status' => 'menunggu', 'authenticity_status' => null, 'result_url' => null]);
     }
 
     public function test_processing_status_stops_at_completed_or_failed_and_retry_is_queued(): void
@@ -218,20 +225,22 @@ class DocumentVerificationTest extends TestCase
         $completed = DocumentVerification::create($this->historyData($user, 'selesai.pdf'));
         $failed = DocumentVerification::create([
             ...$this->historyData($user, 'gagal.pdf'),
-            'status' => 'gagal_diproses',
+            'process_status' => 'gagal',
+            'authenticity_status' => null,
             'file_path' => 'document-verifications/'.$user->id.'/gagal.pdf',
             'error_message' => 'Dokumen belum dapat dianalisis.',
         ]);
         Storage::disk('local')->put($failed->file_path, 'document');
 
         $this->actingAs($user)->getJson(route('verifications.status', $completed))
-            ->assertOk()->assertJson(['state' => 'completed', 'result_url' => route('verifications.show', $completed)]);
+            ->assertOk()->assertJson(['process_status' => 'selesai', 'authenticity_status' => 'mencurigakan', 'result_url' => route('verifications.show', $completed)]);
         $this->actingAs($user)->getJson(route('verifications.status', $failed))
-            ->assertOk()->assertJson(['state' => 'failed', 'retry_url' => route('verifications.retry', $failed)]);
+            ->assertOk()->assertJson(['process_status' => 'gagal', 'authenticity_status' => null, 'retry_url' => route('verifications.retry', $failed)]);
 
         $this->actingAs($user)->post(route('verifications.retry', $failed))
             ->assertRedirect(route('verifications.processing', $failed));
-        $this->assertSame('menunggu', $failed->fresh()->status);
+        $this->assertSame('menunggu', $failed->fresh()->process_status);
+        $this->assertNull($failed->fresh()->authenticity_status);
         Queue::assertPushed(ProcessDocumentVerification::class, 1);
     }
 
@@ -240,7 +249,8 @@ class DocumentVerificationTest extends TestCase
         $user = User::factory()->create(['role' => 'staff']);
         $verification = DocumentVerification::create([
             ...$this->historyData($user, 'ocr-gagal.pdf'),
-            'status' => 'gagal_diproses',
+            'process_status' => 'gagal',
+            'authenticity_status' => null,
             'error_message' => 'Dokumen tidak dapat diproses. Pastikan file dapat dibaca, lalu coba lagi.',
         ]);
 
@@ -258,7 +268,8 @@ class DocumentVerificationTest extends TestCase
         $other = User::factory()->create(['role' => 'staff']);
         $verification = DocumentVerification::create([
             ...$this->historyData($owner, 'private-queue.pdf'),
-            'status' => 'gagal_diproses',
+            'process_status' => 'gagal',
+            'authenticity_status' => null,
         ]);
 
         $this->actingAs($other)->get(route('verifications.processing', $verification))->assertForbidden();
@@ -290,6 +301,110 @@ class DocumentVerificationTest extends TestCase
         ])->assertSessionHasErrors('document');
 
         $this->assertDatabaseCount('document_verifications', 0);
+    }
+
+    public function test_document_upload_enforces_size_boundary_and_leaves_no_artifact_when_rejected(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $user = User::factory()->create(['role' => 'staff']);
+
+        foreach ([10239, 10240] as $size) {
+            $this->actingAs($user)->post(route('verifications.store'), [
+                'document_type' => 'invoice',
+                'document' => UploadedFile::fake()->create("invoice-{$size}.pdf", $size, 'application/pdf'),
+            ])->assertSessionDoesntHaveErrors();
+            Cache::flush();
+        }
+
+        $this->assertDatabaseCount('document_verifications', 2);
+        Queue::assertPushed(ProcessDocumentVerification::class, 2);
+        $this->assertCount(2, Storage::disk('local')->allFiles('document-verifications'));
+
+        $this->actingAs($user)->post(route('verifications.store'), [
+            'document_type' => 'invoice',
+            'document' => UploadedFile::fake()->create('invoice-too-large.pdf', 10241, 'application/pdf'),
+        ])->assertSessionHasErrors('document');
+
+        $this->assertDatabaseCount('document_verifications', 2);
+        Queue::assertPushed(ProcessDocumentVerification::class, 2);
+        $this->assertCount(2, Storage::disk('local')->allFiles('document-verifications'));
+    }
+
+    public function test_laravel_accepts_every_document_format_in_the_python_contract(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $user = User::factory()->create(['role' => 'staff']);
+        $files = [
+            UploadedFile::fake()->create('document.pdf', 10, 'application/pdf'),
+            UploadedFile::fake()->image('document.jpg'),
+            UploadedFile::fake()->image('document.jpeg'),
+            UploadedFile::fake()->image('document.png'),
+        ];
+
+        foreach ($files as $file) {
+            $this->actingAs($user)->post(route('verifications.store'), [
+                'document_type' => 'surat_jalan',
+                'document' => $file,
+            ])->assertSessionDoesntHaveErrors();
+            Cache::flush();
+        }
+
+        $this->assertDatabaseCount('document_verifications', 4);
+        Queue::assertPushed(ProcessDocumentVerification::class, 4);
+        $this->assertCount(4, Storage::disk('local')->allFiles('document-verifications'));
+    }
+
+    public function test_document_upload_rejects_extension_mime_spoofing_double_extension_and_empty_file(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $user = User::factory()->create(['role' => 'staff']);
+        $files = [
+            UploadedFile::fake()->createWithContent('invoice.exe', "%PDF-1.4\n%%EOF")->mimeType('application/pdf'),
+            UploadedFile::fake()->createWithContent('invoice.pdf', 'plain text')->mimeType('text/plain'),
+            UploadedFile::fake()->createWithContent('invoice.pdf.exe', "%PDF-1.4\n%%EOF")->mimeType('application/pdf'),
+            UploadedFile::fake()->createWithContent('invoice.png', '')->mimeType('application/x-empty'),
+        ];
+
+        foreach ($files as $file) {
+            $response = $this->actingAs($user)->post(route('verifications.store'), [
+                'document_type' => 'invoice',
+                'document' => $file,
+            ]);
+            $this->assertTrue(
+                session('errors')?->has('document') === true,
+                "File {$file->getClientOriginalName()} seharusnya ditolak; status HTTP {$response->getStatusCode()}.",
+            );
+        }
+
+        $this->assertDatabaseCount('document_verifications', 0);
+        Queue::assertNothingPushed();
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_document_upload_rolls_back_file_record_and_job_when_queue_setup_fails(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $user = User::factory()->create(['role' => 'staff']);
+        $this->mock(DocumentVerificationAuditService::class)
+            ->shouldReceive('record')
+            ->once()
+            ->andThrow(new RuntimeException('internal storage path'));
+
+        $response = $this->actingAs($user)->post(route('verifications.store'), [
+            'document_type' => 'invoice',
+            'document' => UploadedFile::fake()->create('invoice.pdf', 10, 'application/pdf'),
+        ]);
+
+        $response->assertSessionHasErrors([
+            'document' => 'Dokumen tidak dapat disimpan atau dimasukkan ke antrean. Coba lagi.',
+        ]);
+        $this->assertDatabaseCount('document_verifications', 0);
+        Queue::assertNothingPushed();
+        $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
     public function test_guest_cannot_open_or_upload_document_verification(): void
@@ -329,26 +444,85 @@ class DocumentVerificationTest extends TestCase
             ->assertSee('staff-document.pdf');
     }
 
-    public function test_history_displays_colored_badges_for_legacy_statuses(): void
+    public function test_history_displays_separate_process_and_authenticity_badges(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $review = DocumentVerification::create([
-            ...$this->historyData($admin, 'review.pdf'),
-            'status' => 'perlu_ditinjau',
+        $review = DocumentVerification::create($this->historyData($admin, 'review.pdf'));
+        DocumentVerification::create([
+            ...$this->historyData($admin, 'authentic.pdf'),
+            'authenticity_status' => 'asli',
+        ]);
+        DocumentVerification::create([
+            ...$this->historyData($admin, 'fake.pdf'),
+            'authenticity_status' => 'palsu',
         ]);
         DocumentVerification::create([
             ...$this->historyData($admin, 'unreadable.pdf'),
-            'status' => 'tidak_terbaca',
+            'process_status' => 'gagal',
+            'authenticity_status' => null,
         ]);
 
         $this->actingAs($admin)->get(route('verifications.index'))
             ->assertOk()
+            ->assertSee('badge-success', false)
+            ->assertSee('Asli')
             ->assertSee('badge-warning', false)
-            ->assertSee('Perlu Ditinjau')
+            ->assertSee('Mencurigakan')
+            ->assertSee('badge-danger', false)
+            ->assertSee('Palsu')
             ->assertSee('badge-dark', false)
-            ->assertSee('Tidak Terbaca');
+            ->assertSee('Gagal')
+            ->assertSee('Proses OCR')
+            ->assertSee('Hasil Keaslian');
         $this->actingAs($admin)->get(route('verifications.show', $review))
             ->assertOk()->assertSee('badge-warning', false);
+    }
+
+    public function test_model_rejects_nonstandard_or_mixed_ocr_statuses(): void
+    {
+        $user = User::factory()->create(['role' => 'staff']);
+        $invalidRecords = [
+            [...$this->historyData($user, 'english-process.pdf'), 'process_status' => 'completed'],
+            [...$this->historyData($user, 'legacy-result.pdf'), 'authenticity_status' => 'perlu_ditinjau'],
+            [...$this->historyData($user, 'waiting-with-result.pdf'), 'process_status' => 'menunggu', 'authenticity_status' => 'asli'],
+            [...$this->historyData($user, 'processing-with-result.pdf'), 'process_status' => 'diproses', 'authenticity_status' => 'mencurigakan'],
+            [...$this->historyData($user, 'failed-with-result.pdf'), 'process_status' => 'gagal', 'authenticity_status' => 'palsu'],
+            [...$this->historyData($user, 'completed-without-result.pdf'), 'process_status' => 'selesai', 'authenticity_status' => null],
+        ];
+
+        foreach ($invalidRecords as $record) {
+            try {
+                DocumentVerification::create($record);
+                $this->fail('Model menerima status OCR yang tidak standar atau tercampur.');
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+
+        $this->assertDatabaseCount('document_verifications', 0);
+    }
+
+    public function test_model_accepts_only_the_required_process_and_authenticity_combinations(): void
+    {
+        $user = User::factory()->create(['role' => 'staff']);
+        $validCombinations = [
+            ['menunggu', null],
+            ['diproses', null],
+            ['selesai', 'asli'],
+            ['selesai', 'mencurigakan'],
+            ['selesai', 'palsu'],
+            ['gagal', null],
+        ];
+
+        foreach ($validCombinations as $index => [$processStatus, $authenticityStatus]) {
+            DocumentVerification::create([
+                ...$this->historyData($user, "valid-combination-{$index}.pdf"),
+                'process_status' => $processStatus,
+                'authenticity_status' => $authenticityStatus,
+            ]);
+        }
+
+        $this->assertDatabaseCount('document_verifications', count($validCombinations));
     }
 
     public function test_owner_can_correct_ocr_metadata_without_changing_original_file(): void
@@ -413,7 +587,14 @@ class DocumentVerificationTest extends TestCase
         $originalPath = $verification->file_path;
 
         $this->mock(DocumentVerificationService::class)->shouldReceive('verify')->once()
-            ->withArgs(fn (string $path, string $type): bool => str_ends_with($path, 'generated.pdf') && $type === 'surat_jalan')
+            ->withArgs(function (string $path, string $type) use ($verification): bool {
+                $started = $verification->fresh();
+
+                return str_ends_with($path, 'generated.pdf')
+                    && $type === 'surat_jalan'
+                    && $started->process_status === 'diproses'
+                    && $started->authenticity_status === null;
+            })
             ->andReturn($this->verificationResult());
 
         $response = $this->actingAs($owner)->post(route('verifications.reprocess', $verification));
@@ -421,7 +602,8 @@ class DocumentVerificationTest extends TestCase
         $response->assertRedirect(route('verifications.show', $verification))
             ->assertSessionHas('success');
         $verification->refresh();
-        $this->assertSame('asli', $verification->status);
+        $this->assertSame('selesai', $verification->process_status);
+        $this->assertSame('asli', $verification->authenticity_status);
         $this->assertSame('DHO16014', $verification->document_number);
         $this->assertSame('2026-08-27', $verification->document_date?->format('Y-m-d'));
         $this->assertSame('A9514TX', $verification->vehicle_number);
@@ -430,7 +612,7 @@ class DocumentVerificationTest extends TestCase
         Storage::disk('local')->assertExists($originalPath);
     }
 
-    public function test_failed_reprocess_preserves_previous_result_and_other_staff_is_forbidden(): void
+    public function test_failed_reprocess_clears_previous_result_and_other_staff_is_forbidden(): void
     {
         Storage::fake('local');
         $owner = User::factory()->create(['role' => 'staff']);
@@ -445,8 +627,11 @@ class DocumentVerificationTest extends TestCase
         $this->actingAs($owner)->post(route('verifications.reprocess', $verification))
             ->assertRedirect(route('verifications.show', $verification))->assertSessionHasErrors('document');
 
-        $this->assertSame('mencurigakan', $verification->fresh()->status);
+        $this->assertSame('gagal', $verification->fresh()->process_status);
+        $this->assertNull($verification->fresh()->authenticity_status);
         $this->assertSame(64, $verification->fresh()->overall_score);
+        $this->actingAs($owner)->get(route('verifications.show', $verification))
+            ->assertOk()->assertSee('Belum tersedia');
     }
 
     public function test_reprocess_with_missing_private_file_returns_not_found_without_changing_result(): void
@@ -454,7 +639,7 @@ class DocumentVerificationTest extends TestCase
         Storage::fake('local');
         $user = User::factory()->create(['role' => 'staff']);
         $verification = DocumentVerification::create($this->historyData($user, 'missing.pdf'));
-        $before = $verification->only(['status', 'overall_score', 'message', 'analysis_details']);
+        $before = $verification->only(['process_status', 'authenticity_status', 'overall_score', 'message', 'analysis_details']);
         $this->mock(DocumentVerificationService::class)->shouldNotReceive('verify');
 
         $this->actingAs($user)->post(route('verifications.reprocess', $verification))
@@ -726,7 +911,8 @@ class DocumentVerificationTest extends TestCase
     private function verificationResult(): array
     {
         return [
-            'status' => 'ASLI',
+            'process_status' => 'selesai',
+            'authenticity_status' => 'asli',
             'confidence' => 84.0,
             'notes' => 'Dokumen terbaca.',
             'scores' => [
@@ -760,7 +946,8 @@ class DocumentVerificationTest extends TestCase
             'document_type' => 'surat_jalan',
             'original_filename' => $filename,
             'file_path' => 'document-verifications/'.$user->id.'/generated.pdf',
-            'status' => 'mencurigakan',
+            'process_status' => 'selesai',
+            'authenticity_status' => 'mencurigakan',
             'readability_score' => 80,
             'completeness_score' => 60,
             'authenticity_score' => 50,
