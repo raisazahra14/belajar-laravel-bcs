@@ -273,3 +273,19 @@ Aturan bisnis utama:
 Diagram dicocokkan dengan `routes/web.php`, middleware `EnsureUserHasRole`, Gate pada `AppServiceProvider`, Form Request, controller barang/prediksi/verifikasi, `StockAdjustmentService`, `StockPredictionScheduler`, job OCR/prediksi, model dan migration terkait, engine `python/document_checker.py`, feature/unit test, serta `SRS_TUGAS_1_1.md`.
 
 Otorisasi aktual tidak menggunakan class Policy atau Spatie Permission. Aplikasi menggunakan middleware `auth`, middleware `role:admin`, Gate `update-stock`, `run-stock-prediction`, dan `approve-restock`, otorisasi Form Request, serta pemeriksaan pemilik dokumen atau Admin di controller.
+
+## 6. Lampiran Hasil Render
+
+Ketiga sumber Mermaid di atas telah dirender ulang pada audit final tanpa syntax error. Lampiran SVG berikut disediakan agar diagram tetap dapat dilihat pada renderer Markdown yang tidak menjalankan Mermaid.
+
+### 6.1 Use Case Diagram
+
+![Use Case Diagram Sistem LogistikKu](./images/tugas-1-2-use-case.svg)
+
+### 6.2 Activity Diagram Stok Masuk/Keluar
+
+![Activity Diagram Stok Masuk dan Keluar](./images/tugas-1-2-activity-stok.svg)
+
+### 6.3 Activity Diagram Verifikasi Dokumen
+
+![Activity Diagram Verifikasi Dokumen](./images/tugas-1-2-activity-verifikasi.svg)

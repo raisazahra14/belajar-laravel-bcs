@@ -8,8 +8,8 @@
 | Jenis sistem | Aplikasi web pengelolaan persediaan |
 | Ruang lingkup dokumen | Inventaris, riwayat dan transaksi stok, OCR verifikasi dokumen, dan prediksi restock machine learning |
 | Aktor | Admin, Manager, dan Staff Gudang (`staff`) |
-| Dasar audit | Source code, route, middleware, Gate, Form Request, model, service, job, migration, konfigurasi, engine Python, dan feature test per 14 September 2026 |
-| Hasil validasi | PHPUnit: 216 test, 2.698 assertion, seluruhnya lulus |
+| Dasar audit | Source code, route, middleware, Gate, Form Request, model, service, job, migration, konfigurasi, engine Python, dan test per 15 September 2026 |
+| Hasil validasi | PHPUnit: 236 test/2.817 assertion dan Python: 55 test; seluruhnya lulus |
 
 Dokumen ini mendeskripsikan kondisi aplikasi yang dapat dibuktikan dari repository. Dokumen ini tidak menyatakan bahwa target yang belum diuji telah tercapai.
 
@@ -217,7 +217,16 @@ Benchmark awal membuktikan `InventoryDashboardService::activity()` mengambil sel
 
 ### 6.2 Format dan Batas Upload
 
-Audit dilakukan **14 September 2026** pada environment test lokal dengan file sintetis. Laravel menyatakan rule `max` file dalam KiB; 1 MiB = 1.024 KiB. Batas efektif HTTP adalah nilai terkecil dari rule Laravel, parser/engine, `upload_max_filesize`, kapasitas `post_max_size` setelah overhead multipart, batas body web server, serta kapasitas/izin penyimpanan.
+Audit awal dilakukan **14 September 2026** dan audit final dokumentasi dilakukan **15 September 2026** pada environment test lokal dengan file sintetis. Laravel menyatakan rule `max` file dalam KiB; 1 MiB = 1.024 KiB. Batas efektif HTTP adalah nilai terkecil dari rule Laravel, parser/engine, `upload_max_filesize`, kapasitas `post_max_size` setelah overhead multipart, batas body web server, serta kapasitas/izin penyimpanan.
+
+#### 6.2.1 Kebutuhan File Formal
+
+| ID dan nama | Kebutuhan | Kriteria penerimaan | Status; referensi |
+|---|---|---|---|
+| **NFR-FILE-001 — File OCR** | Upload OCR harus menerima PDF/JPG/JPEG/PNG maksimal 10 MiB menurut validasi Laravel dan kontrak Python. Batas efektif deployment mengikuti batas terkecil seluruh lapisan HTTP/storage. | File pada dan di bawah batas lokal diterima bila kontennya valid; file lebih besar, rusak, kosong, atau MIME/ekstensinya tidak sesuai ditolak tanpa record/job/file permanen. | **Perlu Uji Produksi**; lokal terverifikasi melalui request, Python, dan test upload |
+| **NFR-FILE-002 — File import** | Import harus menerima XLSX/XLS/CSV maksimal 5 MiB, menolak file invalid, dan tidak menyimpan upload secara permanen. | Batch valid tersimpan penuh; file/row invalid membatalkan seluruh batch tanpa write parsial. | **Perlu Uji Produksi**; lokal terverifikasi melalui request, importer, dan test import |
+| **NFR-FILE-003 — Foto barang** | Foto harus menerima JPG/JPEG/PNG/WebP yang dapat dibaca maksimal 2 MiB dan disimpan pada disk publik. | File valid pada batas diterima; non-image, file rusak, pasangan MIME/ekstensi salah, atau file lebih besar ditolak tanpa artefak yatim. | **Perlu Uji Produksi**; lokal terverifikasi melalui request/controller dan test foto |
+| **NFR-FILE-004 — Export inventaris** | Export CSV/XLSX/PDF harus memiliki nama, `Content-Type`, dan isi barang aktif yang benar. | Setiap format dapat diunduh dengan header dan isi yang sesuai. | **Sudah Tersedia**; report controller/service dan test export |
 
 `php --ini` dan `php -i` hanya membuktikan konfigurasi **PHP CLI** 8.2.12: `file_uploads=On`, `upload_max_filesize=40M`, `post_max_size=40M`, `max_file_uploads=20`, dan `upload_tmp_dir=C:\xampp\tmp`. Konfigurasi statis XAMPP Apache memuat `php8apache2_4.dll`, menunjuk `PHPINIDir C:/xampp/php`, dan tidak memuat `LimitRequestBody` pada file konfigurasi yang diperiksa. Nginx tidak ditemukan. Nilai runtime PHP Web SAPI, virtual host/override lain, kapasitas disk, dan konfigurasi produksi tidak tersedia sehingga tidak disamakan dengan hasil CLI.
 
@@ -227,7 +236,7 @@ Audit dilakukan **14 September 2026** pada environment test lokal dengan file si
 | Foto barang (`foto_barang`) | JPG, JPEG, PNG, WebP | `image/jpeg`, `image/png`, `image/webp` | 2.048 KiB (2 MiB) | CLI lokal: upload 40M/post 40M; Web SAPI dan produksi belum terukur | **Lokal: 2 MiB**. HTTP deployment mengikuti nilai terkecil seluruh lapisan | **Perlu Konfirmasi Web SAPI** |
 | Import inventaris (`spreadsheet`) | XLSX, XLS, CSV | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `application/vnd.ms-excel`; CSV menerima MIME teks/CSV yang dipetakan Symfony/Laravel | 5.120 KiB (5 MiB) | CLI lokal: upload 40M/post 40M; Web SAPI dan produksi belum terukur | **Lokal: 5 MiB**. HTTP deployment mengikuti nilai terkecil seluruh lapisan | **Perlu Konfirmasi Web SAPI** |
 
-#### 6.2.1 Endpoint, Penyimpanan, dan Pesan Gagal
+#### 6.2.2 Endpoint, Penyimpanan, dan Pesan Gagal
 
 | Jenis Upload | Endpoint dan field | Penyimpanan | Penanganan kegagalan |
 |---|---|---|---|
@@ -235,7 +244,7 @@ Audit dilakukan **14 September 2026** pada environment test lokal dengan file si
 | Foto barang | `POST /barang` dan `PUT /barang/{id}`, field opsional `foto_barang` | Disk `public`, direktori `storage/app/public/barang`; nama storage dibuat oleh Laravel | File kosong, non-image, pasangan MIME/ekstensi salah, atau >2 MiB menghasilkan validation error. Penolakan terjadi sebelum controller sehingga tidak membuat barang atau file. Foto baru dibersihkan bila persistensi gagal; penggantian sukses menghapus foto lama. |
 | Import inventaris | `POST /barang-import` dan `POST /document-tools/import`, field `spreadsheet` | Tidak disimpan permanen oleh aplikasi; parser membaca temporary upload PHP | Pesan menyatakan file tidak dapat dibaca/format salah tanpa path internal. Workbook/CSV kosong, rusak, encoding/header/baris invalid membatalkan seluruh batch; tidak ada write parsial atau file permanen. |
 
-#### 6.2.2 Kontrak Validasi dan Bukti Keamanan
+#### 6.2.3 Kontrak Validasi dan Bukti Keamanan
 
 - OCR memakai `file`, `mimes`, `extensions`, dan `max:10240`; foto memakai `filled`, `image`, `mimes`, `extensions`, pemeriksaan dimensi agar isi benar-benar dapat dibaca, dan `max:2048`; import memakai `file`, `mimes`, `extensions`, dan `max:5120`. Rule server adalah kontrol utama. Atribut HTML `accept` hanya membatasi pilihan pada UI dan bukan kontrol keamanan.
 - Ekstensi executable, ekstensi ganda dengan suffix terlarang, MIME yang tidak cocok, file kosong, dan ukuran di atas batas ditolak oleh Laravel atau parser sebelum penyimpanan permanen. Test memastikan penolakan OCR tidak membuat record/job/file, penolakan foto tidak membuat barang/file, penolakan import tidak menulis barang/transaksi, serta kegagalan setup OCR/persistensi foto tidak meninggalkan artefak yatim.
