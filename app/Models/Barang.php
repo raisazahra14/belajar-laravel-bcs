@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Barang extends Model
@@ -36,6 +37,7 @@ class Barang extends Model
     const UPDATED_AT = null;
 
     protected $fillable = [
+        'supplier_id',
         'kode_barang',
         'nama_barang',
         'kategori',
@@ -67,6 +69,11 @@ class Barang extends Model
     public function stokTransactions()
     {
         return $this->hasMany(StokTransaction::class, 'barang_id');
+    }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class, 'supplier_id');
     }
 
     public function stockPredictions()
