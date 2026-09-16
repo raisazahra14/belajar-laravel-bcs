@@ -28,9 +28,10 @@ class BarangTrashController extends Controller
     public function destroy(int $id): RedirectResponse
     {
         $barang = Barang::onlyTrashed()->findOrFail($id);
-
-        // Hapus relasi terlebih dahulu
-        $barang->stokTransactions()->delete();
+        $dependencies = $this->businessDependencies($barang);
+        if ($dependencies !== []) {
+            return back()->with('error', $this->blockedDeletionMessage($dependencies));
+        }
 
         // Hapus file fisik
         if ($barang->foto_barang) {
@@ -50,11 +51,30 @@ class BarangTrashController extends Controller
             'action' => 'required|string|in:restore,force_delete',
             'item_ids' => 'required|array|min:1',
             // Memastikan ID yang dikirim benar-benar ada di tong sampah
-            'item_ids.*' => 'exists:barangs,id',
+            'item_ids.*' => 'exists:barang,id',
         ]);
 
         $action = $request->action;
         $ids = $request->item_ids;
+
+        if ($action === 'force_delete') {
+            $barangs = Barang::onlyTrashed()->whereIn('id', $ids)->get();
+            $blocked = $barangs->mapWithKeys(function (Barang $barang): array {
+                $dependencies = $this->businessDependencies($barang);
+
+                return $dependencies === [] ? [] : [$barang->kode_barang => $dependencies];
+            });
+            if ($blocked->isNotEmpty()) {
+                $details = $blocked->map(
+                    fn (array $dependencies, string $code): string => $code.': '.implode(', ', $dependencies),
+                )->implode('; ');
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Penghapusan permanen ditolak untuk menjaga histori bisnis. '.$details,
+                ], 422);
+            }
+        }
 
         DB::beginTransaction();
         try {
@@ -63,9 +83,6 @@ class BarangTrashController extends Controller
                 $barangs = Barang::onlyTrashed()->whereIn('id', $ids)->get();
 
                 foreach ($barangs as $barang) {
-                    // Hapus relasi stok seperti pada fungsi destroy()
-                    $barang->stokTransactions()->delete();
-
                     // Hapus file foto fisik
                     if ($barang->foto_barang) {
                         Storage::disk('public')->delete($barang->foto_barang);
@@ -92,5 +109,26 @@ class BarangTrashController extends Controller
 
             return response()->json(['success' => false, 'message' => 'Terjadi kesalahan: '.$e->getMessage()], 500);
         }
+    }
+
+    /** @return list<string> */
+    private function businessDependencies(Barang $barang): array
+    {
+        $checks = [
+            'transaksi stok' => DB::table('stok_transactions')->where('barang_id', $barang->id)->exists(),
+            'saldo gudang' => DB::table('warehouse_stocks')->where('barang_id', $barang->id)->exists(),
+            'histori stok legacy' => DB::table('stok_histories')->where('barang_id', $barang->id)->exists(),
+            'prediksi stok' => DB::table('stock_predictions')->where('barang_id', $barang->id)->exists(),
+            'notifikasi prediksi' => DB::table('stock_prediction_notifications')->where('barang_id', $barang->id)->exists(),
+            'proses prediksi' => DB::table('stock_prediction_processes')->where('barang_id', $barang->id)->exists(),
+        ];
+
+        return array_keys(array_filter($checks));
+    }
+
+    /** @param list<string> $dependencies */
+    private function blockedDeletionMessage(array $dependencies): string
+    {
+        return 'Barang tidak dapat dihapus permanen karena masih memiliki '.implode(', ', $dependencies).'. Histori bisnis tidak dihapus.';
     }
 }

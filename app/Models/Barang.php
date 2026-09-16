@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Barang extends Model
@@ -74,6 +76,23 @@ class Barang extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class, 'supplier_id');
+    }
+
+    public function warehouseStocks(): HasMany
+    {
+        return $this->hasMany(WarehouseStock::class, 'barang_id');
+    }
+
+    public function warehouseStokTransactions(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            StokTransaction::class,
+            WarehouseStock::class,
+            'barang_id',
+            'warehouse_stock_id',
+            'id',
+            'id',
+        );
     }
 
     public function stockPredictions()

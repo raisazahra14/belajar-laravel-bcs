@@ -10,6 +10,7 @@ class StokTransaction extends Model
     protected $fillable = [
         'barang_id',
         'supplier_id',
+        'warehouse_stock_id',
         'jenis',
         'jumlah',
         'stok_sebelum',
@@ -25,5 +26,10 @@ class StokTransaction extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class, 'supplier_id');
+    }
+
+    public function warehouseStock(): BelongsTo
+    {
+        return $this->belongsTo(WarehouseStock::class, 'warehouse_stock_id');
     }
 }

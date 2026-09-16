@@ -34,6 +34,18 @@ erDiagram
         timestamp deleted_at "nullable; soft delete"
     }
 
+    WAREHOUSES {
+        bigint id PK
+        varchar kode_gudang UK
+        varchar nama_gudang
+        text alamat "nullable"
+        text keterangan "nullable"
+        boolean is_active "default true"
+        timestamp created_at "nullable"
+        timestamp updated_at "nullable"
+        timestamp deleted_at "nullable; soft delete"
+    }
+
     BARANG {
         bigint id PK
         bigint supplier_id FK "nullable"
@@ -52,13 +64,24 @@ erDiagram
 
     STOK_TRANSACTIONS {
         bigint id PK
-        bigint barang_id FK
+        bigint barang_id FK "wajib; delete RESTRICT"
         bigint supplier_id FK "nullable"
+        bigint warehouse_stock_id FK "nullable; delete RESTRICT"
         enum jenis "masuk atau keluar"
         int jumlah "CHECK > 0"
         uint stok_sebelum "nullable; berpasangan"
         uint stok_sesudah "nullable; berpasangan"
         text keterangan "nullable"
+        timestamp created_at "nullable"
+        timestamp updated_at "nullable"
+    }
+
+    WAREHOUSE_STOCKS {
+        bigint id PK
+        bigint barang_id FK "composite UK"
+        bigint warehouse_id FK "composite UK"
+        uint stok "default 0"
+        uint stok_minimum "default 0"
         timestamp created_at "nullable"
         timestamp updated_at "nullable"
     }
@@ -192,9 +215,12 @@ erDiagram
     USERS o|--o{ DOCUMENT_VERIFICATION_AUDITS : "menjadi aktor"
     USERS o|--o{ NOTIFICATIONS : "menerima; polymorphic tanpa FK"
 
-    BARANG ||--o{ STOK_TRANSACTIONS : "memiliki transaksi"
+    BARANG ||--o{ STOK_TRANSACTIONS : "memiliki transaksi legacy"
     SUPPLIERS o|--o{ BARANG : "menjadi supplier utama"
     SUPPLIERS o|--o{ STOK_TRANSACTIONS : "menjadi supplier asal"
+    BARANG ||--o{ WAREHOUSE_STOCKS : "memiliki saldo gudang"
+    WAREHOUSES ||--o{ WAREHOUSE_STOCKS : "menyimpan saldo"
+    WAREHOUSE_STOCKS o|--o{ STOK_TRANSACTIONS : "menjadi asal saldo"
     BARANG ||--o{ STOK_HISTORIES : "memiliki histori"
     BARANG ||--o{ STOCK_PREDICTIONS : "diprediksi"
     USERS o|--o{ STOCK_PREDICTIONS : "menganalisis"
@@ -217,6 +243,8 @@ Tidak dibuat garis dari `STOK_TRANSACTIONS` ke `STOCK_PREDICTION_PROCESSES`: `so
 |---|---|
 | `users` | Akun pengguna, peran aplikasi, pemilik dokumen, analis/peminta prediksi, aktor audit, dan penerima notifikasi. |
 | `suppliers` | Master supplier aktif/nonaktif; dapat menjadi supplier utama barang dan supplier asal transaksi stok. Soft delete aktif. |
+| `warehouses` | Master gudang aktif/nonaktif. `GDG-UTAMA` adalah gudang default yang dibuat migration secara idempotent. Soft delete aktif. |
+| `warehouse_stocks` | Saldo dan stok minimum satu barang pada satu gudang; pasangan barang/gudang unik. |
 | `barang` | Master barang dan stok terkini; menyimpan input estimasi konsumsi serta lead time. Soft delete aktif. |
 | `stok_transactions` | Ledger mutasi stok masuk/keluar beserta snapshot sebelum dan sesudah. |
 | `stok_histories` | Histori stok lama/alternatif yang juga terhubung ke barang; masih memiliki model dan FK aktual. |
@@ -228,20 +256,23 @@ Tidak dibuat garis dari `STOK_TRANSACTIONS` ke `STOCK_PREDICTION_PROCESSES`: `so
 | `stock_prediction_notification_reads` | Status baca notifikasi prediksi per pengguna. |
 | `stock_prediction_processes` | Satu state proses prediksi aktif per barang, termasuk generasi, peminta, hasil, dan informasi kegagalan. |
 
-Alur stok: `suppliers` dapat direferensikan secara opsional sebagai supplier utama `barang` dan supplier asal `stok_transactions`. `barang` menerima banyak transaksi stok. Snapshot transaksi dipakai untuk menjaga aritmetika stok; data barang dan riwayat transaksi menjadi masukan prediksi. Setiap hasil disimpan di `stock_predictions`, dapat menghasilkan `stock_prediction_notifications`, lalu setiap pengguna memperoleh status baca sendiri di `stock_prediction_notification_reads`. `stock_prediction_processes` menyimpan state orkestrasi proses terkini per barang.
+Alur stok: `suppliers` dapat direferensikan secara opsional sebagai supplier utama `barang` dan supplier asal `stok_transactions`. Setiap kombinasi barang/gudang memiliki satu `warehouse_stocks`; `barang.stok` tetap menjadi total/legacy. Migration membuat `GDG-UTAMA`, menyalin setiap stok barang lama tepat sekali ke gudang tersebut, lalu menghubungkan transaksi lama melalui `warehouse_stock_id`. Workflow stok lama memperbarui total barang dan saldo gudang utama dalam transaksi database yang sama. Snapshot transaksi tetap menggambarkan total legacy agar kompatibel dengan implementasi lama. Data barang dan riwayat transaksi menjadi masukan prediksi. Setiap hasil disimpan di `stock_predictions`, dapat menghasilkan notifikasi, lalu setiap pengguna memperoleh status baca sendiri.
 
 Alur dokumen: pengguna mengunggah `document_verifications`. Pengguna lain atau pengguna yang sama dapat menjadi korektor OCR melalui `ocr_corrected_by`. Semua kejadian penting dicatat di `document_verification_audits`; selesai/gagalnya proses dikirim melalui `notifications` kepada pemilik dokumen. Hubungan notifikasi ke dokumen disimpan dalam payload `data`, bukan FK.
 
 ## Aturan FK dan integritas
 
-- `CASCADE DELETE`: barang ke `stok_transactions`, `stok_histories`, `stock_predictions`, `stock_prediction_notifications`, dan `stock_prediction_processes`; prediksi ke notifikasi prediksi; notifikasi prediksi ke status baca; pengguna ke status baca; verifikasi ke audit; pengguna pengunggah ke verifikasi.
+- `CASCADE DELETE`: barang ke `stok_histories`, `stock_predictions`, `stock_prediction_notifications`, dan `stock_prediction_processes`; prediksi ke notifikasi prediksi; notifikasi prediksi ke status baca; pengguna ke status baca; verifikasi ke audit; pengguna pengunggah ke verifikasi.
 - `SET NULL`: `document_verifications.ocr_corrected_by`, `document_verification_audits.user_id`, `stock_predictions.analyzed_by`, `stock_prediction_processes.requested_by`, dan `stock_prediction_processes.stock_prediction_id` ketika induknya dihapus.
 - `SET NULL` juga berlaku dari `suppliers` ke `barang.supplier_id` dan `stok_transactions.supplier_id`. Soft delete supplier tidak memicu FK; force delete mempertahankan kedua record anak dan mengosongkan referensinya.
-- Seluruh **17 FK aktual** memakai `ON UPDATE RESTRICT`; tidak ada FK dengan cascade atau set-null saat key induk diperbarui.
+- `RESTRICT DELETE/UPDATE` melindungi rantai histori utama: `stok_transactions.barang_id`, `stok_transactions.warehouse_stock_id`, `warehouse_stocks.barang_id`, dan `warehouse_stocks.warehouse_id`. Barang, gudang, atau saldo yang masih dipakai tidak dapat dihapus permanen. `stok_transactions.barang_id` wajib terisi (`NOT NULL`).
+- `BarangTrashController` menolak force delete sebelum menyentuh file/data bila barang masih memiliki transaksi, saldo gudang, histori stok legacy, prediksi, notifikasi prediksi, atau proses prediksi. Soft delete tetap menjadi jalur penghapusan normal dan tidak memengaruhi histori.
+- Seluruh **20 FK aktual** memakai `ON UPDATE RESTRICT`; tidak ada FK dengan cascade atau set-null saat key induk diperbarui.
 - `notifications.notifiable_type/notifiable_id` adalah pasangan polymorphic berindeks, tetapi tidak mempunyai FK database.
 - `stock_prediction_processes.source_transaction_id` tidak mempunyai FK. Penghapusan transaksi tidak dijaga database terhadap nilai ini.
 - Check constraint stok memastikan `barang.stok >= 0`, jumlah transaksi positif, pasangan snapshot sama-sama null atau sama-sama terisi, snapshot nonnegatif, dan persamaan stok sesuai jenis mutasi.
-- Unique aktual: `users.email`, `suppliers.kode_supplier`, `barang.kode_barang`, `document_verification_audits.idempotency_key`, pasangan (`barang_id`, `process_generation`) pada prediksi, tripel (`stock_prediction_id`, `barang_id`, `status`) pada notifikasi prediksi, serta `stock_prediction_processes.barang_id`. Migration mendeklarasikan unique pasangan (`stock_prediction_notification_id`, `user_id`) pada status baca, tetapi constraint itu **tidak ada di database aktual**.
+- Unique aktual: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan (`warehouse_stocks.barang_id`, `warehouse_stocks.warehouse_id`), `barang.kode_barang`, `document_verification_audits.idempotency_key`, pasangan (`barang_id`, `process_generation`) pada prediksi, tripel (`stock_prediction_id`, `barang_id`, `status`) pada notifikasi prediksi, serta `stock_prediction_processes.barang_id`. Migration mendeklarasikan unique pasangan (`stock_prediction_notification_id`, `user_id`) pada status baca, tetapi constraint itu **tidak ada di database aktual**.
+- `warehouse_stocks.stok` dan `stok_minimum` nonnegatif: MySQL/MariaDB menegakkannya melalui tipe unsigned, sedangkan jalur SQLite migration memakai check constraint eksplisit.
 - Nilai status dokumen divalidasi oleh event model, bukan check constraint database: proses `menunggu/diproses/selesai/gagal`; hasil keaslian hanya boleh terisi ketika selesai dan bernilai `asli/mencurigakan/palsu`.
 
 ## Audit migration versus model
@@ -262,6 +293,8 @@ Ketidaksesuaian atau relasi yang hanya tersedia di satu lapisan:
 - `source_transaction_id` dicast sebagai integer pada `StockPredictionProcess`, tetapi tidak mempunyai FK ke `stok_transactions` maupun relasi Eloquent. Karena itu ERD menampilkannya sebagai atribut biasa.
 - `User` memperoleh relasi `notifications()` dari trait Laravel `Notifiable`; tabel memakai relasi polymorphic tanpa FK. Referensi ke verifikasi dokumen berada dalam `data`, sehingga integritasnya tidak dijamin database.
 - `stock_prediction_notifications.read_at` masih ada sebagai status baca lama/global, sementara implementasi kini juga memiliki status baca per pengguna pada `stock_prediction_notification_reads`.
+- Relasi multi-gudang tersedia pada kedua lapisan: `Barang` dan `Warehouse` menuju saldo/transaksi, `WarehouseStock` menuju induk/transaksi, serta `Supplier` menuju saldo melalui `Barang`. Relasi langsung lama `Barang::stokTransactions()` tetap dipertahankan bersama relasi through baru `Barang::warehouseStokTransactions()`.
+- Migration koreksi `2026_09_16_030000_enforce_stock_history_item_integrity` menggantikan aturan nullable/`SET NULL` sementara dari migration Multi-Gudang tanpa mengedit migration yang telah dijalankan. `down()` mengembalikan kontrak migration sebelumnya tanpa menghapus baris.
 - Migration pembuatan `stock_prediction_notification_reads` mendeklarasikan `prediction_notification_user_unique` untuk pasangan notifikasi/pengguna, tetapi `information_schema` dan `SHOW CREATE TABLE` membuktikan bahwa database aktual hanya memiliki dua index FK non-unique. Database saat ini dapat menerima duplikasi pasangan tersebut; anotasi `UK` karena itu dihapus dari ERD aktual.
 - Pada MariaDB 10.4.32 aktual, `stock_predictions.analyzed_at` memiliki `DEFAULT current_timestamp()` dan `ON UPDATE current_timestamp()` walaupun migration hanya mendeklarasikan `timestamp('analyzed_at')`. Model memperlakukannya sebagai datetime biasa. Ini adalah perbedaan perilaku fisik yang dipengaruhi konfigurasi/semantik `TIMESTAMP` MariaDB.
 - Kolom yang dideklarasikan `json` oleh migration tersimpan secara fisik sebagai `LONGTEXT` dengan `CHECK (json_valid(...))` pada MariaDB. ERD memakai tipe `longtext_json` untuk mencerminkan keduanya.
@@ -273,6 +306,8 @@ Ketidaksesuaian atau relasi yang hanya tersedia di satu lapisan:
 |---|---|---|
 | `users` | Masuk ERD | Tabel utama dan induk banyak relasi bisnis. |
 | `suppliers` | Masuk ERD | Master supplier dan induk langsung barang/transaksi stok. |
+| `warehouses` | Masuk ERD | Master gudang dan induk saldo per gudang. |
+| `warehouse_stocks` | Masuk ERD | Penghubung langsung barang, gudang, dan transaksi stok. |
 | `password_reset_tokens` | Tidak masuk | Infrastruktur autentikasi; tidak ada FK/relasi bisnis. |
 | `sessions` | Tidak masuk | Infrastruktur sesi. `user_id` hanya nullable dan berindeks, bukan FK. |
 | `cache` | Tidak masuk | Infrastruktur cache. |
@@ -292,13 +327,15 @@ Ketidaksesuaian atau relasi yang hanya tersedia di satu lapisan:
 | `stock_prediction_processes` | Masuk ERD | State proses langsung untuk barang, pengguna, dan hasil prediksi. |
 | `migrations` | Tidak masuk | Tabel internal Laravel untuk status migration; dibuat oleh migrator, bukan `Schema::create` project. |
 
-Source migration mendefinisikan **19 tabel**. Database aktual berisi **20 tabel** setelah menyertakan tabel internal `migrations`: 12 dimasukkan ke ERD dan 8 dikecualikan.
+Source migration mendefinisikan **21 tabel**. Database aktual berisi **22 tabel** setelah menyertakan tabel internal `migrations`: 14 dimasukkan ke ERD dan 8 dikecualikan.
 
 ## Validasi
 
-- Audit statis mencakup seluruh **23 file migration** dan **11 model** di repository.
-- Koneksi ke schema MySQL/MariaDB `db_logistik` berhasil. Server aktual adalah MariaDB 10.4.32 dan seluruh 23 migration berstatus `Ran`.
-- Audit `information_schema` dan `SHOW CREATE TABLE` menemukan 20 tabel, 17 FK, serta aturan PK/unique/nullability/delete/update yang dijelaskan di atas.
+- Audit statis mencakup seluruh **26 file migration** dan **13 model** di repository.
+- Koneksi ke schema MySQL/MariaDB `db_logistik` berhasil. Server aktual adalah MariaDB 10.4.32 dan seluruh 26 migration berstatus `Ran`.
+- Audit `information_schema` menemukan 22 tabel dan 20 FK, serta aturan PK/unique/nullability/delete/update yang dijelaskan di atas.
+- Backfill aktual tervalidasi: 1 gudang utama, 100 saldo untuk 100 barang, tidak ada barang terlewat, total `warehouse_stocks.stok` 5.200 sama dengan total `barang.stok`, dan seluruh 375 transaksi lama terhubung ke saldo gudang utama.
+- Audit koreksi histori tervalidasi: 375 transaksi, tidak ada `barang_id` null/orphan, kolom aktual `BIGINT UNSIGNED NOT NULL`, dan keempat FK pelindung histori memakai `ON DELETE RESTRICT ON UPDATE RESTRICT`.
 - Skema akhir memperhitungkan migration lanjutan: penambahan soft delete/foto/input prediksi/snapshot stok/nomor DO, pemisahan skor, serta penggantian `document_verifications.status` menjadi dua kolom status.
 - Setiap garis relasi ber-FK pada ERD dicocokkan dengan deklarasi `foreignId()->constrained()` atau `foreign()->references()`; relasi polymorphic tanpa FK diberi label eksplisit.
 - Kardinalitas nullable dan unique dicocokkan dengan migration, bukan diasumsikan dari nama kolom.

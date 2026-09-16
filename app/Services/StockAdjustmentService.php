@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Barang;
 use App\Models\StokTransaction;
+use App\Models\Warehouse;
+use App\Models\WarehouseStock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -17,16 +19,20 @@ class StockAdjustmentService
 
         return DB::transaction(function () use ($barang, $type, $quantity, $description): Barang {
             $locked = Barang::lockForUpdate()->findOrFail($barang->getKey());
+            $warehouseStock = $this->lockDefaultWarehouseStock($locked);
             $before = $locked->stok;
             $after = $type === 'masuk' ? $before + $quantity : $before - $quantity;
+            $warehouseAfter = $type === 'masuk' ? $warehouseStock->stok + $quantity : $warehouseStock->stok - $quantity;
 
-            if ($after < 0) {
+            if ($after < 0 || $warehouseAfter < 0) {
                 throw ValidationException::withMessages(['jumlah' => 'Stok tidak mencukupi.']);
             }
 
             $locked->update(['stok' => $after]);
+            $warehouseStock->update(['stok' => $warehouseAfter]);
             StokTransaction::create([
                 'barang_id' => $locked->id,
+                'warehouse_stock_id' => $warehouseStock->id,
                 'jenis' => $type,
                 'jumlah' => $quantity,
                 'stok_sebelum' => $before,
@@ -38,6 +44,23 @@ class StockAdjustmentService
 
             return $locked;
         });
+    }
+
+    private function lockDefaultWarehouseStock(Barang $barang): WarehouseStock
+    {
+        $warehouseId = Warehouse::query()
+            ->where('kode_gudang', Warehouse::DEFAULT_CODE)
+            ->value('id');
+        if ($warehouseId === null) {
+            throw ValidationException::withMessages(['stok' => 'Gudang utama tidak tersedia.']);
+        }
+
+        $stock = WarehouseStock::firstOrCreate(
+            ['barang_id' => $barang->id, 'warehouse_id' => $warehouseId],
+            ['stok' => $barang->stok, 'stok_minimum' => 0],
+        );
+
+        return WarehouseStock::whereKey($stock->id)->lockForUpdate()->firstOrFail();
     }
 
     public function setTarget(Barang $barang, int $target, ?string $description = null): Barang
