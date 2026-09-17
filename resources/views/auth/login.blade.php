@@ -18,7 +18,7 @@
                             <h3 class="logistics-brand mb-2">&#127970; LogistikKu</h3>
                             <h5 class="font-weight-light mb-4">Masuk untuk mengelola stok gudang.</h5>
                             @if($errors->any())
-                                <div class="alert alert-danger">{{ $errors->first() }}</div>
+                                <x-ui.alert type="danger">{{ $errors->first() }}</x-ui.alert>
                             @endif
                             <form class="pt-3" action="/login" method="POST">
                                 @csrf
