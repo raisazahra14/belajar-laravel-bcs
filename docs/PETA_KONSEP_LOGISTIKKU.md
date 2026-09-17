@@ -1,6 +1,6 @@
 # Peta Konsep LogistikKu
 
-Dokumen ini menjelaskan hubungan antara kebutuhan pengguna, proses Laravel/Python, data, dan hasil yang terlihat. Referensi mengarah ke file source aktual.
+Dokumen ini menjelaskan hubungan antara kebutuhan pengguna, proses Laravel/Python, data, dan hasil yang terlihat. Referensi mengarah ke file source aktual. Detail struktur terbaru setelah Supplier dan Multi-Gudang mengikuti [ERD](./database/erd.md) dan [Data Dictionary](./data_dictionary.md).
 
 ## Gambaran utama
 
@@ -45,7 +45,7 @@ Intinya: browser tidak berbicara langsung dengan database atau Python. Laravel m
 | Aktor | Semua role melihat/mencari; hanya Admin melakukan CRUD/trash. |
 | Input | Nama, kategori, stok awal, satuan, lokasi, foto, estimasi pemakaian harian, lead time; kata pencarian/filter/sort. |
 | Proses | FormRequest memvalidasi; generator membuat kode `BRG-######`; filter memakai query Eloquent dan endpoint partial; delete memakai `SoftDeletes`. |
-| Database | `barang`. Foto disimpan pada disk `public`. |
+| Database | `barang` dengan `supplier_id` opsional; master supplier berada di `suppliers`. Foto disimpan pada disk `public`. |
 | Output | Daftar paginated, hasil filter instan, detail barang, form, dan trash. |
 | Berhasil/gagal | Berhasil bila data valid dan kode unik. Error validasi tampil tanpa perubahan parsial. |
 | Inti | Update barang tidak mengubah stok langsung; stok berubah melalui alur transaksi khusus. |
@@ -57,9 +57,9 @@ Intinya: browser tidak berbicara langsung dengan database atau Python. Laravel m
 flowchart TD
     F[Input jenis dan jumlah] --> V{Valid dan stok cukup?}
     V -- Tidak --> E[Pesan error, tanpa perubahan]
-    V -- Ya --> L[Kunci baris barang]
-    L --> B[Simpan saldo baru]
-    B --> T[Simpan transaksi dan snapshot sebelum/sesudah]
+    V -- Ya --> L[Kunci barang dan saldo gudang utama]
+    L --> B[Perbarui stok total dan saldo GDG-UTAMA]
+    B --> T[Simpan transaksi, saldo gudang, dan snapshot total]
     T --> P[Jadwalkan prediksi setelah commit]
     T --> H[Timeline dan grafik saldo]
 ```
@@ -70,11 +70,11 @@ flowchart TD
 | Tujuan | Mengubah stok secara atomik dengan jejak saldo sebelum/sesudah. |
 | Aktor | Admin, Manager, Staff Gudang. |
 | Input | Jenis `masuk`/`keluar`, jumlah positif, keterangan opsional. |
-| Proses | Database transaction dan `lockForUpdate`; stok keluar ditolak bila tidak cukup; prediksi dijadwalkan setelah commit. |
-| Database | `barang`, `stok_transactions`, `stock_prediction_processes`, `jobs`. |
+| Proses | Database transaction dan `lockForUpdate`; stok keluar ditolak bila stok total atau saldo gudang utama tidak cukup; prediksi dijadwalkan setelah commit. |
+| Database | `barang`, `warehouses`, `warehouse_stocks`, `stok_transactions`, `stock_prediction_processes`, `jobs`. |
 | Output | Stok baru, transaksi, timeline, tabel alternatif, dan grafik snapshot. |
 | Berhasil/gagal | Berhasil bila aturan stok terpenuhi. Gagal akan rollback. Snapshot legacy null ditandai, bukan direkonstruksi. |
-| Inti | Constraint database menjadi lapisan terakhir untuk mencegah stok, jumlah, atau perhitungan snapshot invalid. |
+| Inti | `warehouse_stocks.stok` adalah saldo per gudang, sedangkan `barang.stok` tetap menjadi total/legacy. Workflow UI saat ini memakai `GDG-UTAMA`; constraint database menjadi lapisan terakhir untuk mencegah stok, jumlah, atau perhitungan snapshot invalid. |
 | Referensi | `StockAdjustmentService.php`, `BarangController.php`, `StokTransaction.php`, migration `2026_09_02_020000_*`, `riwayat-stok.blade.php`, `stock-history.js`. |
 
 ## 4. Import dan export
@@ -86,7 +86,7 @@ flowchart TD
 | Aktor | Admin. |
 | Input | XLSX/XLS/CSV maksimal 5 MB dengan kolom kode, nama, kategori, stok, satuan, lokasi. |
 | Proses | Spreadsheet dibaca, seluruh baris dinormalisasi/divalidasi, lalu di-upsert dalam transaction. Export menyusun XLSX atau PDF internal. |
-| Database | `barang`; import menjadwalkan prediksi melalui queue setelah berhasil. |
+| Database | `barang`, `warehouses`, `warehouse_stocks`, dan `stok_transactions`; import menjaga target stok total serta saldo `GDG-UTAMA`, lalu menjadwalkan prediksi setelah berhasil. |
 | Output | Ringkasan import, template XLSX, laporan XLSX, laporan PDF. |
 | Berhasil/gagal | File/baris invalid menolak import tanpa hasil parsial. Kode existing diperbarui; kode baru dibuat. |
 | Inti | Import mengganti nilai stok dari file, bukan menambahkannya sebagai transaksi masuk. |
@@ -193,7 +193,7 @@ flowchart TD
 | Kelompok | Tabel utama |
 |---|---|
 | Identitas/infrastruktur | `users`, `password_reset_tokens`, `sessions`, `cache`, `cache_locks` |
-| Barang/stok | `barang`, `stok_transactions`; `stok_histories` adalah tabel legacy |
+| Supplier/barang/stok | `suppliers`, `warehouses`, `warehouse_stocks`, `barang`, `stok_transactions`; `stok_histories` adalah tabel legacy |
 | Queue | `jobs`, `job_batches`, `failed_jobs` |
 | Verifikasi | `document_verifications`, `document_verification_audits`, `notifications` |
 | Prediksi | `stock_predictions`, `stock_prediction_processes`, `stock_prediction_notifications`, `stock_prediction_notification_reads` |
@@ -206,3 +206,4 @@ flowchart TD
 4. Jangan merekonstruksi snapshot histori lama yang memang tidak tersedia.
 5. Jangan menyimpan `.env`, dokumen privat, log, cache, atau database backup di Git.
 6. Jalankan migration biasa dan test; jangan memakai `migrate:fresh` pada data yang perlu dipertahankan.
+7. Perlakukan `warehouse_stocks.stok` sebagai saldo per gudang dan `barang.stok` sebagai total/legacy; workflow operasional saat ini hanya memperbarui `GDG-UTAMA`.
