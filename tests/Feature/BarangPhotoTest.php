@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Barang;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\BarangCodeGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -19,7 +20,7 @@ class BarangPhotoTest extends TestCase
     {
         Storage::fake('public');
         $admin = User::factory()->create(['role' => 'admin']);
-        $data = ['kode_barang' => 'IMG-1', 'nama_barang' => 'Barang Foto', 'kategori' => 'ATK', 'stok' => 4, 'satuan' => 'Pcs', 'lokasi' => 'Rak A', 'foto_barang' => UploadedFile::fake()->image('lama.jpg')];
+        $data = ['kode_barang' => 'IMG-1', 'nama_barang' => 'Barang Foto', 'kategori' => 'ATK', 'stok' => 4, 'warehouse_id' => $this->defaultWarehouseId(), 'satuan' => 'Pcs', 'lokasi' => 'Rak A', 'foto_barang' => UploadedFile::fake()->image('lama.jpg')];
         $this->actingAs($admin)->post('/barang', $data)->assertRedirect('/barang');
         $barang = Barang::where('nama_barang', 'Barang Foto')->firstOrFail();
         $old = $barang->foto_barang;
@@ -48,6 +49,7 @@ class BarangPhotoTest extends TestCase
                 'nama_barang' => "Foto {$size}",
                 'kategori' => 'ATK',
                 'stok' => 1,
+                'warehouse_id' => $this->defaultWarehouseId(),
                 'satuan' => 'Pcs',
                 'lokasi' => 'Rak',
                 'foto_barang' => UploadedFile::fake()->image("foto-{$size}.jpg")->size($size),
@@ -61,6 +63,7 @@ class BarangPhotoTest extends TestCase
             'nama_barang' => 'Foto terlalu besar',
             'kategori' => 'ATK',
             'stok' => 1,
+            'warehouse_id' => $this->defaultWarehouseId(),
             'satuan' => 'Pcs',
             'lokasi' => 'Rak',
             'foto_barang' => UploadedFile::fake()->image('foto-2049.jpg')->size(2049),
@@ -80,6 +83,7 @@ class BarangPhotoTest extends TestCase
                 'nama_barang' => "Foto {$extension}",
                 'kategori' => 'ATK',
                 'stok' => 1,
+                'warehouse_id' => $this->defaultWarehouseId(),
                 'satuan' => 'Pcs',
                 'lokasi' => 'Rak',
                 'foto_barang' => UploadedFile::fake()->image("foto.{$extension}"),
@@ -107,6 +111,7 @@ class BarangPhotoTest extends TestCase
                 'nama_barang' => "Foto invalid {$index}",
                 'kategori' => 'ATK',
                 'stok' => 1,
+                'warehouse_id' => $this->defaultWarehouseId(),
                 'satuan' => 'Pcs',
                 'lokasi' => 'Rak',
                 'foto_barang' => $file,
@@ -134,6 +139,7 @@ class BarangPhotoTest extends TestCase
             'nama_barang' => 'Foto rollback',
             'kategori' => 'ATK',
             'stok' => 1,
+            'warehouse_id' => $this->defaultWarehouseId(),
             'satuan' => 'Pcs',
             'lokasi' => 'Rak',
             'foto_barang' => UploadedFile::fake()->image('rollback.png'),
@@ -148,5 +154,10 @@ class BarangPhotoTest extends TestCase
         $user = User::factory()->create(['role' => 'staff']);
         $barang = Barang::create(['kode_barang' => 'ILL-1', 'nama_barang' => 'Keyboard Wireless', 'kategori' => 'Elektronik', 'stok' => 8, 'satuan' => 'Unit', 'lokasi' => 'Rak']);
         $this->actingAs($user)->get('/barang/'.$barang->id)->assertOk()->assertSee('Ilustrasi katalog otomatis')->assertSee('background-position: 0% 0%', false);
+    }
+
+    private function defaultWarehouseId(): int
+    {
+        return Warehouse::where('kode_gudang', Warehouse::DEFAULT_CODE)->value('id');
     }
 }

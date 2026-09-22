@@ -1,8 +1,8 @@
 # Data Dictionary Database LogistikKu
 
-Dokumen ini mencatat skema fisik database MySQL/MariaDB `db_logistik` setelah implementasi Supplier dan Multi-Gudang. Audit dilakukan pada 17 September 2026 secara read-only terhadap `information_schema.TABLES`, `COLUMNS`, `STATISTICS`, `KEY_COLUMN_USAGE`, `REFERENTIAL_CONSTRAINTS`, dan `CHECK_CONSTRAINTS`, kemudian dibandingkan dengan seluruh migration, model Eloquent, dan [`docs/database/erd.md`](database/erd.md).
+Dokumen ini mencatat kontrak skema yang dibentuk oleh seluruh source migration setelah implementasi Supplier dan Multi-Gudang. Audit 21 September 2026 membandingkan migration, model Eloquent, dan [`docs/database/erd.md`](database/erd.md), lalu menjalankan seluruh migration pada SQLite kosong. Koneksi database deployment MySQL/MariaDB sedang tidak tersedia; kondisi fisik dan data deployment tidak diklaim telah diverifikasi ulang.
 
-Skema aktual adalah sumber utama untuk tipe, nullable, default, PK, FK, indeks, dan referential action. Perbedaan terhadap migration atau model dicatat secara eksplisit pada bagian ketidaksesuaian.
+Source migration adalah sumber utama untuk tipe logis, nullable, default, PK, FK, indeks, dan referential action. Skema SQLite bersih digunakan untuk memverifikasi bahwa urutan migration benar-benar dapat dijalankan dan menghasilkan constraint yang dinyatakan. Perbedaan model atau keterbatasan verifikasi deployment dicatat secara eksplisit.
 
 ## Daftar isi
 
@@ -30,7 +30,7 @@ Skema aktual adalah sumber utama untuk tipe, nullable, default, PK, FK, indeks, 
 
 ## Cakupan dan legenda
 
-Database aktual memiliki **22 tabel dan 201 kolom**: **14 tabel bisnis/aplikasi dengan 159 kolom** serta **8 tabel framework/internal dengan 42 kolom**. Seluruh tabel memakai InnoDB dan collation `utf8mb4_unicode_ci`, kecuali kolom JSON fisik yang memakai `utf8mb4_bin`.
+Hasil migration bersih memiliki **22 tabel dan 201 kolom**: **14 tabel bisnis/aplikasi dengan 159 kolom** serta **8 tabel framework/internal dengan 42 kolom**. Engine, collation, dan representasi fisik JSON pada MySQL/MariaDB deployment perlu diperiksa di lingkungan target.
 
 | Istilah | Arti |
 |---|---|
@@ -48,7 +48,7 @@ Database aktual memiliki **22 tabel dan 201 kolom**: **14 tabel bisnis/aplikasi 
 | `SET NULL` | Penghapusan induk mempertahankan anak dan mengosongkan FK nullable. |
 | `—` pada default | Tidak ada klausa default; berbeda dari default eksplisit `NULL`. |
 
-Tipe di bawah adalah representasi fisik `COLUMN_TYPE` database aktual. Pada MariaDB, kolom yang dibuat migration sebagai `json` disimpan sebagai `longtext` dengan check `json_valid(...)`.
+Tipe di bawah memakai bentuk MySQL/MariaDB yang diharapkan dari Laravel Schema Builder agar panjang dan signedness tetap eksplisit. Tipe logis `json` dapat direpresentasikan berbeda oleh versi database target; representasi fisiknya belum diverifikasi pada deployment saat audit ini.
 
 ## Ringkasan relasi utama
 
@@ -226,8 +226,8 @@ PK: `id` (AI). IDX: (`user_id`, `created_at`), (`process_status`, `created_at`),
 | `authenticity_score` | `tinyint(3) unsigned` | Tidak | `50` | — | Skor keaslian. |
 | `overall_score` | `tinyint(3) unsigned` | Tidak | `0` | — | Skor keseluruhan. |
 | `message` | `text` | Tidak | — | — | Ringkasan hasil. |
-| `analysis_details` | `longtext` | Tidak | — | CHECK `json_valid` | JSON fisik MariaDB. |
-| `extracted_metadata` | `longtext` | Ya | `NULL` | CHECK `json_valid` | Metadata JSON hasil ekstraksi. |
+| `analysis_details` | `json` | Tidak | — | — | Detail analisis JSON; tipe logis migration. |
+| `extracted_metadata` | `json` | Ya | `NULL` | — | Metadata JSON hasil ekstraksi. |
 | `error_message` | `text` | Ya | `NULL` | — | Pesan kegagalan. |
 | `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
 | `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
@@ -258,12 +258,12 @@ PK: `id` (AI). UK: `document_verification_audits_idempotency_key_unique` (`idemp
 | `user_id` | `bigint(20) unsigned` | Ya | `NULL` | FK → `users.id`; delete `SET NULL`, update `RESTRICT` | Aktor opsional. |
 | `event` | `varchar(60)` | Tidak | — | IDX komposit | Nama kejadian. |
 | `source` | `varchar(20)` | Tidak | — | IDX komposit | Sumber kejadian. |
-| `before_values` | `longtext` | Ya | `NULL` | CHECK `json_valid` | JSON nilai sebelumnya. |
-| `after_values` | `longtext` | Ya | `NULL` | CHECK `json_valid` | JSON nilai sesudah. |
-| `changed_fields` | `longtext` | Ya | `NULL` | CHECK `json_valid` | JSON daftar perubahan. |
-| `confidence` | `longtext` | Ya | `NULL` | CHECK `json_valid` | JSON confidence. |
-| `extraction_status` | `longtext` | Ya | `NULL` | CHECK `json_valid` | JSON status ekstraksi. |
-| `technical_metadata` | `longtext` | Ya | `NULL` | CHECK `json_valid` | JSON metadata teknis. |
+| `before_values` | `json` | Ya | `NULL` | — | JSON nilai sebelumnya. |
+| `after_values` | `json` | Ya | `NULL` | — | JSON nilai sesudah. |
+| `changed_fields` | `json` | Ya | `NULL` | — | JSON daftar perubahan. |
+| `confidence` | `json` | Ya | `NULL` | — | JSON confidence. |
+| `extraction_status` | `json` | Ya | `NULL` | — | JSON status ekstraksi. |
+| `technical_metadata` | `json` | Ya | `NULL` | — | JSON metadata teknis. |
 | `idempotency_key` | `varchar(191)` | Tidak | — | UK | Pencegah pencatatan audit ganda. |
 | `created_at` | `timestamp` | Tidak | `current_timestamp()` | — | Waktu audit. |
 
@@ -305,9 +305,9 @@ PK: `id` (AI). UK: `uq_pred_barang_generation` (`barang_id`, `process_generation
 | `status` | `varchar(30)` | Tidak | — | IDX komposit | Status prediksi. |
 | `method` | `varchar(30)` | Ya | `NULL` | — | Metode prediksi. |
 | `analysis_status` | `varchar(40)` | Tidak | `'completed'` | — | Status analisis. |
-| `metrics` | `longtext` | Ya | `NULL` | CHECK `json_valid` | JSON metrik. |
-| `input_summary` | `longtext` | Ya | `NULL` | CHECK `json_valid` | JSON ringkasan input. |
-| `analyzed_at` | `timestamp` | Tidak | `current_timestamp()` | `ON UPDATE current_timestamp()` | Waktu analisis; perilaku fisik berbeda dari deklarasi migration. |
+| `metrics` | `json` | Ya | `NULL` | — | JSON metrik. |
+| `input_summary` | `json` | Ya | `NULL` | — | JSON ringkasan input. |
+| `analyzed_at` | `timestamp` | Tidak | — | — | Waktu analisis; wajib diberikan aplikasi menurut source migration. |
 | `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
 | `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
 
@@ -333,13 +333,13 @@ Aturan penting: status baca per pengguna sekarang berada di `stock_prediction_no
 
 Fungsi: status baca notifikasi prediksi per pengguna.
 
-PK: `id` (AI). IDX aktual hanya `prediction_read_notification_fk` (`stock_prediction_notification_id`) dan `prediction_read_user_fk` (`user_id`). **Tidak ada UK pasangan notifikasi–pengguna di database aktual.** Soft delete: tidak.
+PK: `id` (AI). UK: `prediction_notification_user_unique` (`stock_prediction_notification_id`, `user_id`). IDX: `prediction_read_notification_fk`, `prediction_read_user_fk`, dan (`user_id`, `read_at`). Seluruhnya didefinisikan migration dan terbentuk pada migration bersih. Soft delete: tidak.
 
 | Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
 |---|---|---:|---|---|---|
 | `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas receipt. |
-| `stock_prediction_notification_id` | `bigint(20) unsigned` | Tidak | — | FK → `stock_prediction_notifications.id`; delete `CASCADE`, update `RESTRICT` | Notifikasi. |
-| `user_id` | `bigint(20) unsigned` | Tidak | — | FK → `users.id`; delete `CASCADE`, update `RESTRICT` | Penerima. |
+| `stock_prediction_notification_id` | `bigint(20) unsigned` | Tidak | — | FK → `stock_prediction_notifications.id`; delete `CASCADE`, update `RESTRICT`; UK | Notifikasi. |
+| `user_id` | `bigint(20) unsigned` | Tidak | — | FK → `users.id`; delete `CASCADE`, update `RESTRICT`; UK, IDX komposit | Penerima. |
 | `read_at` | `timestamp` | Ya | `NULL` | — | Waktu dibaca. |
 | `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
 | `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
@@ -474,13 +474,13 @@ Fungsi: penyimpanan session database. PK: `id`. IDX: `sessions_user_id_index` (`
 ### Primary key, unique, dan index
 
 - Semua 22 tabel memiliki PK: **16 PK AI** dan **6 PK non-AI** (`cache.key`, `cache_locks.key`, `job_batches.id`, `notifications.id`, `password_reset_tokens.email`, dan `sessions.id`).
-- UK bisnis: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan `warehouse_stocks(barang_id, warehouse_id)`, `barang.kode_barang`, `document_verification_audits.idempotency_key`, pasangan `stock_predictions(barang_id, process_generation)`, tripel notifikasi prediksi, dan `stock_prediction_processes.barang_id`.
-- UK internal tambahan: `failed_jobs.uuid`. Database aktual tidak mempunyai UK pasangan pada `stock_prediction_notification_reads` walaupun migration mendeklarasikannya.
-- Semua indeks yang tercatat di tiap bagian adalah BTREE aktual. Index FK dapat juga dilayani oleh sisi kiri UK komposit, seperti `warehouse_stocks.barang_id`.
+- UK bisnis: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan `warehouse_stocks(barang_id, warehouse_id)`, `barang.kode_barang`, `document_verification_audits.idempotency_key`, pasangan `stock_predictions(barang_id, process_generation)`, tripel notifikasi prediksi, pasangan receipt prediksi/pengguna, dan `stock_prediction_processes.barang_id`.
+- UK internal tambahan: `failed_jobs.uuid`.
+- Semua indeks yang tercatat didefinisikan migration dan terbentuk pada migration bersih. Pada MySQL/MariaDB, index FK dapat juga dilayani oleh sisi kiri UK komposit, seperti `warehouse_stocks.barang_id`.
 
 ### Foreign key
 
-Terdapat **20 FK database aktual**. Semuanya memakai `ON UPDATE RESTRICT`.
+Terdapat **20 FK pada skema migration bersih**. Semuanya memakai `ON UPDATE RESTRICT`.
 
 | ON DELETE | Jumlah | FK |
 |---|---:|---|
@@ -498,20 +498,18 @@ Terdapat **20 FK database aktual**. Semuanya memakai `ON UPDATE RESTRICT`.
 
 ## Ketidaksesuaian hasil audit
 
-1. Migration `2026_09_02_010000_create_stock_prediction_notification_reads_table.php` mendeklarasikan UK `prediction_notification_user_unique` pada (`stock_prediction_notification_id`, `user_id`) dan index (`user_id`, `read_at`). Keduanya **tidak ada** di database aktual; yang ada hanya dua index FK tunggal non-unique. Duplikasi pasangan notifikasi–pengguna secara fisik masih mungkin.
-2. `stock_predictions.analyzed_at` dideklarasikan migration sebagai `timestamp('analyzed_at')`, tetapi pada MariaDB 10.4.32 aktual mempunyai `DEFAULT current_timestamp()` dan `ON UPDATE current_timestamp()`. Model hanya mencast kolom sebagai datetime dan tidak mengungkap side effect `ON UPDATE` tersebut.
-3. Kolom yang dibuat migration sebagai `json` tersimpan secara fisik sebagai `longtext` ber-collation `utf8mb4_bin` dengan CHECK `json_valid(...)`. Ini perbedaan representasi MariaDB, bukan kehilangan validasi.
-4. Model `StockPrediction::process()` mendeklarasikan `hasOne`, tetapi `stock_prediction_processes.stock_prediction_id` tidak unik. Database memungkinkan lebih dari satu proses menunjuk prediksi yang sama.
-5. `StockPredictionProcess` mencast `source_transaction_id` sebagai integer, tetapi tidak mempunyai FK, index, atau relasi Eloquent ke `stok_transactions`. Referensi tersebut hanya logis.
-6. Beberapa FK aktual tidak memiliki relasi inverse Eloquent: antara lain aktor/korektor/analis/peminta pada `User`, dan `StockPredictionProcess` ke `requested_by`/`stock_prediction_id`. Sebaliknya `StokHistory::barang()` ada tetapi `Barang` tidak mempunyai inverse `stokHistories()`.
-7. `stock_prediction_notifications.read_at` masih menyimpan status baca legacy/global, sementara model dan tabel receipt terbaru memakai `stock_prediction_notification_reads` untuk status per pengguna.
-8. Migration awal transaksi stok memakai cascade delete dan migration Multi-Gudang sempat membuat relasi nullable/`SET NULL`; migration koreksi `2026_09_16_030000_enforce_stock_history_item_integrity.php` menghasilkan kontrak akhir aktual yang wajib/`RESTRICT` untuk `stok_transactions.barang_id` serta `RESTRICT` untuk saldo gudang. Dokumentasi ini memakai kondisi akhir aktual.
-9. `stok_histories` dan `stok_transactions` sama-sama menyimpan mutasi, tetapi hanya `stok_transactions` memiliki supplier, gudang, snapshot, dan CHECK integritas. Keduanya tetap aktual dan bermodel, sehingga keduanya didokumentasikan.
+1. Model `StockPrediction::process()` mendeklarasikan `hasOne`, tetapi `stock_prediction_processes.stock_prediction_id` tidak unik. Skema memungkinkan lebih dari satu proses menunjuk prediksi yang sama.
+2. `StockPredictionProcess` mencast `source_transaction_id` sebagai integer, tetapi tidak mempunyai FK, index, atau relasi Eloquent ke `stok_transactions`. Referensi tersebut hanya logis.
+3. Beberapa FK tidak memiliki relasi inverse Eloquent: antara lain aktor/korektor/analis/peminta pada `User`, dan `StockPredictionProcess` ke `requested_by`/`stock_prediction_id`. Sebaliknya `StokHistory::barang()` ada tetapi `Barang` tidak mempunyai inverse `stokHistories()`.
+4. `stock_prediction_notifications.read_at` masih menyimpan status baca legacy/global, sementara model dan tabel receipt terbaru memakai `stock_prediction_notification_reads` untuk status per pengguna.
+5. Migration awal transaksi stok memakai cascade delete dan migration Multi-Gudang sempat membuat relasi nullable/`SET NULL`; migration koreksi `2026_09_16_030000_enforce_stock_history_item_integrity.php` menghasilkan kontrak akhir wajib/`RESTRICT` untuk `stok_transactions.barang_id` serta `RESTRICT` untuk saldo gudang. Dokumentasi ini memakai keadaan setelah migration terakhir.
+6. `stok_histories` dan `stok_transactions` sama-sama menyimpan mutasi, tetapi hanya `stok_transactions` memiliki supplier, gudang, snapshot, dan CHECK integritas. Keduanya tetap didokumentasikan karena masih memiliki tabel/model.
+7. Database deployment MySQL/MariaDB tidak dapat dihubungi saat audit. Status migration, engine/collation, representasi fisik JSON/TIMESTAMP, isi backfill, dan kemungkinan drift terhadap source berstatus **Perlu Uji Produksi**.
 
-Hal yang selaras: `Barang` memakai nama tabel nonstandar, soft delete, dan `UPDATED_AT = null`; Supplier dan Warehouse memakai soft delete; seluruh `belongsTo` yang dideklarasikan memiliki kolom/FK yang sesuai; relasi Multi-Gudang pada Barang, Warehouse, WarehouseStock, Supplier, dan StokTransaction sesuai skema fisik.
+Hal yang selaras: `Barang` memakai nama tabel nonstandar, soft delete, dan `UPDATED_AT = null`; Supplier dan Warehouse memakai soft delete; seluruh `belongsTo` yang dideklarasikan memiliki kolom/FK yang sesuai; relasi Multi-Gudang pada Barang, Warehouse, WarehouseStock, Supplier, dan StokTransaction sesuai skema migration bersih.
 
 ## Rekonsiliasi dengan ERD
 
-Jumlah tabel bisnis, seluruh 20 FK, nullable, UK pasangan barang–gudang, aturan `RESTRICT`/`SET NULL`, peran `barang.stok` sebagai stok total/legacy, serta referensi logis `source_transaction_id` sesuai dengan [`docs/database/erd.md`](database/erd.md). ERD memang sengaja tidak menggambar delapan tabel framework/internal, tetapi inventaris ERD mencatat keberadaannya; kamus data ini melengkapinya dengan seluruh kolom aktual.
+Jumlah tabel bisnis, seluruh 20 FK, nullable, seluruh UK termasuk receipt per pengguna, aturan `RESTRICT`/`SET NULL`, peran `barang.stok` sebagai stok total/legacy, serta referensi logis `source_transaction_id` sesuai dengan [`docs/database/erd.md`](database/erd.md). ERD memang sengaja tidak menggambar delapan tabel framework/internal, tetapi inventaris ERD mencatat keberadaannya; kamus data ini melengkapinya dengan seluruh 201 kolom hasil migration bersih.
 
-ERD juga sudah mencerminkan ketidaksesuaian penting database aktual: tidak adanya UK receipt per pengguna, perilaku fisik `analyzed_at`, bentuk fisik JSON MariaDB, dan kardinalitas model-vs-database untuk process prediksi. Tidak ditemukan tabel aktual yang hilang dari inventaris ERD.
+ERD juga mencerminkan kardinalitas model-vs-database untuk process prediksi dan membedakan FK fisik dari referensi logis. Tidak ditemukan tabel hasil migration bersih yang hilang dari inventaris ERD.

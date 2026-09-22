@@ -7,6 +7,7 @@ use App\Models\Barang;
 use App\Models\StockPrediction;
 use App\Models\StockPredictionProcess;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\StockAdjustmentService;
 use App\Services\StockPredictionScheduler;
 use App\Services\StockPredictionService;
@@ -57,7 +58,9 @@ class StockPredictionQueueTest extends TestCase
 
         $startedAt = microtime(true);
         $this->actingAs($admin)->post("/barang/{$barang->id}/stok", [
-            'jenis' => 'keluar', 'jumlah' => 2,
+            'jenis' => 'keluar',
+            'jumlah' => 2,
+            'warehouse_id' => Warehouse::where('kode_gudang', Warehouse::DEFAULT_CODE)->value('id'),
         ])->assertRedirect("/barang/{$barang->id}");
 
         $this->assertLessThan(1.0, microtime(true) - $startedAt);

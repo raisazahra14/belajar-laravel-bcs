@@ -1,6 +1,6 @@
 # ERD Database LogistikKu
 
-Dokumen ini menggambarkan **skema akhir** setelah seluruh migration di `database/migrations` dijalankan berurutan, lalu mencocokkannya dengan relasi Eloquent di `app/Models`. Fokus ERD adalah tabel bisnis yang terhubung langsung dengan `users`, `barang`, `stok_transactions`, `document_verifications`, atau `stock_predictions`.
+Dokumen ini menggambarkan **skema akhir yang didefinisikan repository** setelah seluruh migration di `database/migrations` dijalankan berurutan, lalu mencocokkannya dengan relasi Eloquent di `app/Models`. Audit 21 September 2026 juga menjalankan seluruh migration pada database SQLite kosong. Database deployment MySQL/MariaDB sedang tidak dapat dihubungi, sehingga isi dan data deployment tidak diklaim telah diverifikasi ulang.
 
 ## ERD
 
@@ -120,8 +120,8 @@ erDiagram
         longtext ocr_raw_text "nullable"
         timestamp ocr_corrected_at "nullable"
         text message
-        longtext_json analysis_details "MariaDB JSON alias"
-        longtext_json extracted_metadata "nullable; MariaDB JSON alias"
+        json analysis_details
+        json extracted_metadata "nullable"
         text error_message "nullable"
         timestamp created_at "nullable"
         timestamp updated_at "nullable"
@@ -133,12 +133,12 @@ erDiagram
         bigint user_id FK "nullable"
         varchar_60 event
         varchar_20 source
-        longtext_json before_values "nullable; MariaDB JSON alias"
-        longtext_json after_values "nullable; MariaDB JSON alias"
-        longtext_json changed_fields "nullable; MariaDB JSON alias"
-        longtext_json confidence "nullable; MariaDB JSON alias"
-        longtext_json extraction_status "nullable; MariaDB JSON alias"
-        longtext_json technical_metadata "nullable; MariaDB JSON alias"
+        json before_values "nullable"
+        json after_values "nullable"
+        json changed_fields "nullable"
+        json confidence "nullable"
+        json extraction_status "nullable"
+        json technical_metadata "nullable"
         varchar_191 idempotency_key UK
         timestamp created_at "default current"
     }
@@ -168,9 +168,9 @@ erDiagram
         varchar_30 status
         varchar_30 method "nullable"
         varchar_40 analysis_status "default completed"
-        longtext_json metrics "nullable; MariaDB JSON alias"
-        longtext_json input_summary "nullable; MariaDB JSON alias"
-        timestamp analyzed_at "default dan ON UPDATE current di DB aktual"
+        json metrics "nullable"
+        json input_summary "nullable"
+        timestamp analyzed_at
         timestamp created_at "nullable"
         timestamp updated_at "nullable"
     }
@@ -187,8 +187,8 @@ erDiagram
 
     STOCK_PREDICTION_NOTIFICATION_READS {
         bigint id PK
-        bigint stock_prediction_notification_id FK
-        bigint user_id FK
+        bigint stock_prediction_notification_id FK "composite UK"
+        bigint user_id FK "composite UK"
         timestamp read_at "nullable"
         timestamp created_at "nullable"
         timestamp updated_at "nullable"
@@ -233,6 +233,8 @@ erDiagram
     STOCK_PREDICTIONS o|--o{ STOCK_PREDICTION_PROCESSES : "hasil proses menurut DB"
 ```
 
+[Buka render SVG ERD](../images/database-erd.svg). SVG ini dirender dari source Mermaid di atas pada audit 21 September 2026.
+
 Catatan kardinalitas: relasi yang memakai `o|` pada sisi induk berarti FK pada anak nullable (nol atau satu induk). `barang_id` pada `stock_prediction_processes` unik, sehingga satu barang hanya dapat memiliki nol atau satu baris proses. Sebaliknya, `stock_prediction_id` pada tabel tersebut **tidak unik**; database mengizinkan satu prediksi dirujuk banyak proses walaupun model `StockPrediction::process()` mendeklarasikan `hasOne`.
 
 Tidak dibuat garis dari `STOK_TRANSACTIONS` ke `STOCK_PREDICTION_PROCESSES`: `source_transaction_id` memang menyerupai referensi transaksi, tetapi migration tidak membuat FK dan model tidak mendeklarasikan relasi. Demikian pula ID verifikasi di `notifications.data` hanya berada dalam payload, bukan kolom/FK relasional.
@@ -267,11 +269,11 @@ Alur dokumen: pengguna mengunggah `document_verifications`. Pengguna lain atau p
 - `SET NULL` juga berlaku dari `suppliers` ke `barang.supplier_id` dan `stok_transactions.supplier_id`. Soft delete supplier tidak memicu FK; force delete mempertahankan kedua record anak dan mengosongkan referensinya.
 - `RESTRICT DELETE/UPDATE` melindungi rantai histori utama: `stok_transactions.barang_id`, `stok_transactions.warehouse_stock_id`, `warehouse_stocks.barang_id`, dan `warehouse_stocks.warehouse_id`. Barang, gudang, atau saldo yang masih dipakai tidak dapat dihapus permanen. `stok_transactions.barang_id` wajib terisi (`NOT NULL`).
 - `BarangTrashController` menolak force delete sebelum menyentuh file/data bila barang masih memiliki transaksi, saldo gudang, histori stok legacy, prediksi, notifikasi prediksi, atau proses prediksi. Soft delete tetap menjadi jalur penghapusan normal dan tidak memengaruhi histori.
-- Seluruh **20 FK aktual** memakai `ON UPDATE RESTRICT`; tidak ada FK dengan cascade atau set-null saat key induk diperbarui.
+- Seluruh **20 FK pada skema migration bersih** memakai `ON UPDATE RESTRICT`; tidak ada FK dengan cascade atau set-null saat key induk diperbarui.
 - `notifications.notifiable_type/notifiable_id` adalah pasangan polymorphic berindeks, tetapi tidak mempunyai FK database.
 - `stock_prediction_processes.source_transaction_id` tidak mempunyai FK. Penghapusan transaksi tidak dijaga database terhadap nilai ini.
 - Check constraint stok memastikan `barang.stok >= 0`, jumlah transaksi positif, pasangan snapshot sama-sama null atau sama-sama terisi, snapshot nonnegatif, dan persamaan stok sesuai jenis mutasi.
-- Unique aktual: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan (`warehouse_stocks.barang_id`, `warehouse_stocks.warehouse_id`), `barang.kode_barang`, `document_verification_audits.idempotency_key`, pasangan (`barang_id`, `process_generation`) pada prediksi, tripel (`stock_prediction_id`, `barang_id`, `status`) pada notifikasi prediksi, serta `stock_prediction_processes.barang_id`. Migration mendeklarasikan unique pasangan (`stock_prediction_notification_id`, `user_id`) pada status baca, tetapi constraint itu **tidak ada di database aktual**.
+- Unique yang didefinisikan migration dan terverifikasi pada migration bersih: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan (`warehouse_stocks.barang_id`, `warehouse_stocks.warehouse_id`), `barang.kode_barang`, `document_verification_audits.idempotency_key`, pasangan (`barang_id`, `process_generation`) pada prediksi, tripel (`stock_prediction_id`, `barang_id`, `status`) pada notifikasi prediksi, pasangan (`stock_prediction_notification_id`, `user_id`) pada status baca, serta `stock_prediction_processes.barang_id`.
 - `warehouse_stocks.stok` dan `stok_minimum` nonnegatif: MySQL/MariaDB menegakkannya melalui tipe unsigned, sedangkan jalur SQLite migration memakai check constraint eksplisit.
 - Nilai status dokumen divalidasi oleh event model, bukan check constraint database: proses `menunggu/diproses/selesai/gagal`; hasil keaslian hanya boleh terisi ketika selesai dan bernilai `asli/mencurigakan/palsu`.
 
@@ -295,9 +297,9 @@ Ketidaksesuaian atau relasi yang hanya tersedia di satu lapisan:
 - `stock_prediction_notifications.read_at` masih ada sebagai status baca lama/global, sementara implementasi kini juga memiliki status baca per pengguna pada `stock_prediction_notification_reads`.
 - Relasi multi-gudang tersedia pada kedua lapisan: `Barang` dan `Warehouse` menuju saldo/transaksi, `WarehouseStock` menuju induk/transaksi, serta `Supplier` menuju saldo melalui `Barang`. Relasi langsung lama `Barang::stokTransactions()` tetap dipertahankan bersama relasi through baru `Barang::warehouseStokTransactions()`.
 - Migration koreksi `2026_09_16_030000_enforce_stock_history_item_integrity` menggantikan aturan nullable/`SET NULL` sementara dari migration Multi-Gudang tanpa mengedit migration yang telah dijalankan. `down()` mengembalikan kontrak migration sebelumnya tanpa menghapus baris.
-- Migration pembuatan `stock_prediction_notification_reads` mendeklarasikan `prediction_notification_user_unique` untuk pasangan notifikasi/pengguna, tetapi `information_schema` dan `SHOW CREATE TABLE` membuktikan bahwa database aktual hanya memiliki dua index FK non-unique. Database saat ini dapat menerima duplikasi pasangan tersebut; anotasi `UK` karena itu dihapus dari ERD aktual.
-- Pada MariaDB 10.4.32 aktual, `stock_predictions.analyzed_at` memiliki `DEFAULT current_timestamp()` dan `ON UPDATE current_timestamp()` walaupun migration hanya mendeklarasikan `timestamp('analyzed_at')`. Model memperlakukannya sebagai datetime biasa. Ini adalah perbedaan perilaku fisik yang dipengaruhi konfigurasi/semantik `TIMESTAMP` MariaDB.
-- Kolom yang dideklarasikan `json` oleh migration tersimpan secara fisik sebagai `LONGTEXT` dengan `CHECK (json_valid(...))` pada MariaDB. ERD memakai tipe `longtext_json` untuk mencerminkan keduanya.
+- Migration `stock_prediction_notification_reads` mendefinisikan unique pasangan notifikasi/pengguna dan index (`user_id`, `read_at`); keduanya terbentuk pada migration bersih SQLite. Keberadaannya pada database deployment tetap harus diperiksa sebelum rilis.
+- `stock_predictions.analyzed_at` tidak memiliki default eksplisit pada source migration. Perilaku fisik `TIMESTAMP` dan representasi kolom JSON dapat berbeda menurut versi/configuration MySQL/MariaDB, sehingga harus diverifikasi pada database target dan tidak diasumsikan dari audit lama.
+- ERD memakai tipe ringkas `longtext_json` agar tetap dapat dirender; tipe logis pada migration adalah `json`.
 - `stok_histories` dan `stok_transactions` sama-sama merekam mutasi stok, tetapi hanya `stok_transactions` yang memiliki snapshot dan check constraint integritas. Keduanya tetap didokumentasikan karena keduanya memiliki model dan FK aktual ke `barang`.
 
 ## Inventaris seluruh tabel migration
@@ -327,17 +329,16 @@ Ketidaksesuaian atau relasi yang hanya tersedia di satu lapisan:
 | `stock_prediction_processes` | Masuk ERD | State proses langsung untuk barang, pengguna, dan hasil prediksi. |
 | `migrations` | Tidak masuk | Tabel internal Laravel untuk status migration; dibuat oleh migrator, bukan `Schema::create` project. |
 
-Source migration mendefinisikan **21 tabel**. Database aktual berisi **22 tabel** setelah menyertakan tabel internal `migrations`: 14 dimasukkan ke ERD dan 8 dikecualikan.
+Source migration mendefinisikan **21 tabel**. Hasil migration bersih berisi **22 tabel** setelah menyertakan tabel internal `migrations`: 14 dimasukkan ke ERD dan 8 dikecualikan.
 
 ## Validasi
 
 - Audit statis mencakup seluruh **26 file migration** dan **13 model** di repository.
-- Koneksi ke schema MySQL/MariaDB `db_logistik` berhasil. Server aktual adalah MariaDB 10.4.32 dan seluruh 26 migration berstatus `Ran`.
-- Audit `information_schema` menemukan 22 tabel dan 20 FK, serta aturan PK/unique/nullability/delete/update yang dijelaskan di atas.
-- Backfill aktual tervalidasi: 1 gudang utama, 100 saldo untuk 100 barang, tidak ada barang terlewat, total `warehouse_stocks.stok` 5.200 sama dengan total `barang.stok`, dan seluruh 375 transaksi lama terhubung ke saldo gudang utama.
-- Audit koreksi histori tervalidasi: 375 transaksi, tidak ada `barang_id` null/orphan, kolom aktual `BIGINT UNSIGNED NOT NULL`, dan keempat FK pelindung histori memakai `ON DELETE RESTRICT ON UPDATE RESTRICT`.
+- Seluruh **26 migration** berhasil dijalankan dari nol pada SQLite 3.39.2; hasilnya **22 tabel, 201 kolom, dan 20 FK**. Unique status-baca per pengguna serta index (`user_id`, `read_at`) terbentuk.
+- Migration bersih membuat tepat satu `GDG-UTAMA`. Karena database kosong, audit ini memverifikasi jalur migrasi dan constraint, bukan jumlah atau rekonsiliasi data deployment.
+- Koneksi MySQL/MariaDB lokal ditolak pada 21 September 2026. Status migration, data backfill, engine/collation, dan drift skema deployment karena itu berstatus **Perlu Uji Produksi**.
 - Skema akhir memperhitungkan migration lanjutan: penambahan soft delete/foto/input prediksi/snapshot stok/nomor DO, pemisahan skor, serta penggantian `document_verifications.status` menjadi dua kolom status.
 - Setiap garis relasi ber-FK pada ERD dicocokkan dengan deklarasi `foreignId()->constrained()` atau `foreign()->references()`; relasi polymorphic tanpa FK diberi label eksplisit.
 - Kardinalitas nullable dan unique dicocokkan dengan migration, bukan diasumsikan dari nama kolom.
-- Pemeriksaan struktural sintaks Mermaid lulus: satu blok `erDiagram`, seluruh entitas/atribut memiliki kurung seimbang, tipe atribut berbentuk satu token, dan semua relasi memakai notasi crow's-foot yang valid. CLI/parser Mermaid tidak tersedia di dependensi lokal, sehingga tidak dilakukan render otomatis.
-- Perbandingan database dengan source menemukan dua drift fisik: unique pasangan status-baca yang hilang dan perilaku implicit default/auto-update pada `stock_predictions.analyzed_at`. Representasi fisik JSON sebagai `LONGTEXT + json_valid` adalah pemetaan normal MariaDB, bukan kolom bisnis yang hilang.
+- Mermaid CLI 11.17.0 berhasil mem-parse dan merender blok `erDiagram` menjadi [`docs/images/database-erd.svg`](../images/database-erd.svg).
+- Source migration, skema SQLite bersih, model, dan test struktural konsisten untuk jumlah tabel/kolom/FK. Perbandingan drift terhadap database deployment belum dapat dilakukan karena koneksinya tidak tersedia.

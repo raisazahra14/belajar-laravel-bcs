@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Barang;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\BarangCodeGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -51,7 +52,14 @@ class BarangCodeStandardizationTest extends TestCase
 
     private function attributes(string $name): array
     {
-        return ['nama_barang' => $name, 'kategori' => 'ATK', 'stok' => 1, 'satuan' => 'Pcs', 'lokasi' => 'Rak Test'];
+        return [
+            'nama_barang' => $name,
+            'kategori' => 'ATK',
+            'stok' => 1,
+            'warehouse_id' => Warehouse::where('kode_gudang', Warehouse::DEFAULT_CODE)->value('id'),
+            'satuan' => 'Pcs',
+            'lokasi' => 'Rak Test',
+        ];
     }
 
     private function data(string $code, string $name): array

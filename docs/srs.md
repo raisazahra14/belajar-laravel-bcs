@@ -6,14 +6,14 @@
 
 | Informasi dokumen | Nilai |
 |---|---|
-| ID dokumen | SRS-LOGISTIKKU-1.2 |
-| Versi | 1.2 |
-| Status | Final — konsolidasi Tugas 1.1–2.3 |
-| Tanggal pembaruan | 17 September 2026 |
+| ID dokumen | SRS-LOGISTIKKU-1.3 |
+| Versi | 1.3 |
+| Status | Baseline terverifikasi lokal — konsolidasi Tugas 1.1–2.3 |
+| Tanggal pembaruan | 21 September 2026 |
 | Jenis sistem | Aplikasi web pengelolaan persediaan |
-| Dasar dokumen | Implementasi repository, SRS Tugas 1.1, diagram Tugas 1.2, ERD, Data Dictionary, dan database aktual |
+| Dasar dokumen | Implementasi repository, source migration, skema migration bersih SQLite, model, route, otorisasi, test, diagram, ERD, dan Data Dictionary |
 | Ruang lingkup | Inventaris, supplier, fondasi Multi-Gudang, transaksi dan riwayat stok, import/export, verifikasi dokumen OCR, prediksi restock, notifikasi, dan administrasi pengguna |
-| Validasi baseline | PHPUnit: 236 test/2.817 assertion dan Python: 55 test lulus pada audit 15 September 2026; skema Supplier/Multi-Gudang dan database aktual diaudit pada 17 September 2026 |
+| Validasi baseline | Audit 21 September 2026: 258 test PHP/2.997 assertion dan 55 test Python lulus; benchmark terpisah 1 test/1 assertion lulus; migration bersih menghasilkan 22 tabel/201 kolom/20 FK; hasil rinci dan batas verifikasi dicatat pada bagian 12–13 |
 
 Dokumen ini merupakan spesifikasi *as-built*: pernyataan **Sudah Tersedia** hanya diberikan kepada fungsi yang ditemukan dalam implementasi dan didukung bukti yang relevan. Target yang masih bergantung pada lingkungan deployment tidak dinyatakan telah terpenuhi di produksi.
 
@@ -48,6 +48,7 @@ Dokumen ini merupakan spesifikasi *as-built*: pernyataan **Sudah Tersedia** hany
 | 1.0 | 15 September 2026 | Konsolidasi menjadi SRS resmi yang konsisten dengan implementasi aktual | Baseline publikasi |
 | 1.1 | 15 September 2026 | Audit final persona, kebutuhan file, ketertelusuran, dan penyematan hasil render tiga diagram | Final audit |
 | 1.2 | 17 September 2026 | Sinkronisasi Supplier, Multi-Gudang, ERD 14 tabel bisnis, dan Data Dictionary 22 tabel aktual | Final konsolidasi Tugas 2 |
+| 1.3 | 21 September 2026 | Audit ulang terhadap repository kerja: CRUD Supplier/Gudang, skema migration bersih, diagram, status bukti, dan penghapusan klaim database deployment yang tidak dapat diulang | Baseline terverifikasi lokal |
 
 ### 1.2 Definisi status pemenuhan
 
@@ -66,7 +67,7 @@ Dokumen ini disusun dari:
 - `docs/data_dictionary.md`;
 - route, middleware, Gate, Form Request, controller, service, model, migration, konfigurasi, job/queue, engine Python, view, dan test dalam repository LogistikKu.
 
-Isi unik dokumen kerja Tugas 1.1 dan Tugas 1.2 telah dikonsolidasikan ke SRS ini pada versi 1.2, termasuk source Mermaid, bukti benchmark, kontrak upload, kompatibilitas status OCR, dan kriteria penerimaan. File kerja terpisah tidak lagi menjadi sumber normatif.
+Isi unik dokumen kerja Tugas 1.1 dan Tugas 1.2 telah dikonsolidasikan ke SRS ini, termasuk source Mermaid, bukti benchmark, kontrak upload, kompatibilitas status OCR, dan kriteria penerimaan. File kerja terpisah tidak lagi menjadi sumber normatif.
 
 Apabila terdapat perbedaan antara uraian dan perilaku aktual, kode serta pengujian pada baseline repository menjadi bukti keadaan sistem saat ini. Perubahan kebutuhan setelah baseline harus dicatat sebagai revisi dokumen dan tidak dianggap telah tersedia sebelum diimplementasikan serta diuji.
 
@@ -178,7 +179,8 @@ Seluruh ID FR pada bagian ini unik dan mempertahankan penomoran Tugas 1.1 serta 
 | **FR-INV-006** | Admin harus dapat melakukan soft delete, restore, hapus permanen, dan aksi massal pada trash. | Data berpindah/pulih sesuai aksi; role lain menerima `403`; hapus permanen ditolak bila relasi historis/saldo masih ada dan membersihkan foto hanya ketika penghapusan aman. | Sudah Tersedia |
 | **FR-INV-007** | Admin harus dapat mengimpor XLSX, XLS, atau CSV dan melakukan upsert berdasarkan kode. | Seluruh baris divalidasi sebelum commit; kegagalan membatalkan batch; stok target diterapkan melalui transaksi yang menjaga saldo `GDG-UTAMA` dan total/legacy. | Sudah Tersedia |
 | **FR-INV-008** | Admin harus dapat mengekspor seluruh barang aktif ke XLSX, CSV, atau PDF. | Nama file, `Content-Type`, dan isi laporan sesuai format. | Sudah Tersedia |
-| **FR-INV-009** | Lapisan data harus mendukung supplier aktif/nonaktif dan supplier utama opsional pada barang. | Kode supplier unik; soft delete tidak mengubah referensi; force delete mengubah `barang.supplier_id` menjadi `NULL`; relasi model tersedia. | Sudah Tersedia pada lapisan data; UI master supplier belum tersedia |
+| **FR-INV-009** | Sistem harus menyediakan master supplier aktif/nonaktif dan supplier utama opsional pada barang. | Semua role dapat melihat daftar/detail; hanya Admin dapat CRUD; kode unik; soft delete mempertahankan referensi dan force delete mengubah FK menjadi `NULL`. | Tersedia Sebagian: CRUD master dan relasi data tersedia; pemilihan supplier utama pada form barang belum tersedia |
+| **FR-INV-010** | Sistem harus menyediakan master gudang dan saldo per barang–gudang. | Semua role dapat melihat daftar/detail saldo; hanya Admin dapat CRUD master; pasangan barang–gudang unik dan histori tetap terlindungi. | Tersedia Sebagian: CRUD master/detail saldo tersedia; pemilihan gudang transaksi dan transfer antargudang belum tersedia |
 
 ### 4.2 Transaksi dan riwayat stok
 
@@ -237,12 +239,12 @@ Seluruh ID FR pada bagian ini unik dan mempertahankan penomoran Tugas 1.1 serta 
 | ID | Kebutuhan dan ukuran | Status |
 |---|---|---|
 | **NFR-PERF-001** | Operasi web biasa menargetkan p95 *warm request* sisi server `<200 ms`, dengan minimal 5 warm-up dan 30 sampel per endpoint. | Perlu Uji Produksi; seluruh p95 lokal yang diaudit berada di bawah 200 ms. |
-| **NFR-PERF-002** | Penerimaan upload OCR kecil dan permintaan prediksi menargetkan p95 *warm request* `<200 ms` setelah validasi/storage/enqueue; waktu worker tidak dihitung. | Perlu Uji Produksi; p95 lokal OCR 18,837 ms dan prediksi 6,520 ms. |
+| **NFR-PERF-002** | Penerimaan upload OCR kecil dan permintaan prediksi menargetkan p95 *warm request* `<200 ms` setelah validasi/storage/enqueue; waktu worker tidak dihitung. | Perlu Uji Produksi; pengukuran ulang lokal mencatat p95 OCR 25,984 ms dan prediksi 9,177 ms. |
 | **NFR-PERF-003** | OCR/ELA/Python/ML end-to-end, waktu queue, upload besar, import/export, dan proses ulang OCR sinkron harus diukur terpisah dari target respons biasa. | Sudah diverifikasi untuk batas ruang lingkup; durasi end-to-end produksi belum diukur. |
 
 #### 5.1.1 Profil dan metode benchmark lokal
 
-- Tanggal pengukuran: 14 September 2026, timezone Asia/Jakarta.
+- Tanggal pengukuran ulang: 21 September 2026 pukul 09:57 WIB (Asia/Jakarta).
 - Runtime: PHP 8.2.12, Laravel 12.68.0, SQLite 3.39.2 in-memory, Windows 11 build 26200 AMD64.
 - Mode: `APP_DEBUG=false`, tanpa configuration/route cache, konkurensi satu Admin terautentikasi, dan request melalui Laravel HTTP test kernel tanpa web server/jaringan database.
 - Dataset sintetis: 1 pengguna, 1.000 barang, 10.000 transaksi stok, 1.000 hasil prediksi, dan 300 hasil verifikasi; database benchmark terpisah dari data pengguna/produksi.
@@ -254,18 +256,18 @@ Seluruh ID FR pada bagian ini unik dan mempertahankan penomoran Tugas 1.1 serta 
 
 | Endpoint | Cold | p50 | p95 | Maksimum | Query p50/maks. |
 |---|---:|---:|---:|---:|---:|
-| GET `/barang` — dashboard dan daftar | 323,802 ms | 60,885 ms | 84,400 ms | 85,059 ms | 21/21 |
-| GET `/barang/dashboard/activity?period=30` | 73,920 ms | 72,081 ms | 104,835 ms | 115,215 ms | 1/1 |
-| GET `/barang/{id}` — detail | 14,175 ms | 10,244 ms | 13,459 ms | 16,913 ms | 5/5 |
-| GET `/barang/results?...&page=2` | 26,882 ms | 19,210 ms | 25,158 ms | 25,502 ms | 2/2 |
-| GET `/barang/{id}/riwayat-stok?page=2` | 26,626 ms | 26,296 ms | 37,854 ms | 42,776 ms | 8/8 |
-| POST `/barang/{id}/stok` — masuk | 61,355 ms | 3,839 ms | 7,802 ms | 8,147 ms | 10/10 |
-| POST `/barang/{id}/stok` — keluar | 5,626 ms | 5,648 ms | 8,623 ms | 9,635 ms | 10/10 |
-| GET `/verifications?page=2` | 23,051 ms | 16,448 ms | 37,290 ms | 43,035 ms | 7/7 |
-| GET `/verifications/{id}` | 25,261 ms | 18,543 ms | 28,319 ms | 68,768 ms | 6/6 |
-| GET `/verifications/{id}/status` | 2,194 ms | 1,716 ms | 1,969 ms | 2,037 ms | 2/2 |
-| POST `/verifications` — penerimaan/enqueue OCR | 63,143 ms | 10,541 ms | 18,837 ms | 21,653 ms | 6/6 |
-| POST `/prediksi-stok/barang/{id}` — enqueue prediksi | 5,415 ms | 3,389 ms | 6,520 ms | 6,939 ms | 7/7 |
+| GET `/barang` — dashboard dan daftar | 276,514 ms | 78,629 ms | 117,123 ms | 137,656 ms | 21/21 |
+| GET `/barang/dashboard/activity?period=30` | 85,974 ms | 67,079 ms | 73,507 ms | 77,388 ms | 1/1 |
+| GET `/barang/{id}` — detail | 9,257 ms | 7,748 ms | 9,687 ms | 14,620 ms | 5/5 |
+| GET `/barang/results?...&page=2` | 25,282 ms | 16,104 ms | 20,154 ms | 22,179 ms | 2/2 |
+| GET `/barang/{id}/riwayat-stok?page=2` | 26,637 ms | 24,670 ms | 29,345 ms | 32,464 ms | 8/8 |
+| POST `/barang/{id}/stok` — masuk | 79,337 ms | 5,796 ms | 8,188 ms | 8,458 ms | 15/15 |
+| POST `/barang/{id}/stok` — keluar | 5,329 ms | 6,359 ms | 10,466 ms | 11,774 ms | 15/15 |
+| GET `/verifications?page=2` | 22,687 ms | 15,120 ms | 18,234 ms | 19,045 ms | 7/7 |
+| GET `/verifications/{id}` | 30,111 ms | 17,867 ms | 23,921 ms | 25,481 ms | 6/6 |
+| GET `/verifications/{id}/status` | 3,499 ms | 1,781 ms | 4,114 ms | 5,036 ms | 2/2 |
+| POST `/verifications` — penerimaan/enqueue OCR | 71,822 ms | 20,750 ms | 25,984 ms | 27,844 ms | 6/6 |
+| POST `/prediksi-stok/barang/{id}` — enqueue prediksi | 8,168 ms | 6,058 ms | 9,177 ms | 13,696 ms | 7/7 |
 
 Seluruh 30 sampel per endpoint menghasilkan HTTP 200 atau redirect 302 yang diharapkan dan nol error. Sampel stok memakai barang berbeda serta memverifikasi perubahan saldo dan satu transaksi; enqueue OCR/prediksi memverifikasi tepat satu job. Target hanya berlaku pada p95 warm request. Cold request dan proses panjang tidak diklaim memenuhi target tersebut.
 
@@ -346,6 +348,8 @@ Audit lokal CLI menemukan `file_uploads=On`, `upload_max_filesize=40M`, `post_ma
 | Mencari, memfilter, melihat detail dan riwayat | Ya | Ya | Ya | Middleware `auth` dan Form Request |
 | Menambah, mengubah, atau menghapus barang | Ya | Tidak | Tidak | Middleware `role:admin` |
 | Import/export dan trash barang | Ya | Tidak | Tidak | Middleware `role:admin` |
+| Melihat daftar/detail supplier dan gudang | Ya | Ya | Ya | Middleware `auth` |
+| Menambah, mengubah, menonaktifkan, atau soft delete supplier/gudang | Ya | Tidak | Tidak | Middleware `role:admin` dan Form Request |
 | Stok masuk dan stok keluar | Ya | Ya | Ya | Gate `update-stock` |
 | Upload OCR | Ya | Ya | Ya | Middleware `auth`; `VerifyDocumentRequest` |
 | Status, hasil, download, koreksi, retry, dan proses ulang dokumen sendiri | Ya | Ya | Ya | Pemilik atau Admin |
@@ -396,7 +400,7 @@ Akses yang ditolak menghasilkan `403`; guest diarahkan ke login oleh middleware 
 | Inventaris | Dashboard/daftar, endpoint hasil filter, detail, form barang, stok, riwayat, low stock, trash, import, dan export. |
 | OCR | Daftar/upload, halaman proses, endpoint polling JSON, hasil, download privat, koreksi metadata, retry, dan proses ulang. |
 | Prediksi | Daftar hasil, status proses JSON, analisis satu/semua barang, persetujuan restock, dan notifikasi. |
-| Administrasi | Resource pengguna tanpa halaman detail `show`. |
+| Administrasi | Resource pengguna tanpa halaman detail `show`; master supplier dan gudang beserta halaman detail saldo/riwayat. |
 
 Antarmuka web menggunakan session dan CSRF Laravel. Tidak ditemukan API publik terpisah untuk integrasi pihak ketiga.
 
@@ -480,7 +484,7 @@ Source Mermaid Tugas 1.2 telah dikonsolidasikan langsung ke bagian ini. Activity
 
 | Diagram | Bagian | Kebutuhan terkait |
 |---|---|---|
-| Use Case Diagram | Bagian 1 — Use Case Diagram Sistem | FR-INV-001–008, FR-STK-001–006, FR-OCR-001–008, FR-ML-001–008 |
+| Use Case Diagram | Bagian 1 — Use Case Diagram Sistem | FR-INV-001–010, FR-STK-001–007, FR-OCR-001–008, FR-ML-001–008 |
 | Activity Diagram Stok | Bagian 2 — Alur Stok Masuk/Keluar | FR-STK-001–004, FR-STK-006 |
 | Activity Diagram OCR | Bagian 3 — Alur Verifikasi Dokumen | FR-OCR-001–008 |
 
@@ -523,6 +527,8 @@ flowchart LR
         UC21([Memvalidasi dan menyimpan upload privat])
         UC22([Memasukkan pekerjaan OCR ke antrean])
         UC23([Membuka form stok masuk terisi])
+        UC24([Melihat supplier, gudang, dan saldo gudang])
+        UC25([Mengelola master supplier dan gudang])
     end
 
     admin -. "peran" .-> pengguna
@@ -541,6 +547,7 @@ flowchart LR
     pengguna --- UC11
     pengguna --- UC11A
     pengguna --- UC11B
+    pengguna --- UC24
     manager --- UC12
     manager --- UC13
     admin --- UC12
@@ -550,6 +557,7 @@ flowchart LR
     admin --- UC16
     admin --- UC17
     admin --- UC18
+    admin --- UC25
     UC04 -. "«include»" .-> UC19
     UC04 -. "«include»" .-> UC20
     UC05 -. "«include»" .-> UC21
@@ -566,9 +574,9 @@ flowchart LR
     classDef adminOnly fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
     classDef internal fill:#f1f5f9,stroke:#64748b,color:#334155;
     class pengguna,admin,manager,staff actor;
-    class UC01,UC02,UC03,UC04,UC05,UC06,UC07,UC08,UC09,UC10,UC11,UC11A,UC11B common;
+    class UC01,UC02,UC03,UC04,UC05,UC06,UC07,UC08,UC09,UC10,UC11,UC11A,UC11B,UC24 common;
     class UC12,UC13 elevated;
-    class UC14,UC15,UC16,UC17,UC18 adminOnly;
+    class UC14,UC15,UC16,UC17,UC18,UC25 adminOnly;
     class UC19,UC20,UC21,UC22,UC23 internal;
 ```
 
@@ -626,7 +634,7 @@ flowchart TD
     class start,stopDenied,stopSuccess success;
 ```
 
-[Buka render SVG Activity stok](./images/tugas-1-2-activity-stok.svg). Render SVG mempertahankan baseline sebelum anotasi detail Multi-Gudang; source Mermaid di atas adalah sumber final.
+[Buka render SVG Activity stok](./images/tugas-1-2-activity-stok.svg). SVG dirender ulang dari source Mermaid di atas pada audit 21 September 2026.
 
 ### 10.3 Activity Diagram Verifikasi Dokumen
 
@@ -750,7 +758,8 @@ Suatu FR dapat diterima apabila:
 | FR-INV-006 | Inventaris | Admin | `BarangTrashController`, route `role:admin`, feature test | Use Case |
 | FR-INV-007 | Import | Admin | `ImportBarangRequest`, importer/service, import/integrity test | Use Case |
 | FR-INV-008 | Export | Admin | `BarangReportController`, CSV/PDF service, report test | Use Case |
-| FR-INV-009 | Supplier | Sistem/Admin | Migration Supplier, model/relasi, `SupplierSchemaRelationshipTest` | Tidak divisualisasikan pada diagram proses formal |
+| FR-INV-009 | Supplier | Semua role/Admin | Migration/model, `SupplierController`, Form Request, `SupplierSchemaRelationshipTest`, `SupplierCrudTest` | Use Case |
+| FR-INV-010 | Multi-Gudang | Semua role/Admin | Migration/model, `WarehouseController`, Form Request, `WarehouseSchemaRelationshipTest`, `WarehouseCrudTest` | Use Case; detail relasi di ERD |
 | FR-STK-001 | Stok | Semua role | Gate, `BarangController`, `StockAdjustmentService`, UI test | Use Case; Activity Stok |
 | FR-STK-002 | Stok | Semua role | Stock service, database constraint, integrity test | Activity Stok |
 | FR-STK-003 | Stok | Sistem | `DB::transaction`, `lockForUpdate`, rollback test | Activity Stok |
@@ -786,6 +795,18 @@ Suatu FR dapat diterima apabila:
 | NFR-USE-001–002 | Form Request, view/CSS, UI tests | Pesan tersedia; visual/E2E parsial |
 | NFR-COMP-001–002 | README dan dependency manifests | Browser minimum serta detail stack produksi perlu konfirmasi |
 
+### 12.3 Bukti eksekusi audit 21 September 2026
+
+| Pemeriksaan | Hasil lokal |
+|---|---|
+| Suite PHP Unit + Feature | 258 test, 2.997 assertion, seluruhnya lulus (`--do-not-cache-result`). |
+| Suite Python | 55 test, seluruhnya lulus dari direktori `python/`. |
+| Benchmark endpoint sinkron | 1 test, 1 assertion; 12 endpoint × 30 sampel warm, nol respons error; lingkungan dan hasil ada pada bagian 5.1. |
+| Migration bersih SQLite | 26 migration lulus; menghasilkan 22 tabel, 201 kolom, dan 20 FK. |
+| Render Mermaid | 8 blok dirender oleh Mermaid CLI 11.17.0: 3 diagram proses SRS, 1 ERD, dan 4 diagram Peta Konsep. |
+
+Angka ini adalah hasil lokal pada repository kerja saat audit, bukan bukti deployment produksi. Database MySQL/MariaDB deployment, worker nyata, browser lintas versi, dan performa melalui web server/jaringan tetap mengikuti batas pada bagian 13.
+
 ---
 
 <a id="perlu-dipastikan"></a>
@@ -799,6 +820,6 @@ Suatu FR dapat diterima apabila:
 5. Nama dan versi minimum browser serta hasil pengujian lintas browser/viewport.
 6. Keputusan bisnis mengenai permission granular di luar tiga role tetap.
 7. Keputusan mengenai penambahan audit pelaku pada transaksi stok dan CRUD barang.
-8. Kebutuhan UI master supplier, pemilihan gudang transaksi, transfer antargudang, dan kebijakan rekonsiliasi stok total bila workflow multi-gudang diperluas.
+8. Kebutuhan pemilihan supplier pada form barang/transaksi, pemilihan gudang transaksi, transfer antargudang, dan kebijakan rekonsiliasi stok total bila workflow multi-gudang diperluas.
 
-Sampai butir tersebut dipastikan, status setiap FR mengikuti tabel kebutuhan di atas: fungsi aplikasi utama tersedia pada baseline lokal, sedangkan Supplier/Multi-Gudang tersedia pada cakupan lapisan data dan gudang utama yang dinyatakan. NFR yang berlabel **Perlu Uji Produksi**, **Tersedia Sebagian**, atau **Perlu Konfirmasi** tidak boleh dinyatakan selesai tanpa syarat.
+Sampai butir tersebut dipastikan, status setiap FR mengikuti tabel kebutuhan di atas: fungsi aplikasi utama tersedia pada baseline lokal; master Supplier/Gudang sudah memiliki UI, sedangkan asosiasi supplier operasional dan transaksi lintas gudang masih terbatas pada cakupan yang dinyatakan. NFR yang berlabel **Perlu Uji Produksi**, **Tersedia Sebagian**, atau **Perlu Konfirmasi** tidak boleh dinyatakan selesai tanpa syarat.

@@ -101,3 +101,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .ocr-processing-card[data-process-status="selesai"] .scanner-document-icon,.ocr-processing-card[data-process-status="selesai"] .scanner-line,.ocr-processing-card[data-process-status="selesai"] .processing-spinner,.ocr-processing-card[data-process-status="gagal"] .scanner-document-icon,.ocr-processing-card[data-process-status="gagal"] .scanner-line,.ocr-processing-card[data-process-status="gagal"] .processing-spinner { display: none; }
 .ocr-processing-card[data-process-status="selesai"] .result-success,.ocr-processing-card[data-process-status="gagal"] .result-failed { display: block; }
 .ocr-processing-card[data-process-status="selesai"] .ocr-indeterminate,.ocr-processing-card[data-process-status="gagal"] .ocr-indeterminate,.ocr-processing-card[data-process-status="selesai"] .ocr-wait-note,.ocr-processing-card[data-process-status="gagal"] .ocr-wait-note { display: none; }
+
+/* Supplier and warehouse master data */
+.master-filter-grid { grid-template-columns: minmax(260px, 1fr) minmax(170px, .35fr) auto; }
+.master-filter-grid-search { grid-template-columns: minmax(260px, 1fr) auto; }
+.master-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.text-preline { white-space: pre-line; }
+@media (max-width: 767px) {
+    .master-filter-grid, .master-filter-grid-search, .master-stats-grid { grid-template-columns: 1fr; }
+    .master-filter-grid .filter-actions { align-items: stretch; flex-direction: column; }
+    .master-filter-grid .filter-actions .btn { width: 100%; }
+}

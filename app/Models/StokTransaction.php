@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class StokTransaction extends Model
 {
@@ -25,11 +26,16 @@ class StokTransaction extends Model
 
     public function supplier(): BelongsTo
     {
-        return $this->belongsTo(Supplier::class, 'supplier_id');
+        return $this->belongsTo(Supplier::class, 'supplier_id')->withTrashed();
     }
 
     public function warehouseStock(): BelongsTo
     {
         return $this->belongsTo(WarehouseStock::class, 'warehouse_stock_id');
+    }
+
+    public function actor(): HasOne
+    {
+        return $this->hasOne(StokTransactionActor::class, 'stok_transaction_id');
     }
 }

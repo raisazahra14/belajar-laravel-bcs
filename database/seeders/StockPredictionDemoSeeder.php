@@ -5,6 +5,8 @@ namespace Database\Seeders;
 use App\Models\Barang;
 use App\Models\StockPrediction;
 use App\Models\StokTransaction;
+use App\Models\Warehouse;
+use App\Models\WarehouseStock;
 use App\Services\StockPredictionService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +31,13 @@ class StockPredictionDemoSeeder extends Seeder
 
         $items = DB::transaction(function () use ($patterns) {
             $items = collect();
+            $warehouseId = Warehouse::query()
+                ->where('kode_gudang', Warehouse::DEFAULT_CODE)
+                ->where('is_active', true)
+                ->value('id');
+            if ($warehouseId === null) {
+                throw new RuntimeException('Gudang utama aktif diperlukan untuk data demo prediksi.');
+            }
             foreach ($patterns as $code => $definition) {
                 $barang = Barang::withTrashed()->firstOrNew(['kode_barang' => $code]);
                 $barang->fill([
@@ -46,21 +55,30 @@ class StockPredictionDemoSeeder extends Seeder
                 StokTransaction::where('barang_id', $barang->id)
                     ->where('keterangan', 'like', self::MARKER.'%')->delete();
                 StockPrediction::where('barang_id', $barang->id)->delete();
+                $warehouseStock = WarehouseStock::firstOrCreate([
+                    'barang_id' => $barang->id,
+                    'warehouse_id' => $warehouseId,
+                ], [
+                    'stok' => 0,
+                    'stok_minimum' => 0,
+                ]);
+                $warehouseStock->update(['stok' => 0]);
 
                 $stock = 0;
                 $start = today()->subDays(89)->setTime(8, 0);
-                $stock = $this->transaction($barang, 'masuk', 180, $stock, $start, 'Stok awal demo');
+                $stock = $this->transaction($barang, $warehouseStock->id, 'masuk', 180, $stock, $start, 'Stok awal demo');
 
                 for ($day = 0; $day < 90; $day++) {
                     $date = $start->copy()->addDays($day);
                     $usage = $definition['pattern']($day);
                     if ($stock < $usage + 25) {
-                        $stock = $this->transaction($barang, 'masuk', 120, $stock, $date->copy()->setTime(8, 0), 'Restock berkala');
+                        $stock = $this->transaction($barang, $warehouseStock->id, 'masuk', 120, $stock, $date->copy()->setTime(8, 0), 'Restock berkala');
                     }
-                    $stock = $this->transaction($barang, 'keluar', $usage, $stock, $date->copy()->setTime(16, 0), 'Pemakaian harian');
+                    $stock = $this->transaction($barang, $warehouseStock->id, 'keluar', $usage, $stock, $date->copy()->setTime(16, 0), 'Pemakaian harian');
                 }
 
-                $barang->update(['stok' => $stock]);
+                $warehouseStock->update(['stok' => $stock]);
+                $barang->update(['stok' => (int) $barang->warehouseStocks()->sum('stok')]);
                 $items->push($barang->fresh());
             }
 
@@ -71,7 +89,7 @@ class StockPredictionDemoSeeder extends Seeder
         $items->each(fn (Barang $barang) => $service->analyze($barang));
     }
 
-    private function transaction(Barang $barang, string $type, int $quantity, int $stock, $timestamp, string $detail): int
+    private function transaction(Barang $barang, int $warehouseStockId, string $type, int $quantity, int $stock, $timestamp, string $detail): int
     {
         $after = $type === 'masuk' ? $stock + $quantity : $stock - $quantity;
         if ($after < 0) {
@@ -80,6 +98,7 @@ class StockPredictionDemoSeeder extends Seeder
 
         DB::table('stok_transactions')->insert([
             'barang_id' => $barang->id,
+            'warehouse_stock_id' => $warehouseStockId,
             'jenis' => $type,
             'jumlah' => $quantity,
             'stok_sebelum' => $stock,

@@ -10,7 +10,9 @@ use App\Http\Controllers\DocumentVerificationController;
 use App\Http\Controllers\DocumentVerificationNotificationController;
 use App\Http\Controllers\StockPredictionController;
 use App\Http\Controllers\StockPredictionNotificationController;
+use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/barang');
@@ -34,6 +36,16 @@ Route::middleware('auth')->group(function () {
     Route::patch('/verifications/{documentVerification}/metadata', [DocumentVerificationController::class, 'updateMetadata'])->name('verifications.metadata.update');
 
     Route::get('/barang', [BarangController::class, 'index'])->name('barang.index');
+    Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
+    Route::get('/warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/suppliers/create', [SupplierController::class, 'create'])->name('suppliers.create');
+        Route::post('/suppliers', [SupplierController::class, 'store'])->name('suppliers.store');
+        Route::get('/warehouses/create', [WarehouseController::class, 'create'])->name('warehouses.create');
+        Route::post('/warehouses', [WarehouseController::class, 'store'])->name('warehouses.store');
+    });
+    Route::get('/suppliers/{supplier}', [SupplierController::class, 'show'])->name('suppliers.show');
+    Route::get('/warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
     Route::get('/barang/results', [BarangController::class, 'inventoryResults'])->name('barang.results');
     Route::get('/barang/dashboard/activity', [BarangController::class, 'dashboardActivity'])->name('barang.dashboard.activity');
     Route::get('/barang/create', [BarangController::class, 'create'])->middleware('role:admin');
@@ -55,6 +67,12 @@ Route::middleware('auth')->group(function () {
     Route::patch('/notifikasi-ocr/read-all', [DocumentVerificationNotificationController::class, 'readAll'])->name('ocr-notifications.read-all');
 
     Route::middleware('role:admin')->group(function () {
+        Route::get('/suppliers/{supplier}/edit', [SupplierController::class, 'edit'])->name('suppliers.edit');
+        Route::match(['put', 'patch'], '/suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
+        Route::delete('/suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('suppliers.destroy');
+        Route::get('/warehouses/{warehouse}/edit', [WarehouseController::class, 'edit'])->name('warehouses.edit');
+        Route::match(['put', 'patch'], '/warehouses/{warehouse}', [WarehouseController::class, 'update'])->name('warehouses.update');
+        Route::delete('/warehouses/{warehouse}', [WarehouseController::class, 'destroy'])->name('warehouses.destroy');
         Route::get('/document-tools', [DocumentToolController::class, 'index'])->name('document-tools.index');
         Route::post('/document-tools/import', [DocumentToolController::class, 'import'])->name('document-tools.import');
         Route::post('/barang', [BarangController::class, 'store']);

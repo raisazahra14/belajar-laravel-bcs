@@ -51,6 +51,8 @@
         <nav class="sidebar sidebar-offcanvas" id="sidebar" aria-label="Menu aplikasi"><ul class="nav">
             <li class="nav-section-label" aria-hidden="true">Operasional</li>
             <li class="nav-item {{ request()->routeIs('barang.index') ? 'active' : '' }}"><a class="nav-link" href="{{ route('barang.index') }}"><i class="ti-view-grid menu-icon"></i><span class="menu-title">Daftar Barang</span></a></li>
+            <li class="nav-item {{ request()->routeIs('suppliers.*') ? 'active' : '' }}"><a class="nav-link" href="{{ route('suppliers.index') }}"><i class="ti-truck menu-icon"></i><span class="menu-title">Supplier</span></a></li>
+            <li class="nav-item {{ request()->routeIs('warehouses.*') ? 'active' : '' }}"><a class="nav-link" href="{{ route('warehouses.index') }}"><i class="ti-home menu-icon"></i><span class="menu-title">Gudang</span></a></li>
             <li class="nav-item {{ request()->is('barang/low-stock') ? 'active' : '' }}"><a class="nav-link" href="/barang/low-stock"><i class="ti-alert menu-icon"></i><span class="menu-title">Stok Menipis</span></a></li>
             @can('manage-barang')<li class="nav-item"><a class="nav-link" href="{{ route('barang.index', ['import' => 1]) }}"><i class="ti-upload menu-icon"></i><span class="menu-title">Import Data</span></a></li>@endcan
             <li class="nav-section-label" aria-hidden="true">Analisis</li>

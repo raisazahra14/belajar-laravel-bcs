@@ -9,6 +9,7 @@ use App\Models\StockPrediction;
 use App\Models\StockPredictionNotification;
 use App\Models\StokTransaction;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\StockPredictionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -134,7 +135,10 @@ class StockPredictionTest extends TestCase
         $barang = $this->barang();
 
         $this->actingAs($admin)->post("/barang/{$barang->id}/stok", [
-            'jenis' => 'keluar', 'jumlah' => 45, 'keterangan' => 'Pemakaian test',
+            'jenis' => 'keluar',
+            'jumlah' => 45,
+            'keterangan' => 'Pemakaian test',
+            'warehouse_id' => Warehouse::where('kode_gudang', Warehouse::DEFAULT_CODE)->value('id'),
         ])->assertRedirect("/barang/{$barang->id}");
 
         $this->assertSame(5, $barang->fresh()->stok);
@@ -150,7 +154,10 @@ class StockPredictionTest extends TestCase
         $barang = $this->barang();
 
         $this->actingAs($admin)->post("/barang/{$barang->id}/stok", [
-            'jenis' => 'masuk', 'jumlah' => 2, 'keterangan' => 'Restock test',
+            'jenis' => 'masuk',
+            'jumlah' => 2,
+            'keterangan' => 'Restock test',
+            'warehouse_id' => Warehouse::where('kode_gudang', Warehouse::DEFAULT_CODE)->value('id'),
         ])->assertRedirect("/barang/{$barang->id}")->assertSessionHas('success');
 
         $this->assertSame(52, $barang->fresh()->stok);

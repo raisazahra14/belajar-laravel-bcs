@@ -38,7 +38,7 @@ class BarangReportController extends Controller
             $spreadsheet = new Spreadsheet;
             $sheet = $spreadsheet->getActiveSheet();
             $sheet->setTitle('Persediaan Barang');
-            $sheet->fromArray(['Kode Barang', 'Nama Barang', 'Kategori', 'Stok', 'Satuan', 'Lokasi'], null, 'A1');
+            $sheet->fromArray(['Kode Barang', 'Nama Barang', 'Kategori', 'Stok', 'Satuan', 'Rak/Lokasi Detail'], null, 'A1');
             $sheet->getStyle('A1:F1')->getFont()->setBold(true);
 
             $row = 2;

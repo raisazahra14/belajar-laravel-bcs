@@ -35,7 +35,7 @@ class WarehouseStock extends Model
 
     public function warehouse(): BelongsTo
     {
-        return $this->belongsTo(Warehouse::class, 'warehouse_id');
+        return $this->belongsTo(Warehouse::class, 'warehouse_id')->withTrashed();
     }
 
     public function stokTransactions(): HasMany

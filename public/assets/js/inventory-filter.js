@@ -19,7 +19,7 @@
 
     function normalizedQuery(params) {
       const normalized = new URLSearchParams();
-      ['search', 'kategori', 'status', 'sort', 'page'].forEach(function (name) {
+      ['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort', 'page'].forEach(function (name) {
         const value = (params.get(name) || '').trim();
         if (value && !(name === 'page' && value === '1')) normalized.set(name, value);
       });
@@ -40,7 +40,7 @@
 
     function syncForm(url) {
       const params = new URL(url, window.location.origin).searchParams;
-      ['search', 'kategori', 'status', 'sort'].forEach(function (name) {
+      ['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort'].forEach(function (name) {
         if (form.elements[name]) form.elements[name].value = params.get(name) || '';
       });
     }

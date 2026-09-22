@@ -53,7 +53,7 @@ class InventoryPdfReport
         $commands = [
             'BT /F2 18 Tf 40 555 Td (Laporan Persediaan Barang) Tj ET',
             'BT /F1 9 Tf 40 537 Td (Dicetak: '.$this->escape(now()->format('d/m/Y H:i')).') Tj ET',
-            'BT /F2 9 Tf 40 510 Td (No.) Tj 35 0 Td (Kode Barang) Tj 105 0 Td (Nama Barang) Tj 190 0 Td (Kategori) Tj 105 0 Td (Stok) Tj 70 0 Td (Satuan) Tj 65 0 Td (Lokasi) Tj ET',
+            'BT /F2 9 Tf 40 510 Td (No.) Tj 35 0 Td (Kode Barang) Tj 105 0 Td (Nama Barang) Tj 190 0 Td (Kategori) Tj 105 0 Td (Stok) Tj 70 0 Td (Satuan) Tj 65 0 Td (Rak/Detail) Tj ET',
             '40 502 m 802 502 l S',
         ];
         $y = 485;

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Imports\BarangImport;
 use App\Models\Barang;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\StockAdjustmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -41,6 +42,7 @@ class InventoryStockIntegrityTest extends TestCase
             'nama_barang' => 'Barang Saldo Awal',
             'kategori' => 'ATK',
             'stok' => 15,
+            'warehouse_id' => Warehouse::where('kode_gudang', Warehouse::DEFAULT_CODE)->value('id'),
             'satuan' => 'Pcs',
             'lokasi' => 'Rak Awal',
         ])->assertRedirect('/barang');

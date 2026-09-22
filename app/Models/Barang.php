@@ -32,6 +32,8 @@ class Barang extends Model
         'Kg',
     ];
 
+    public const LEAD_TIME_OPTIONS = [3, 7, 14, 21, 30];
+
     protected $table = 'barang';
 
     public const MINIMUM_STOCK = 5;
@@ -75,7 +77,7 @@ class Barang extends Model
 
     public function supplier(): BelongsTo
     {
-        return $this->belongsTo(Supplier::class, 'supplier_id');
+        return $this->belongsTo(Supplier::class, 'supplier_id')->withTrashed();
     }
 
     public function warehouseStocks(): HasMany

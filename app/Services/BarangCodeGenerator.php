@@ -24,10 +24,16 @@ class BarangCodeGenerator
             try {
                 return DB::transaction(function () use ($attributes): Barang {
                     $initialStock = (int) ($attributes['stok'] ?? 0);
-                    unset($attributes['stok']);
+                    $warehouseId = isset($attributes['warehouse_id']) ? (int) $attributes['warehouse_id'] : null;
+                    unset($attributes['stok'], $attributes['warehouse_id']);
                     $barang = Barang::create(['kode_barang' => $this->nextCode(true), 'stok' => 0, ...$attributes]);
 
-                    return $this->stock->setTarget($barang, $initialStock, 'Saldo awal barang');
+                    return $this->stock->initializeStock(
+                        $barang,
+                        $initialStock,
+                        $warehouseId,
+                        'Saldo awal barang',
+                    );
                 });
             } catch (QueryException $exception) {
                 if (! $this->isDuplicateKey($exception)) {

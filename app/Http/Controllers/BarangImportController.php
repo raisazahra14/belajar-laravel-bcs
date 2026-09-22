@@ -57,7 +57,7 @@ class BarangImportController extends Controller
                 ['kategori', 'Sesuai pilihan aplikasi', 'Jaringan'],
                 ['stok', 'Bilangan bulat minimal 0', 20],
                 ['satuan', 'Sesuai pilihan aplikasi', 'Pcs'],
-                ['lokasi', 'Wajib diisi', 'Gudang B'],
+                ['lokasi', 'Rak/lokasi detail di dalam gudang', 'Rak B2'],
                 [],
                 ['Catatan', 'Gunakan kode existing untuk update barang.'],
                 ['', 'Gunakan kode baru berformat BRG-000001 untuk menambah barang.'],

@@ -38,6 +38,7 @@ class StockPredictionDemoSeederTest extends TestCase
             $transactions = $barang->stokTransactions()->oldest('created_at')->oldest('id')->get();
             $this->assertNotEmpty($transactions);
             foreach ($transactions as $transaction) {
+                $this->assertNotNull($transaction->warehouse_stock_id);
                 $this->assertSame($runningStock, $transaction->stok_sebelum);
                 $this->assertGreaterThanOrEqual(0, $transaction->stok_sesudah);
                 $expected = $transaction->jenis === 'masuk'
@@ -47,6 +48,7 @@ class StockPredictionDemoSeederTest extends TestCase
                 $runningStock = $transaction->stok_sesudah;
             }
             $this->assertSame($runningStock, $barang->fresh()->stok);
+            $this->assertSame($runningStock, (int) $barang->warehouseStocks()->sum('stok'));
         }
     }
 

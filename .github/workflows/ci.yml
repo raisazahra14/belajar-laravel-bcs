@@ -1,0 +1,159 @@
+name: CI
+
+"on":
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  repository-hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check whitespace errors
+        run: git diff --check
+
+      - name: Reject tracked sensitive and temporary files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          forbidden_paths="$(git ls-files | awk '
+              {
+                path = tolower($0)
+              }
+              (path ~ /(^|\/)\.env($|\.)/ && path !~ /(^|\/)\.env\.example$/) ||
+              path ~ /(^|\/)__pycache__(\/|$)/ ||
+              path ~ /\.pyc$/ ||
+              path ~ /(^|\/)(recovery|recovered)(\/|$)/ ||
+              path ~ /(^|\/).*ocr[-_.]?output.*$/ ||
+              path ~ /(^|\/)(credentials?|secrets?|tokens?)(\.[^\/]*)?$/ ||
+              path ~ /\.(pem|key|p12|pfx)$/ ||
+              path ~ /(^|\/)(id_rsa|id_ed25519)$/
+            ')"
+
+          if [[ -n "$forbidden_paths" ]]; then
+            count="$(printf '%s\n' "$forbidden_paths" | wc -l)"
+            echo "::error title=Tracked forbidden files::Found $count tracked sensitive or temporary path(s)."
+            printf '%s\n' "$forbidden_paths" | sed -n '1,100p'
+            if (( count > 100 )); then
+              echo "... and $((count - 100)) more path(s)."
+            fi
+            exit 1
+          fi
+
+      - name: Reject common secret signatures
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pattern='-----BEGIN ([A-Z ]+ )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]+|sk_live_[A-Za-z0-9]+|AIza[0-9A-Za-z_-]{30,}'
+          if matches="$(git grep -IEn -e "$pattern" -- . ':(exclude).github/workflows/ci.yml')"; then
+            echo "::error title=Potential secret detected::Remove the matched credential before continuing."
+            printf '%s\n' "$matches"
+            exit 1
+          fi
+
+  php-tests:
+    name: PHP 8.2 / PHPUnit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      APP_ENV: testing
+      APP_DEBUG: "false"
+      APP_URL: http://localhost
+      LOG_CHANNEL: "null"
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ":memory:"
+      BCRYPT_ROUNDS: "4"
+      PYTHON_EXECUTABLE: python
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          coverage: none
+          extensions: ctype, dom, fileinfo, filter, gd, iconv, mbstring, openssl, pdo_sqlite, simplexml, sqlite3, xml, xmlreader, xmlwriter, zip
+          tools: composer:v2
+
+      - name: Generate ephemeral application key
+        shell: bash
+        run: |
+          app_key="$(php -r 'echo "base64:".base64_encode(random_bytes(32));')"
+          echo "::add-mask::$app_key"
+          echo "APP_KEY=$app_key" >> "$GITHUB_ENV"
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Check PHP syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            php -l "$file" > /dev/null
+          done < <(find app bootstrap config database routes tests -type f -name '*.php' -print0)
+          php -l artisan > /dev/null
+          echo "PHP syntax check passed."
+
+      - name: Run PHPUnit
+        run: php vendor/bin/phpunit --do-not-cache-result
+
+      - name: Ensure checks did not modify tracked files
+        run: |
+          git diff --check
+          git diff --exit-code
+
+  python-tests:
+    name: Python 3.10 / unittest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: python/requirements.txt
+
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check -r python/requirements.txt
+
+      - name: Run Python unit tests
+        working-directory: python
+        run: python -m unittest discover -s tests -v
+
+      - name: Ensure tests did not modify tracked files
+        run: |
+          git diff --check
+          git diff --exit-code

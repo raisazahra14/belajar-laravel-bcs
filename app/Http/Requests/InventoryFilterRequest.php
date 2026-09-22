@@ -30,8 +30,18 @@ class InventoryFilterRequest extends FormRequest
             'search' => ['nullable', 'string', 'max:100'],
             'kategori' => ['nullable', Rule::in(Barang::KATEGORI)],
             'status' => ['nullable', Rule::in(self::STATUSES)],
+            'supplier_id' => ['nullable', 'integer', Rule::exists('suppliers', 'id')],
+            'warehouse_id' => ['nullable', 'integer', Rule::exists('warehouses', 'id')],
             'sort' => ['nullable', Rule::in(self::SORTS)],
             'page' => ['nullable', 'integer', 'min:1'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'supplier_id.exists' => 'Filter supplier tidak valid.',
+            'warehouse_id.exists' => 'Filter gudang tidak valid.',
         ];
     }
 }
