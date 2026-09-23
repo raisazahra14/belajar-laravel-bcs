@@ -345,7 +345,12 @@ class BarangController extends Controller
     /** @param array<string,mixed> $filters */
     private function filteredInventory(array $filters): Builder
     {
-        $query = Barang::query()->with('supplier');
+        $query = Barang::query()->with([
+            'supplier',
+            'warehouseStocks' => fn ($stock) => $stock
+                ->where('stok', '>', 0)
+                ->with('warehouse'),
+        ]);
         $search = $filters['search'] ?? null;
         if ($search !== null && $search !== '') {
             $query->where(function (Builder $query) use ($search): void {

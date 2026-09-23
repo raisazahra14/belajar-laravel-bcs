@@ -55,6 +55,7 @@ class WarehouseController extends Controller
         $totalJenisBarang = $warehouse->warehouseStocks()->where('stok', '>', 0)->count();
         $totalKuantitas = (int) $warehouse->warehouseStocks()->sum('stok');
         $stocks = $warehouse->warehouseStocks()
+            ->where('stok', '>', 0)
             ->with('barang:id,kode_barang,nama_barang,satuan')
             ->orderByDesc('stok')
             ->paginate(10)
