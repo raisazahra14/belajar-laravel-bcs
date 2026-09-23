@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>LogistikKu</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8765/assets/vendors/feather/feather.css">
+    <link rel="stylesheet" href="http://127.0.0.1:8765/assets/vendors/ti-icons/css/themify-icons.css">
+    <link rel="stylesheet" href="http://127.0.0.1:8765/assets/vendors/css/vendor.bundle.base.css">
+    <link rel="stylesheet" href="http://127.0.0.1:8765/assets/css/style.css">
+    <link rel="stylesheet" href="http://127.0.0.1:8765/css/skydash-logistics.css">
+</head>
+<body>
+<div class="container-scroller">
+    <nav class="navbar col-lg-12 col-12 p-0 fixed-top d-flex flex-row" aria-label="Navigasi utama">
+        <div class="navbar-brand-wrapper d-flex align-items-center justify-content-start">
+            <a class="navbar-brand brand-logo logistics-brand" href="http://127.0.0.1:8765/barang"><i class="ti-package" aria-hidden="true"></i><span>LogistikKu</span></a>
+            <a class="navbar-brand brand-logo-mini logistics-brand-mini" href="http://127.0.0.1:8765/barang" aria-label="LogistikKu"><i class="ti-package" aria-hidden="true"></i></a>
+        </div>
+        <div class="navbar-menu-wrapper d-flex align-items-center justify-content-end">
+            <button class="navbar-toggler align-self-center" type="button" data-toggle="minimize" aria-label="Perkecil sidebar"><span class="ti-menu"></span></button>
+                        <div class="dropdown notification-menu">
+                <button class="notification-trigger" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Notifikasi aplikasi"><i class="ti-bell"></i><span id="notification-count" class="notification-dot" >3</span></button>
+                <div class="dropdown-menu dropdown-menu-end prediction-notifications app-notifications" id="app-notifications" data-endpoint="http://127.0.0.1:8765/notifikasi-ocr" data-prediction-unread="3">
+                    <div class="dropdown-header d-flex justify-content-between align-items-center"><strong>Notifikasi OCR</strong></div>
+                    <div id="ocr-notification-list">
+                        <div class="dropdown-item text-muted ocr-notification-empty">Belum ada notifikasi OCR.</div>                    </div>
+                    <div class="dropdown-header notification-subheading d-flex justify-content-between"><strong>Prediksi Stok</strong><form method="POST" action="http://127.0.0.1:8765/notifikasi-prediksi/read-all"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"> <input type="hidden" name="_method" value="PATCH"><button class="btn-link border-0 bg-transparent p-0" type="submit">Tandai semua</button></form></div>                    <form method="POST" action="http://127.0.0.1:8765/notifikasi-prediksi/3/read"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"> <input type="hidden" name="_method" value="PATCH"><button class="dropdown-item" type="submit"><strong>[TEST] Baterai Fluktuatif</strong><small>Perlu Restock · tandai dibaca</small></button></form><form method="POST" action="http://127.0.0.1:8765/notifikasi-prediksi/2/read"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"> <input type="hidden" name="_method" value="PATCH"><button class="dropdown-item" type="submit"><strong>[TEST] Kertas Meningkat</strong><small>Perlu Restock · tandai dibaca</small></button></form><form method="POST" action="http://127.0.0.1:8765/notifikasi-prediksi/1/read"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"> <input type="hidden" name="_method" value="PATCH"><button class="dropdown-item" type="submit"><strong>[TEST] Kabel LAN Stabil</strong><small>Perlu Restock · tandai dibaca</small></button></form>                </div>
+            </div>
+            <div class="dropdown user-menu">
+                <button class="user-menu-trigger" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Buka menu pengguna"><span class="user-avatar" aria-hidden="true">A</span><span class="user-summary d-none d-sm-flex"><strong>Administrator</strong><small>Admin</small></span><i class="ti-angle-down" aria-hidden="true"></i></button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li class="dropdown-header"><strong>Administrator</strong><span>admin@logistikku.test</span><span class="badge badge-primary mt-2">Admin</span>
+</li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><form action="/logout" method="POST"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"><button class="dropdown-item" type="submit"><i class="ti-power-off" aria-hidden="true"></i>Keluar</button></form></li>
+                </ul>
+            </div>
+            <button class="navbar-toggler navbar-toggler-right d-lg-none align-self-center" type="button" data-toggle="offcanvas" aria-label="Buka sidebar"><span class="ti-menu"></span></button>
+        </div>
+    </nav>
+    <div class="container-fluid page-body-wrapper">
+        <nav class="sidebar sidebar-offcanvas" id="sidebar" aria-label="Menu aplikasi"><ul class="nav">
+            <li class="nav-section-label" aria-hidden="true">Operasional</li>
+            <li class="nav-item active"><a class="nav-link" href="http://127.0.0.1:8765/barang"><i class="ti-view-grid menu-icon"></i><span class="menu-title">Daftar Barang</span></a></li>
+            <li class="nav-item "><a class="nav-link" href="/barang/low-stock"><i class="ti-alert menu-icon"></i><span class="menu-title">Stok Menipis</span></a></li>
+            <li class="nav-item"><a class="nav-link" href="http://127.0.0.1:8765/barang?import=1"><i class="ti-upload menu-icon"></i><span class="menu-title">Import Data</span></a></li>            <li class="nav-section-label" aria-hidden="true">Analisis</li>
+            <li class="nav-item "><a class="nav-link" href="http://127.0.0.1:8765/prediksi-stok"><i class="ti-stats-up menu-icon"></i><span class="menu-title">Prediksi Stok</span></a></li>
+            <li class="nav-item "><a class="nav-link" href="http://127.0.0.1:8765/verifications"><i class="ti-check-box menu-icon"></i><span class="menu-title">Verifikasi Dokumen</span></a></li>
+                        <li class="nav-section-label" aria-hidden="true">Administrasi</li>
+            <li class="nav-item "><a class="nav-link" href="/users"><i class="ti-user menu-icon"></i><span class="menu-title">Kelola Pengguna</span></a></li>
+            <li class="nav-item "><a class="nav-link" href="http://127.0.0.1:8765/barang-trash"><i class="ti-trash menu-icon"></i><span class="menu-title">Tong Sampah</span></a></li>
+                    </ul></nav>
+        <div class="main-panel"><main class="content-wrapper" id="main-content"><header class="page-header">
+    <div><h1>Persediaan Barang</h1><p>Kelola data dan stok barang gudang Anda.</p></div>
+        <div class="page-actions">
+        <a href="http://127.0.0.1:8765/barang-trash" class="btn btn-outline-secondary"><i class="ti-trash" aria-hidden="true"></i><span>Tong Sampah</span></a>
+        <div class="dropdown"><button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="ti-download" aria-hidden="true"></i> Export</button><ul class="dropdown-menu dropdown-menu-end"><li><a class="dropdown-item" href="http://127.0.0.1:8765/barang-report/pdf"><i class="ti-file"></i> Laporan PDF</a></li><li><a class="dropdown-item" href="http://127.0.0.1:8765/barang-report/excel"><i class="ti-layout-grid2"></i> Laporan Excel</a></li><li><a class="dropdown-item" href="http://127.0.0.1:8765/barang-report/csv" title="Seluruh barang aktif, urutan nama seperti laporan Excel/PDF">Export CSV</a></li></ul></div>
+        <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#importBarangModal"><i class="ti-upload" aria-hidden="true"></i><span>Import Excel / CSV</span></button>
+        <a href="/barang/create" class="btn btn-primary"><i class="ti-plus" aria-hidden="true"></i><span>Tambah Barang</span></a>
+    </div>
+    </header>
+
+
+<div class="stats-grid">
+    <section class="card app-card stat-card stat-info"><div class="card-body"><div class="stat-icon"><i class="ti-package"></i></div><p>Total Jenis Barang</p><strong>26</strong><small>Jenis barang aktif</small></div></section>
+    <section class="card app-card stat-card stat-success"><div class="card-body"><div class="stat-icon"><i class="ti-layers"></i></div><p>Total Unit Stok</p><strong>567</strong><small>Stok tersedia saat ini</small></div></section>
+    <section class="card app-card stat-card stat-info"><div class="card-body"><div class="stat-icon"><i class="ti-tag"></i></div><p>Kategori Barang</p><strong>2</strong><small>Kategori aktif</small></div></section>
+    <a href="/barang/low-stock" class="stat-link" aria-label="Lihat 0 barang dengan stok menipis"><section class="card app-card stat-card stat-danger"><div class="card-body"><div class="stat-icon"><i class="ti-alert"></i></div><p>Stok Menipis (≤ 5)</p><strong>0</strong><small>Lihat daftar <i class="ti-arrow-right"></i></small></div></section>
+</a>
+</div>
+
+<div class="dashboard-insight-grid">
+    <section class="card app-card stock-activity-card" id="stock-activity-dashboard" data-endpoint="http://127.0.0.1:8765/barang/dashboard/activity"><div class="card-body"><div class="dashboard-panel-heading"><div><h2>Aktivitas Stok</h2><p>Total barang masuk dan keluar berdasarkan tanggal.</p></div><div class="period-switcher" role="group" aria-label="Pilih periode aktivitas stok"><button type="button" class="is-active" data-stock-period="7" aria-pressed="true">7 hari</button><button type="button" data-stock-period="30" aria-pressed="false">30 hari</button></div></div>
+        <div class="activity-summary" aria-live="polite"><span><i class="activity-key key-in" aria-hidden="true"></i><span>Barang masuk</span><strong id="stock-total-in">70</strong></span><span><i class="activity-key key-out" aria-hidden="true"></i><span>Barang keluar</span><strong id="stock-total-out">89</strong></span></div>
+        <div id="stock-chart-wrap" class="stock-chart-wrap" ><canvas id="stock-activity-chart" role="img" aria-label="Grafik batang aktivitas stok masuk dan keluar selama 7 hari"></canvas></div>
+        <div id="stock-chart-empty"  hidden ><div class="empty-state"><i class="ti-bar-chart"></i><h3>Belum ada aktivitas stok</h3><p>Transaksi barang masuk dan keluar pada periode ini belum tersedia.</p></div>
+</div>
+        <p id="stock-chart-status" class="chart-feedback" role="status" aria-live="polite" hidden></p>
+        <details class="activity-data-alternative"><summary>Lihat data aktivitas dalam bentuk tabel</summary><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Tanggal</th><th class="text-end">Masuk</th><th class="text-end">Keluar</th></tr></thead><tbody id="stock-activity-table"><tr><td>2026-09-08</td><td class="text-end">0</td><td class="text-end">14</td></tr><tr><td>2026-09-09</td><td class="text-end">0</td><td class="text-end">9</td></tr><tr><td>2026-09-10</td><td class="text-end">0</td><td class="text-end">10</td></tr><tr><td>2026-09-11</td><td class="text-end">0</td><td class="text-end">11</td></tr><tr><td>2026-09-12</td><td class="text-end">0</td><td class="text-end">12</td></tr><tr><td>2026-09-13</td><td class="text-end">0</td><td class="text-end">13</td></tr><tr><td>2026-09-14</td><td class="text-end">70</td><td class="text-end">20</td></tr></tbody></table></div></details></div></section>
+    <section class="card app-card attention-card"><div class="card-body"><div class="dashboard-panel-heading"><div><h2>Pusat Perhatian</h2><p>Tindakan yang perlu diprioritaskan saat ini.</p></div><span class="badge badge-warning">4 perhatian</span>
+</div>
+        <div class="attention-list"><article class="attention-item"><span class="attention-icon attention-warning"><i class="ti-stats-down" aria-hidden="true"></i></span><div><div class="attention-title"><h3>Risiko stok terprediksi</h3><span class="badge badge-warning">Perlu Restock</span>
+</div><p>3 barang berstatus Perlu Restock pada analisis terakhir.</p><a href="http://127.0.0.1:8765/prediksi-stok?status=Perlu%20Restock">Tinjau sekarang <i class="ti-arrow-right" aria-hidden="true"></i></a></div></article><article class="attention-item"><span class="attention-icon attention-warning"><i class="ti-check-box" aria-hidden="true"></i></span><div><div class="attention-title"><h3>Verifikasi dokumen</h3><span class="badge badge-warning">Menunggu</span>
+</div><p>1 dokumen berstatus Menunggu.</p><a href="http://127.0.0.1:8765/verifications">Tinjau sekarang <i class="ti-arrow-right" aria-hidden="true"></i></a></div></article><article class="attention-item"><span class="attention-icon attention-warning"><i class="ti-reload" aria-hidden="true"></i></span><div><div class="attention-title"><h3>Proses prediksi stok</h3><span class="badge badge-warning">Menunggu</span>
+</div><p>26 proses analisis berstatus Menunggu.</p><a href="http://127.0.0.1:8765/prediksi-stok">Tinjau sekarang <i class="ti-arrow-right" aria-hidden="true"></i></a></div></article><article class="attention-item"><span class="attention-icon attention-secondary"><i class="ti-image" aria-hidden="true"></i></span><div><div class="attention-title"><h3>Foto barang belum tersedia</h3><span class="badge badge-secondary">Perlu dilengkapi</span>
+</div><p>26 barang belum memiliki foto asli.</p><a href="http://127.0.0.1:8765/barang">Tinjau sekarang <i class="ti-arrow-right" aria-hidden="true"></i></a></div></article></div></div></section>
+</div>
+
+<div class="stats-grid prediction-stats">
+    <a href="http://127.0.0.1:8765/prediksi-stok?status=Perlu%20Restock" class="stat-link"><section class="card app-card stat-card stat-warning"><div class="card-body"><div class="stat-icon"><i class="ti-stats-down"></i></div><p>Diprediksi Perlu Restock</p><strong>3</strong><small>Peringatan sebelum stok minimum</small></div></section>
+</a>
+    <a href="http://127.0.0.1:8765/prediksi-stok?status=Mendesak" class="stat-link"><section class="card app-card stat-card stat-danger"><div class="card-body"><div class="stat-icon"><i class="ti-alarm-clock"></i></div><p>Prediksi Mendesak</p><strong>0</strong><small>Perlu tindakan segera</small></div></section>
+</a>
+</div>
+
+<section class="card app-card mb-4"><div class="card-body"><div class="table-heading"><div><h2>Peringatan Prediksi Terbaru</h2><p>Prioritas barang berdasarkan analisis stok terakhir.</p></div><a href="http://127.0.0.1:8765/prediksi-stok" class="btn btn-outline-primary btn-sm"><span>Lihat Semua Prediksi</span></a>
+</div><div class="table-responsive"><table class="table prediction-dashboard-table"><caption>Peringatan stok terbaru yang memerlukan perhatian</caption><thead><tr><th>Nama Barang</th><th>Metode</th><th>Stok</th><th>Perkiraan Habis</th><th>Saran Restock</th><th>Status</th></tr></thead><tbody><tr><td><strong>[TEST] Baterai Fluktuatif</strong> <span class="badge badge-secondary">Data Demo</span>
+</td><td><span class="badge badge-info">Machine Learning</span>
+</td><td>105 Pcs</td><td>12/10/2026</td><td>35 Pcs</td><td><span class="prediction-badge status-perlu-restock">Perlu Restock</span></td></tr><tr><td><strong>[TEST] Kertas Meningkat</strong> <span class="badge badge-secondary">Data Demo</span>
+</td><td><span class="badge badge-info">Machine Learning</span>
+</td><td>78 Pcs</td><td>30/09/2026</td><td>106 Pcs</td><td><span class="prediction-badge status-perlu-restock">Perlu Restock</span></td></tr><tr><td><strong>[TEST] Kabel LAN Stabil</strong> <span class="badge badge-secondary">Data Demo</span>
+</td><td><span class="badge badge-info">Machine Learning</span>
+</td><td>30 Pcs</td><td>24/09/2026</td><td>81 Pcs</td><td><span class="prediction-badge status-perlu-restock">Perlu Restock</span></td></tr></tbody></table></div></div></section>
+
+<section class="card app-card filter-card mb-4"><div class="card-body"><form action="http://127.0.0.1:8765/barang" method="GET" class="filter-grid inventory-filter-grid" id="inventory-filter-form" data-results-endpoint="http://127.0.0.1:8765/barang/results">
+        <div class="filter-search"><label class="form-label" for="search">Pencarian</label><div class="input-icon"><i class="ti-search"></i><input class="form-control" id="search" type="search" name="search" placeholder="Kode, nama, atau lokasi" value="Browser CRUD"></div></div>
+        <div><label class="form-label" for="kategori">Kategori</label><select class="form-select" id="kategori" name="kategori"><option value="">Semua Kategori</option><option value="ATK" >ATK</option><option value="Jaringan" >Jaringan</option></select></div>
+        <div><label class="form-label" for="status">Status Stok</label><select class="form-select" id="status" name="status"><option value="">Semua Status</option><option value="menipis" >Menipis</option><option value="aman" >Aman</option></select></div>
+        <div><label class="form-label" for="sort">Urutkan</label><select class="form-select" id="sort" name="sort"><option value="">Data terbaru</option><option value="nama_asc" >Nama A–Z</option><option value="nama_desc" >Nama Z–A</option><option value="stok_asc" >Stok terkecil</option><option value="stok_desc" >Stok terbesar</option></select></div>
+        <div class="filter-actions"><button type="submit" class="btn btn-primary"><i class="ti-search" aria-hidden="true"></i><span>Terapkan</span></button>
+<a href="http://127.0.0.1:8765/barang" class="btn btn-outline-secondary" data-clear-filters="data-clear-filters"><i class="ti-reload" aria-hidden="true"></i><span>Reset</span></a>
+</div>
+    </form></div></section>
+
+<div id="inventory-results-region" class="inventory-results-region" aria-live="polite"><p id="inventory-filter-feedback" class="inventory-filter-feedback" role="status" hidden></p><div id="inventory-results-content"><div class="active-filter-bar" aria-label="Filter aktif">
+    <div class="active-filter-chips">
+                                <a class="filter-chip" href="http://127.0.0.1:8765/barang" data-remove-filter="search" aria-label="Hapus filter Pencarian: Browser CRUD"><span>Pencarian: Browser CRUD</span><i class="ti-close" aria-hidden="true"></i></a>
+            </div>
+    <a class="clear-filter-link" href="http://127.0.0.1:8765/barang" data-clear-filters>Hapus semua filter</a>
+</div>
+
+<section class="card app-card inventory-card"><div class="card-body"><div class="table-heading"><div><h2>Daftar Barang</h2><p role="status" aria-live="polite">Menampilkan 1–5 dari 6 data</p></div></div>
+    <div class="table-responsive"><table class="table inventory-table"><thead><tr><th class="text-center">No.</th><th>Foto</th><th>Kode Barang</th><th>Nama Barang</th><th>Kategori</th><th class="text-end">Stok</th><th>Lokasi</th><th class="text-end">Aksi</th></tr></thead><tbody>
+            <tr><td class="text-center text-muted">1</td><td><span class="barang-illustration barang-photo-thumb" style="background-position: 100% 100%" role="img" aria-label="Ilustrasi Browser CRUD"></span></td><td><span class="badge badge-primary">BRG-800022</span>
+</td><td><strong>Browser CRUD</strong><small class="d-block text-muted">Unit</small></td><td><span class="badge badge-info">ATK</span>
+</td><td class="text-end"><span class="badge badge-success">10 Unit</span>
+</td><td>Rak Browser</td><td><div class="table-actions justify-content-end"><a href="/barang/26" class="btn btn-outline-primary btn-sm"><i class="ti-eye" aria-hidden="true"></i><span>Detail</span></a>
+<a href="http://127.0.0.1:8765/barang/26/stok" class="btn btn-primary btn-sm stock-management-action"><i class="ti-package" aria-hidden="true"></i><span>Kelola Stok</span></a>
+ <a href="/barang/26/edit" class="btn btn-outline-secondary btn-sm"><i class="ti-pencil" aria-hidden="true"></i><span>Edit</span></a>
+<form action="/barang/26" method="POST" onsubmit="return confirm('Pindahkan Browser CRUD ke Tong Sampah?')"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"> <input type="hidden" name="_method" value="DELETE"><button type="submit" class="btn btn-outline-danger btn-sm"><i class="ti-trash" aria-hidden="true"></i><span>Hapus</span></button>
+</form></div></td></tr>
+            <tr><td class="text-center text-muted">2</td><td><span class="barang-illustration barang-photo-thumb" style="background-position: 100% 100%" role="img" aria-label="Ilustrasi Browser CRUD Updated"></span></td><td><span class="badge badge-primary">BRG-800021</span>
+</td><td><strong>Browser CRUD Updated</strong><small class="d-block text-muted">Unit</small></td><td><span class="badge badge-info">ATK</span>
+</td><td class="text-end"><span class="badge badge-success">12 Unit</span>
+</td><td>Rak Browser</td><td><div class="table-actions justify-content-end"><a href="/barang/25" class="btn btn-outline-primary btn-sm"><i class="ti-eye" aria-hidden="true"></i><span>Detail</span></a>
+<a href="http://127.0.0.1:8765/barang/25/stok" class="btn btn-primary btn-sm stock-management-action"><i class="ti-package" aria-hidden="true"></i><span>Kelola Stok</span></a>
+ <a href="/barang/25/edit" class="btn btn-outline-secondary btn-sm"><i class="ti-pencil" aria-hidden="true"></i><span>Edit</span></a>
+<form action="/barang/25" method="POST" onsubmit="return confirm('Pindahkan Browser CRUD Updated ke Tong Sampah?')"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"> <input type="hidden" name="_method" value="DELETE"><button type="submit" class="btn btn-outline-danger btn-sm"><i class="ti-trash" aria-hidden="true"></i><span>Hapus</span></button>
+</form></div></td></tr>
+            <tr><td class="text-center text-muted">3</td><td><span class="barang-illustration barang-photo-thumb" style="background-position: 100% 100%" role="img" aria-label="Ilustrasi Browser CRUD Updated"></span></td><td><span class="badge badge-primary">BRG-800020</span>
+</td><td><strong>Browser CRUD Updated</strong><small class="d-block text-muted">Unit</small></td><td><span class="badge badge-info">ATK</span>
+</td><td class="text-end"><span class="badge badge-success">12 Unit</span>
+</td><td>Rak Browser</td><td><div class="table-actions justify-content-end"><a href="/barang/24" class="btn btn-outline-primary btn-sm"><i class="ti-eye" aria-hidden="true"></i><span>Detail</span></a>
+<a href="http://127.0.0.1:8765/barang/24/stok" class="btn btn-primary btn-sm stock-management-action"><i class="ti-package" aria-hidden="true"></i><span>Kelola Stok</span></a>
+ <a href="/barang/24/edit" class="btn btn-outline-secondary btn-sm"><i class="ti-pencil" aria-hidden="true"></i><span>Edit</span></a>
+<form action="/barang/24" method="POST" onsubmit="return confirm('Pindahkan Browser CRUD Updated ke Tong Sampah?')"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"> <input type="hidden" name="_method" value="DELETE"><button type="submit" class="btn btn-outline-danger btn-sm"><i class="ti-trash" aria-hidden="true"></i><span>Hapus</span></button>
+</form></div></td></tr>
+            <tr><td class="text-center text-muted">4</td><td><span class="barang-illustration barang-photo-thumb" style="background-position: 100% 100%" role="img" aria-label="Ilustrasi Browser CRUD Updated"></span></td><td><span class="badge badge-primary">BRG-800019</span>
+</td><td><strong>Browser CRUD Updated</strong><small class="d-block text-muted">Unit</small></td><td><span class="badge badge-info">ATK</span>
+</td><td class="text-end"><span class="badge badge-success">10 Unit</span>
+</td><td>Rak Browser</td><td><div class="table-actions justify-content-end"><a href="/barang/23" class="btn btn-outline-primary btn-sm"><i class="ti-eye" aria-hidden="true"></i><span>Detail</span></a>
+<a href="http://127.0.0.1:8765/barang/23/stok" class="btn btn-primary btn-sm stock-management-action"><i class="ti-package" aria-hidden="true"></i><span>Kelola Stok</span></a>
+ <a href="/barang/23/edit" class="btn btn-outline-secondary btn-sm"><i class="ti-pencil" aria-hidden="true"></i><span>Edit</span></a>
+<form action="/barang/23" method="POST" onsubmit="return confirm('Pindahkan Browser CRUD Updated ke Tong Sampah?')"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"> <input type="hidden" name="_method" value="DELETE"><button type="submit" class="btn btn-outline-danger btn-sm"><i class="ti-trash" aria-hidden="true"></i><span>Hapus</span></button>
+</form></div></td></tr>
+            <tr><td class="text-center text-muted">5</td><td><span class="barang-illustration barang-photo-thumb" style="background-position: 100% 100%" role="img" aria-label="Ilustrasi Browser CRUD"></span></td><td><span class="badge badge-primary">BRG-800018</span>
+</td><td><strong>Browser CRUD</strong><small class="d-block text-muted">Unit</small></td><td><span class="badge badge-info">ATK</span>
+</td><td class="text-end"><span class="badge badge-success">10 Unit</span>
+</td><td>Rak Browser</td><td><div class="table-actions justify-content-end"><a href="/barang/22" class="btn btn-outline-primary btn-sm"><i class="ti-eye" aria-hidden="true"></i><span>Detail</span></a>
+<a href="http://127.0.0.1:8765/barang/22/stok" class="btn btn-primary btn-sm stock-management-action"><i class="ti-package" aria-hidden="true"></i><span>Kelola Stok</span></a>
+ <a href="/barang/22/edit" class="btn btn-outline-secondary btn-sm"><i class="ti-pencil" aria-hidden="true"></i><span>Edit</span></a>
+<form action="/barang/22" method="POST" onsubmit="return confirm('Pindahkan Browser CRUD ke Tong Sampah?')"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"> <input type="hidden" name="_method" value="DELETE"><button type="submit" class="btn btn-outline-danger btn-sm"><i class="ti-trash" aria-hidden="true"></i><span>Hapus</span></button>
+</form></div></td></tr>
+        </tbody></table></div>
+    <div class="pagination-wrap" data-inventory-pagination><nav class="d-flex justify-items-center justify-content-between">
+        <div class="d-flex justify-content-between flex-fill d-sm-none">
+            <ul class="pagination">
+                
+                                    <li class="page-item disabled" aria-disabled="true">
+                        <span class="page-link">&laquo; Previous</span>
+                    </li>
+                
+                
+                                    <li class="page-item">
+                        <a class="page-link" href="http://127.0.0.1:8765/barang?search=Browser%20CRUD&amp;page=2" rel="next">Next &raquo;</a>
+                    </li>
+                            </ul>
+        </div>
+
+        <div class="d-none flex-sm-fill d-sm-flex align-items-sm-center justify-content-sm-between">
+            <div>
+                <p class="small text-muted">
+                    Showing
+                    <span class="fw-semibold">1</span>
+                    to
+                    <span class="fw-semibold">5</span>
+                    of
+                    <span class="fw-semibold">6</span>
+                    results
+                </p>
+            </div>
+
+            <div>
+                <ul class="pagination">
+                    
+                                            <li class="page-item disabled" aria-disabled="true" aria-label="&laquo; Previous">
+                            <span class="page-link" aria-hidden="true">&lsaquo;</span>
+                        </li>
+                    
+                    
+                                            
+                        
+                        
+                                                                                                                        <li class="page-item active" aria-current="page"><span class="page-link">1</span></li>
+                                                                                                                                <li class="page-item"><a class="page-link" href="http://127.0.0.1:8765/barang?search=Browser%20CRUD&amp;page=2">2</a></li>
+                                                                                                        
+                    
+                                            <li class="page-item">
+                            <a class="page-link" href="http://127.0.0.1:8765/barang?search=Browser%20CRUD&amp;page=2" rel="next" aria-label="Next &raquo;">&rsaquo;</a>
+                        </li>
+                                    </ul>
+            </div>
+        </div>
+    </nav>
+</div></div></section>
+</div></div>
+
+<div class="modal fade" id="importBarangModal" tabindex="-1" aria-labelledby="importBarangModalLabel" aria-describedby="importBarangModalDescription" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form action="http://127.0.0.1:8765/barang-import" method="POST" enctype="multipart/form-data"><input type="hidden" name="_token" value="rtMNxDtWORgfG0PukHC2L4JncdYLMQhkg1dfAh1y" autocomplete="off"><div class="modal-header"><div><h2 class="modal-title" id="importBarangModalLabel">Import Data Barang</h2><p class="modal-subtitle" id="importBarangModalDescription">Ikuti tiga langkah berikut untuk memperbarui barang secara massal.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button></div><div class="modal-body import-steps"><section><span>1</span><div><h3>Download template</h3><p>Gunakan header dan pilihan data yang sudah disediakan.</p><a href="http://127.0.0.1:8765/barang-import/template" class="btn btn-outline-primary btn-sm"><i class="ti-download" aria-hidden="true"></i><span>Download Template</span></a>
+<a href="http://127.0.0.1:8765/barang-import/template/csv" class="btn btn-outline-primary btn-sm"><i class="ti-download" aria-hidden="true"></i><span>Download Template CSV</span></a>
+</div></section><section><span>2</span><div><h3>Isi data barang</h3><p>Kode lama memperbarui barang; kode baru menambah barang. Stok lama akan diganti nilai dari file. Jika ada baris bermasalah, seluruh batch dibatalkan.</p></div></section><section><span>3</span><div class="w-100"><h3>Unggah dan periksa</h3><label for="spreadsheet" class="form-label">File Excel atau CSV</label><input type="file" class="form-control" id="spreadsheet" name="spreadsheet" accept=".xlsx,.xls,.csv" aria-describedby="spreadsheetHelp" required><div class="form-text" id="spreadsheetHelp">XLSX, XLS, atau CSV, maksimal 5 MB. CSV: UTF-8, pemisah koma, 6 kolom sesuai template; baris kosong diabaikan. Kode baru menggunakan format BRG-000001.</div></div></section></div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal"><span>Batal</span></button>
+<button type="submit" class="btn btn-primary"><i class="ti-upload" aria-hidden="true"></i><span>Proses Import</span></button>
+</div></form></div></div></div>
+</main><footer class="footer"><span>LogistikKu · Manajemen Stok Barang</span></footer></div>
+    </div>
+</div>
+<script src="http://127.0.0.1:8765/assets/vendors/js/vendor.bundle.base.js"></script><script src="http://127.0.0.1:8765/assets/js/off-canvas.js"></script><script src="http://127.0.0.1:8765/assets/js/template.js"></script>
+<script>document.addEventListener('submit',function(event){const button=event.submitter||event.target.querySelector('button[type="submit"]');if(!button||!event.target.checkValidity())return;button.disabled=true;button.classList.add('is-loading');button.setAttribute('aria-busy','true');});</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const menu = document.getElementById('app-notifications');
+    const count = document.getElementById('notification-count');
+    const list = document.getElementById('ocr-notification-list');
+    if (!menu || !count || !list) return;
+    const predictionUnread = Number(menu.dataset.predictionUnread || 0);
+
+    const render = function (payload) {
+        const total = predictionUnread + Number(payload.unread_count || 0);
+        count.textContent = total;
+        count.hidden = total === 0;
+        list.replaceChildren();
+        if (!payload.notifications.length) {
+            const empty = document.createElement('div');
+            empty.className = 'dropdown-item text-muted ocr-notification-empty';
+            empty.textContent = 'Belum ada notifikasi OCR.';
+            list.appendChild(empty);
+            return;
+        }
+        payload.notifications.forEach(function (item) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'ocr-notification-item ' + (item.read ? 'is-read' : 'is-unread');
+            const link = document.createElement('a');
+            link.href = item.open_url;
+            const title = document.createElement('strong'); title.textContent = item.title;
+            const filename = document.createElement('span'); filename.textContent = item.filename;
+            const detail = document.createElement('small'); detail.textContent = item.document_type + ' · ' + item.time + (item.read ? ' · sudah dibaca' : ' · belum dibaca');
+            link.append(title, filename, detail);
+            wrapper.appendChild(link);
+            list.appendChild(wrapper);
+        });
+    };
+    const poll = function () {
+        if (document.hidden) return;
+        fetch(menu.dataset.endpoint, {headers: {'Accept': 'application/json'}, credentials: 'same-origin'})
+            .then(function (response) { if (!response.ok) throw new Error('Notifikasi tidak tersedia'); return response.json(); })
+            .then(render)
+            .catch(function () {})
+            .finally(function () { document.dispatchEvent(new CustomEvent('app:poll')); });
+    };
+    window.setInterval(poll, 15000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+});
+</script>
+<script src="http://127.0.0.1:8765/assets/vendors/chart.js/chart.umd.js"></script>
+<script type="application/json" id="stock-activity-data">{"period":7,"labels":["Sel, 08 Sep","Rab, 09 Sep","Kam, 10 Sep","Jum, 11 Sep","Sab, 12 Sep","Min, 13 Sep","Sen, 14 Sep"],"dates":["2026-09-08","2026-09-09","2026-09-10","2026-09-11","2026-09-12","2026-09-13","2026-09-14"],"masuk":[0,0,0,0,0,0,70],"keluar":[14,9,10,11,12,13,20],"totals":{"masuk":70,"keluar":89},"has_activity":true}</script>
+<script src="http://127.0.0.1:8765/assets/js/inventory-dashboard.js"></script>
+<script src="http://127.0.0.1:8765/assets/js/inventory-filter.js"></script>
+</body>
+</html>

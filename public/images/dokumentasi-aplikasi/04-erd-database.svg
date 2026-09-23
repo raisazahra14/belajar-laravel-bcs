@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1250" viewBox="0 0 1920 1250">
+  <defs>
+    <style>
+      .title{font:700 52px Arial;fill:#092d68}.sub{font:24px Arial;fill:#31557f}.box{fill:#fff;stroke:#1769c2;stroke-width:3;rx:16}.head{fill:#0a3b7c}.h{font:700 23px Arial;fill:#fff}.f{font:18px Arial;fill:#26384d}.pk{fill:#fff2b8}.fk{fill:#dff0ff}.legacy{fill:#f5f5f5;stroke:#9aa6b2;stroke-dasharray:10 7}.line{fill:none;stroke:#355b87;stroke-width:4}.rel{font:700 18px Arial;fill:#173f70}.note{font:20px Arial;fill:#294765}.legend{font:18px Arial;fill:#20364f}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#355b87"/></marker>
+  </defs>
+  <rect width="1920" height="1250" fill="#f5f8fc"/>
+  <text x="960" y="70" text-anchor="middle" class="title">ERD DATABASE APLIKASI PERSEDIAAN</text>
+  <text x="960" y="108" text-anchor="middle" class="sub">Hubungan tabel barang, transaksi stok, prediksi, pengguna, dan verifikasi dokumen</text>
+
+  <!-- relationship lines -->
+  <path class="line" d="M910 320 H985" marker-end="url(#arrow)"/><text x="925" y="307" class="rel">1 : N</text>
+  <path class="line" d="M760 555 V590 H1620 V515" marker-end="url(#arrow)"/><text x="1375" y="580" class="rel">1 : N (legacy)</text>
+  <path class="line" d="M760 555 V650" marker-end="url(#arrow)"/><text x="775" y="630" class="rel">1 : N</text>
+  <path class="line" d="M760 555 V615 H1170 V650" marker-end="url(#arrow)"/><text x="925" y="605" class="rel">1 : N</text>
+  <path class="line" d="M910 825 H985" marker-end="url(#arrow)"/><text x="925" y="814" class="rel">1 : N</text>
+  <path class="line" d="M290 515 V675 H535" marker-end="url(#arrow)"/><text x="305" y="650" class="rel">1 : N (analyzed_by)</text>
+  <path class="line" d="M290 515 V1130 H1435" marker-end="url(#arrow)"/><text x="305" y="1115" class="rel">1 : N (user_id / korektor)</text>
+
+  <!-- USERS -->
+  <g transform="translate(85 165)"><rect class="box" width="375" height="350"/><path class="head" d="M0 16Q0 0 16 0H359Q375 0 375 16V58H0Z"/><text x="20" y="39" class="h">USERS — Akun pengguna</text>
+    <rect class="pk" x="12" y="72" width="351" height="28"/><text x="22" y="93" class="f">PK  id</text><text x="22" y="127" class="f">name</text><text x="22" y="159" class="f">email (unik)</text><text x="22" y="191" class="f">role: admin / manager / staff</text><text x="22" y="223" class="f">password</text><text x="22" y="255" class="f">email_verified_at (opsional)</text><text x="22" y="287" class="f">created_at</text><text x="22" y="319" class="f">updated_at</text></g>
+
+  <!-- BARANG -->
+  <g transform="translate(535 145)"><rect class="box" width="375" height="410"/><path class="head" d="M0 16Q0 0 16 0H359Q375 0 375 16V58H0Z"/><text x="20" y="39" class="h">BARANG — Data persediaan</text>
+    <rect class="pk" x="12" y="72" width="351" height="28"/><text x="22" y="93" class="f">PK  id</text><text x="22" y="127" class="f">kode_barang (unik)</text><text x="22" y="159" class="f">nama_barang</text><text x="22" y="191" class="f">kategori</text><text x="22" y="223" class="f">stok</text><text x="22" y="255" class="f">satuan</text><text x="22" y="287" class="f">lokasi</text><text x="22" y="319" class="f">foto_barang (opsional)</text><text x="22" y="351" class="f">created_at</text><text x="22" y="383" class="f">deleted_at (Tong Sampah)</text></g>
+
+  <!-- TRANSACTIONS -->
+  <g transform="translate(985 165)"><rect class="box" width="375" height="350"/><path class="head" d="M0 16Q0 0 16 0H359Q375 0 375 16V58H0Z"/><text x="20" y="39" class="h">STOK_TRANSACTIONS</text>
+    <rect class="pk" x="12" y="72" width="351" height="28"/><text x="22" y="93" class="f">PK  id</text><rect class="fk" x="12" y="106" width="351" height="28"/><text x="22" y="127" class="f">FK  barang_id → BARANG</text><text x="22" y="161" class="f">jenis: masuk / keluar</text><text x="22" y="193" class="f">jumlah</text><text x="22" y="225" class="f">keterangan (opsional)</text><text x="22" y="257" class="f">created_at</text><text x="22" y="289" class="f">updated_at</text><text x="22" y="325" class="note">Sumber aktif riwayat prediksi OUT</text></g>
+
+  <!-- LEGACY -->
+  <g transform="translate(1435 165)"><rect class="legacy" width="375" height="350" rx="16"/><rect x="0" y="0" width="375" height="58" rx="16" fill="#667481"/><text x="20" y="39" class="h">STOK_HISTORIES — LEGACY</text>
+    <rect class="pk" x="12" y="72" width="351" height="28"/><text x="22" y="93" class="f">PK  id</text><rect class="fk" x="12" y="106" width="351" height="28"/><text x="22" y="127" class="f">FK  barang_id → BARANG</text><text x="22" y="161" class="f">jenis: masuk / keluar</text><text x="22" y="193" class="f">jumlah</text><text x="22" y="225" class="f">keterangan (opsional)</text><text x="22" y="257" class="f">created_at</text><text x="22" y="289" class="f">updated_at</text><text x="22" y="325" class="note">Tabel lama, bukan sumber forecast aktif</text></g>
+
+  <!-- PREDICTIONS -->
+  <g transform="translate(535 650)"><rect class="box" width="375" height="455"/><path class="head" d="M0 16Q0 0 16 0H359Q375 0 375 16V58H0Z"/><text x="20" y="39" class="h">STOCK_PREDICTIONS</text>
+    <rect class="pk" x="12" y="72" width="351" height="28"/><text x="22" y="93" class="f">PK  id</text><rect class="fk" x="12" y="106" width="351" height="56"/><text x="22" y="127" class="f">FK  barang_id → BARANG</text><text x="22" y="153" class="f">FK  analyzed_by → USERS (opsional)</text><text x="22" y="192" class="f">current_stock</text><text x="22" y="224" class="f">predicted_30_day_need</text><text x="22" y="256" class="f">predicted_minimum_date</text><text x="22" y="288" class="f">predicted_depletion_date</text><text x="22" y="320" class="f">safety_stock</text><text x="22" y="352" class="f">recommended_restock</text><text x="22" y="384" class="f">status • method • analysis_status</text><text x="22" y="416" class="f">metrics • input_summary • analyzed_at</text></g>
+
+  <!-- NOTIFICATIONS -->
+  <g transform="translate(985 650)"><rect class="box" width="375" height="350"/><path class="head" d="M0 16Q0 0 16 0H359Q375 0 375 16V58H0Z"/><text x="16" y="39" class="h">PREDICTION_NOTIFICATIONS</text>
+    <rect class="pk" x="12" y="72" width="351" height="28"/><text x="22" y="93" class="f">PK  id</text><rect class="fk" x="12" y="106" width="351" height="58"/><text x="22" y="127" class="f">FK  stock_prediction_id</text><text x="22" y="155" class="f">FK  barang_id → BARANG</text><text x="22" y="195" class="f">status</text><text x="22" y="227" class="f">read_at (opsional)</text><text x="22" y="259" class="f">created_at</text><text x="22" y="291" class="f">updated_at</text><text x="22" y="326" class="note">Peringatan perubahan status prediksi</text></g>
+
+  <!-- DOCUMENTS -->
+  <g transform="translate(1435 610)"><rect class="box" width="375" height="535"/><path class="head" d="M0 16Q0 0 16 0H359Q375 0 375 16V58H0Z"/><text x="13" y="39" class="h">DOCUMENT_VERIFICATIONS</text>
+    <rect class="pk" x="12" y="72" width="351" height="28"/><text x="22" y="93" class="f">PK  id</text><rect class="fk" x="12" y="106" width="351" height="58"/><text x="22" y="127" class="f">FK  user_id → USERS</text><text x="22" y="155" class="f">FK  ocr_corrected_by → USERS</text><text x="22" y="195" class="f">document_type • original_filename</text><text x="22" y="227" class="f">file_path • status • message</text><text x="22" y="259" class="f">4 skor: baca, lengkap, asli, total</text><text x="22" y="291" class="f">analysis_details (JSON)</text><text x="22" y="323" class="f">extracted_metadata (JSON)</text><text x="22" y="355" class="f">document_number • document_date</text><text x="22" y="387" class="f">purchase_order_number</text><text x="22" y="419" class="f">sender • recipient • vehicle_number</text><text x="22" y="451" class="f">total_items • ocr_raw_text</text><text x="22" y="483" class="f">error_message • corrected_at</text><text x="22" y="515" class="f">created_at • updated_at</text></g>
+
+  <!-- legend -->
+  <g transform="translate(85 755)"><rect x="0" y="0" width="375" height="230" rx="16" fill="#eaf3ff" stroke="#8ab8e8" stroke-width="2"/><text x="20" y="40" style="font:700 24px Arial;fill:#0a3b7c">CARA MEMBACA ERD</text><rect class="pk" x="20" y="60" width="65" height="28"/><text x="100" y="82" class="legend">PK = identitas unik tabel</text><rect class="fk" x="20" y="102" width="65" height="28"/><text x="100" y="124" class="legend">FK = penghubung ke tabel lain</text><text x="20" y="166" class="legend">1 : N = satu data induk dapat</text><text x="20" y="192" class="legend">memiliki banyak data turunan</text><text x="20" y="220" class="legend">NULL = boleh kosong</text></g>
+
+  <rect x="85" y="1175" width="1725" height="50" rx="14" fill="#fff4cc" stroke="#e4b029" stroke-width="2"/><text x="947" y="1208" text-anchor="middle" class="note">ERD bisnis utama. Tabel internal Laravel seperti sessions, cache, jobs, dan password reset sengaja tidak ditampilkan agar diagram mudah dipahami.</text>
+</svg>

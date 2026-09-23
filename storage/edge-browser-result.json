@@ -1,0 +1,19 @@
+{
+  "browser": "Edge",
+  "product": "Edg/153.0.4234.32",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0",
+  "checks": [
+    "login",
+    "dashboard-chart-notifications",
+    "responsive-desktop-tablet-mobile",
+    "pagination-search",
+    "crud-create-update",
+    "stock-in-out-history",
+    "prediction-enqueue-polling",
+    "modal",
+    "ocr-upload-polling",
+    "logout"
+  ],
+  "consoleErrors": [],
+  "failedRequests": []
+}

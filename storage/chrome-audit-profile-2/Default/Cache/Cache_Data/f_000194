@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>LogistikKu</title>
+    <link rel="stylesheet" href="http://127.0.0.1:8765/assets/vendors/feather/feather.css">
+    <link rel="stylesheet" href="http://127.0.0.1:8765/assets/vendors/ti-icons/css/themify-icons.css">
+    <link rel="stylesheet" href="http://127.0.0.1:8765/assets/vendors/css/vendor.bundle.base.css">
+    <link rel="stylesheet" href="http://127.0.0.1:8765/assets/css/style.css">
+    <link rel="stylesheet" href="http://127.0.0.1:8765/css/skydash-logistics.css">
+</head>
+<body>
+<div class="container-scroller">
+    <nav class="navbar col-lg-12 col-12 p-0 fixed-top d-flex flex-row" aria-label="Navigasi utama">
+        <div class="navbar-brand-wrapper d-flex align-items-center justify-content-start">
+            <a class="navbar-brand brand-logo logistics-brand" href="http://127.0.0.1:8765/barang"><i class="ti-package" aria-hidden="true"></i><span>LogistikKu</span></a>
+            <a class="navbar-brand brand-logo-mini logistics-brand-mini" href="http://127.0.0.1:8765/barang" aria-label="LogistikKu"><i class="ti-package" aria-hidden="true"></i></a>
+        </div>
+        <div class="navbar-menu-wrapper d-flex align-items-center justify-content-end">
+            <button class="navbar-toggler align-self-center" type="button" data-toggle="minimize" aria-label="Perkecil sidebar"><span class="ti-menu"></span></button>
+                        <div class="dropdown notification-menu">
+                <button class="notification-trigger" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Notifikasi aplikasi"><i class="ti-bell"></i><span id="notification-count" class="notification-dot" >3</span></button>
+                <div class="dropdown-menu dropdown-menu-end prediction-notifications app-notifications" id="app-notifications" data-endpoint="http://127.0.0.1:8765/notifikasi-ocr" data-prediction-unread="3">
+                    <div class="dropdown-header d-flex justify-content-between align-items-center"><strong>Notifikasi OCR</strong></div>
+                    <div id="ocr-notification-list">
+                        <div class="dropdown-item text-muted ocr-notification-empty">Belum ada notifikasi OCR.</div>                    </div>
+                    <div class="dropdown-header notification-subheading d-flex justify-content-between"><strong>Prediksi Stok</strong><form method="POST" action="http://127.0.0.1:8765/notifikasi-prediksi/read-all"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"> <input type="hidden" name="_method" value="PATCH"><button class="btn-link border-0 bg-transparent p-0" type="submit">Tandai semua</button></form></div>                    <form method="POST" action="http://127.0.0.1:8765/notifikasi-prediksi/3/read"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"> <input type="hidden" name="_method" value="PATCH"><button class="dropdown-item" type="submit"><strong>[TEST] Baterai Fluktuatif</strong><small>Perlu Restock · tandai dibaca</small></button></form><form method="POST" action="http://127.0.0.1:8765/notifikasi-prediksi/2/read"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"> <input type="hidden" name="_method" value="PATCH"><button class="dropdown-item" type="submit"><strong>[TEST] Kertas Meningkat</strong><small>Perlu Restock · tandai dibaca</small></button></form><form method="POST" action="http://127.0.0.1:8765/notifikasi-prediksi/1/read"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"> <input type="hidden" name="_method" value="PATCH"><button class="dropdown-item" type="submit"><strong>[TEST] Kabel LAN Stabil</strong><small>Perlu Restock · tandai dibaca</small></button></form>                </div>
+            </div>
+            <div class="dropdown user-menu">
+                <button class="user-menu-trigger" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Buka menu pengguna"><span class="user-avatar" aria-hidden="true">A</span><span class="user-summary d-none d-sm-flex"><strong>Administrator</strong><small>Admin</small></span><i class="ti-angle-down" aria-hidden="true"></i></button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li class="dropdown-header"><strong>Administrator</strong><span>admin@logistikku.test</span><span class="badge badge-primary mt-2">Admin</span>
+</li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><form action="/logout" method="POST"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"><button class="dropdown-item" type="submit"><i class="ti-power-off" aria-hidden="true"></i>Keluar</button></form></li>
+                </ul>
+            </div>
+            <button class="navbar-toggler navbar-toggler-right d-lg-none align-self-center" type="button" data-toggle="offcanvas" aria-label="Buka sidebar"><span class="ti-menu"></span></button>
+        </div>
+    </nav>
+    <div class="container-fluid page-body-wrapper">
+        <nav class="sidebar sidebar-offcanvas" id="sidebar" aria-label="Menu aplikasi"><ul class="nav">
+            <li class="nav-section-label" aria-hidden="true">Operasional</li>
+            <li class="nav-item "><a class="nav-link" href="http://127.0.0.1:8765/barang"><i class="ti-view-grid menu-icon"></i><span class="menu-title">Daftar Barang</span></a></li>
+            <li class="nav-item "><a class="nav-link" href="/barang/low-stock"><i class="ti-alert menu-icon"></i><span class="menu-title">Stok Menipis</span></a></li>
+            <li class="nav-item"><a class="nav-link" href="http://127.0.0.1:8765/barang?import=1"><i class="ti-upload menu-icon"></i><span class="menu-title">Import Data</span></a></li>            <li class="nav-section-label" aria-hidden="true">Analisis</li>
+            <li class="nav-item active"><a class="nav-link" href="http://127.0.0.1:8765/prediksi-stok"><i class="ti-stats-up menu-icon"></i><span class="menu-title">Prediksi Stok</span></a></li>
+            <li class="nav-item "><a class="nav-link" href="http://127.0.0.1:8765/verifications"><i class="ti-check-box menu-icon"></i><span class="menu-title">Verifikasi Dokumen</span></a></li>
+                        <li class="nav-section-label" aria-hidden="true">Administrasi</li>
+            <li class="nav-item "><a class="nav-link" href="/users"><i class="ti-user menu-icon"></i><span class="menu-title">Kelola Pengguna</span></a></li>
+            <li class="nav-item "><a class="nav-link" href="http://127.0.0.1:8765/barang-trash"><i class="ti-trash menu-icon"></i><span class="menu-title">Tong Sampah</span></a></li>
+                    </ul></nav>
+        <div class="main-panel"><main class="content-wrapper" id="main-content"><header class="page-header prediction-page-header">
+    <div><span class="section-eyebrow">Perencanaan persediaan</span><h1>Prediksi Stok</h1><p>Ringkasan risiko dan rekomendasi persediaan terbaru.</p></div>
+    <form method="POST" action="http://127.0.0.1:8765/prediksi-stok/analyze-all"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"><button type="submit" class="btn btn-primary"><i class="ti-reload" aria-hidden="true"></i><span>Analisis Semua Barang</span></button>
+</form></header>
+<div class="alert alert-info prediction-info-alert" role="note" aria-live="polite">Prediksi membantu perencanaan dan tidak mengubah stok. Confidence menunjukkan kualitas data, bukan jaminan kejadian.</div>
+
+<section id="active-prediction-processes" class="prediction-process-panel" data-endpoint="http://127.0.0.1:8765/prediksi-stok/processes">
+    <div class="prediction-process-summary">
+        <div><h2>Proses Prediksi Aktif</h2><p id="prediction-process-counters" aria-live="polite"> <strong>25</strong> Menunggu <span>·</span> <strong>0</strong> Diproses <span>·</span> <strong>0</strong> Gagal </p></div>
+        <button id="prediction-process-toggle" class="btn btn-sm btn-outline-primary" type="button" aria-expanded="false" aria-controls="prediction-process-list" ><span class="show-label">Lihat proses</span><span class="hide-label">Sembunyikan</span></button>
+    </div>
+    <div id="prediction-process-list" class="prediction-process-list" hidden>
+        <div class="table-responsive"><table class="table prediction-process-table"><caption>Lima proses aktif dengan prioritas tertinggi</caption><thead><tr><th>Barang</th><th>Status proses</th><th>Diperbarui</th></tr></thead><tbody id="prediction-process-rows">
+                        <tr><td><strong>Browser CRUD Updated</strong><small>BRG-800021</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:09 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 16</strong><small>BRG-800016</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 15</strong><small>BRG-800015</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 14</strong><small>BRG-800014</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 13</strong><small>BRG-800013</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                </tbody></table></div>
+        <button id="prediction-process-all-trigger" class="btn btn-sm btn-link" type="button" >Lihat semua (<span>25</span>)</button>
+    </div>
+    <dialog id="prediction-process-dialog" class="prediction-process-dialog" aria-labelledby="prediction-process-dialog-title">
+        <div class="dialog-heading"><div><h2 id="prediction-process-dialog-title">Semua Proses Aktif</h2><p>Diurutkan dari Gagal, Diproses, lalu Menunggu.</p></div><button class="dialog-close" type="button" aria-label="Tutup daftar proses"><i class="ti-close"></i></button></div>
+        <div class="table-responsive"><table class="table"><caption>Seluruh proses prediksi aktif</caption><thead><tr><th>Barang</th><th>Status proses</th><th>Diperbarui</th></tr></thead><tbody id="prediction-process-all-rows">
+                        <tr><td><strong>Browser CRUD Updated</strong><small>BRG-800021</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:09 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 16</strong><small>BRG-800016</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 15</strong><small>BRG-800015</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 14</strong><small>BRG-800014</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 13</strong><small>BRG-800013</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 12</strong><small>BRG-800012</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 11</strong><small>BRG-800011</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 10</strong><small>BRG-800010</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 09</strong><small>BRG-800009</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 08</strong><small>BRG-800008</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 07</strong><small>BRG-800007</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 06</strong><small>BRG-800006</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 05</strong><small>BRG-800005</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 04</strong><small>BRG-800004</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 03</strong><small>BRG-800003</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 02</strong><small>BRG-800002</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Audit Browser 01</strong><small>BRG-800001</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>[TEST] Baterai Fluktuatif</strong><small>BRG-900104</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>[TEST] Tinta Menurun</strong><small>BRG-900103</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>[TEST] Kertas Meningkat</strong><small>BRG-900102</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>[TEST] Kabel LAN Stabil</strong><small>BRG-900101</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Browser CRUD Updated</strong><small>BRG-800020</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:08 WIB</td></tr>
+                        <tr><td><strong>Browser CRUD Updated</strong><small>BRG-800019</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:07 WIB</td></tr>
+                        <tr><td><strong>Browser CRUD</strong><small>BRG-800018</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:07 WIB</td></tr>
+                        <tr><td><strong>Browser CRUD</strong><small>BRG-800017</small></td><td><span class="badge badge-info">Menunggu</span>
+</td><td>14/09/2026 16:06 WIB</td></tr>
+                </tbody></table></div>
+    </dialog>
+</section>
+
+<section class="card app-card prediction-results-card"><div class="card-body"><div class="prediction-results-heading"><div><h2>Hasil Prediksi</h2><p>4 barang ditemukan</p></div><form method="GET" class="prediction-inline-filter"><label class="sr-only" for="status">Risiko stok</label><select class="form-select" name="status" id="status"><option value="">Semua risiko</option><option >Aman</option><option >Waspada</option><option >Perlu Restock</option><option >Mendesak</option><option >Perlu Ditinjau</option></select><button type="submit" class="btn btn-primary btn-sm"><span>Terapkan</span></button>
+<a href="http://127.0.0.1:8765/prediksi-stok" class="btn btn-outline-secondary btn-sm"><span>Reset</span></a>
+</form></div>
+    <div class="table-responsive prediction-results-scroll"><table class="table prediction-compact-table"><caption>Ringkasan hasil prediksi stok; gunakan tombol Detail untuk membuka informasi analisis lengkap</caption><thead><tr><th>Barang</th><th>Risiko</th><th class="text-right">Stok</th><th>Perkiraan habis</th><th class="text-right">Saran restock</th><th class="text-right">Confidence</th><th>Proses</th><th>Aksi</th></tr></thead><tbody>
+                    <tr class="prediction-summary-row">
+        <td><strong>[TEST] Baterai Fluktuatif</strong><small>BRG-900104</small></td>
+        <td><span class="badge badge-warning">Perlu Restock</span>
+<span class="sr-only">Risiko stok Perlu Restock</span></td>
+        <td class="text-right text-nowrap">105 Pcs</td>
+        <td class="text-nowrap">12/10/2026</td>
+        <td class="text-right text-nowrap">35 Pcs</td>
+        <td class="text-right">65%</td>
+        <td><span class="badge badge-info">Menunggu</span>
+</td>
+        <td><div class="prediction-row-actions"><button class="btn btn-sm btn-outline-secondary prediction-detail-toggle" type="button" aria-expanded="false" aria-controls="prediction-detail-4">Detail</button><form method="POST" action="http://127.0.0.1:8765/prediksi-stok/barang/4"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"><button type="submit" class="btn btn-outline-primary btn-sm" disabled="disabled"><span>Analisis Ulang</span></button>
+</form></div></td>
+    </tr>
+    <tr id="prediction-detail-4" class="prediction-detail-row" hidden><td colspan="8"><section aria-label="Detail prediksi [TEST] Baterai Fluktuatif">
+        <div class="prediction-detail-heading"><div><span class="section-eyebrow">Dasar analisis</span><h3>[TEST] Baterai Fluktuatif</h3></div><button class="prediction-detail-close" type="button" aria-label="Tutup detail [TEST] Baterai Fluktuatif"><i class="ti-close"></i></button></div>
+        <div class="prediction-detail-metrics"><div><span>Metode</span><strong>Machine Learning</strong><small>Teknis: <code>machine_learning</code></small></div><div><span>Kebutuhan 30 hari</span><strong>112,78 Pcs</strong></div><div><span>Jumlah histori</span><strong>90 transaksi OUT</strong><small>90 hari transaksi; rentang 90 hari</small></div><div><span>Batas aman</span><strong>27 Pcs</strong></div><div><span>Waktu analisis</span><strong>14/09/2026 15:57 WIB</strong></div></div>
+        <div class="prediction-confidence"><div><span>Tingkat keyakinan data</span><strong>65%</strong></div><div class="progress" role="progressbar" aria-label="Tingkat keyakinan data" aria-valuemin="0" aria-valuemax="100"  aria-valuenow="65" ><div class="progress-bar" style="width: 65%"></div></div><small>Kualitas data yang digunakan dalam analisis, bukan probabilitas prediksi akan terjadi.</small></div>
+                <div class="prediction-date-flow" aria-label="Linimasa prediksi stok"><div><span class="prediction-date-dot"></span><small>Hari ini</small><strong>14/09/2026</strong></div><div class="prediction-date-line"></div><div><span class="prediction-date-dot warning"></span><small>Disarankan restock</small><strong>05/10/2026</strong></div><div class="prediction-date-line"></div><div><span class="prediction-date-dot danger"></span><small>Perkiraan habis</small><strong>12/10/2026</strong></div></div>
+                        <div class="prediction-analysis-note"><strong>Alasan dan rekomendasi</strong><p>Regresi tren menggunakan histori OUT hingga waktu analisis.</p> </div>
+        <details class="prediction-technical-audit"><summary>Rincian teknis dan audit</summary><dl><dt>Metode teknis</dt><dd><code>machine_learning</code></dd><dt>Minimal histori</dt><dd>30 hari</dd><dt>Status analisis</dt><dd>completed</dd><dt>Fallback</dt><dd>Tidak digunakan</dd></dl></details>
+        <div class="prediction-detail-actions"><form method="POST" action="http://127.0.0.1:8765/prediksi-stok/4/approve"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"><button type="submit" class="btn btn-primary btn-sm"><span>Setujui Restock</span></button>
+</form> </div>
+    </section></td></tr>
+                    <tr class="prediction-summary-row">
+        <td><strong>[TEST] Tinta Menurun</strong><small>BRG-900103</small></td>
+        <td><span class="badge badge-success">Aman</span>
+<span class="sr-only">Risiko stok Aman</span></td>
+        <td class="text-right text-nowrap">130 Pcs</td>
+        <td class="text-nowrap">05/10/2027</td>
+        <td class="text-right text-nowrap">0 Pcs</td>
+        <td class="text-right">94%</td>
+        <td><span class="badge badge-info">Menunggu</span>
+</td>
+        <td><div class="prediction-row-actions"><button class="btn btn-sm btn-outline-secondary prediction-detail-toggle" type="button" aria-expanded="false" aria-controls="prediction-detail-3">Detail</button><form method="POST" action="http://127.0.0.1:8765/prediksi-stok/barang/3"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"><button type="submit" class="btn btn-outline-primary btn-sm" disabled="disabled"><span>Analisis Ulang</span></button>
+</form></div></td>
+    </tr>
+    <tr id="prediction-detail-3" class="prediction-detail-row" hidden><td colspan="8"><section aria-label="Detail prediksi [TEST] Tinta Menurun">
+        <div class="prediction-detail-heading"><div><span class="section-eyebrow">Dasar analisis</span><h3>[TEST] Tinta Menurun</h3></div><button class="prediction-detail-close" type="button" aria-label="Tutup detail [TEST] Tinta Menurun"><i class="ti-close"></i></button></div>
+        <div class="prediction-detail-metrics"><div><span>Metode</span><strong>Machine Learning</strong><small>Teknis: <code>machine_learning</code></small></div><div><span>Kebutuhan 30 hari</span><strong>10,12 Pcs</strong></div><div><span>Jumlah histori</span><strong>90 transaksi OUT</strong><small>90 hari transaksi; rentang 90 hari</small></div><div><span>Batas aman</span><strong>5 Pcs</strong></div><div><span>Waktu analisis</span><strong>14/09/2026 15:57 WIB</strong></div></div>
+        <div class="prediction-confidence"><div><span>Tingkat keyakinan data</span><strong>94%</strong></div><div class="progress" role="progressbar" aria-label="Tingkat keyakinan data" aria-valuemin="0" aria-valuemax="100"  aria-valuenow="94" ><div class="progress-bar" style="width: 94%"></div></div><small>Kualitas data yang digunakan dalam analisis, bukan probabilitas prediksi akan terjadi.</small></div>
+                <div class="prediction-date-flow" aria-label="Linimasa prediksi stok"><div><span class="prediction-date-dot"></span><small>Hari ini</small><strong>14/09/2026</strong></div><div class="prediction-date-line"></div><div><span class="prediction-date-dot warning"></span><small>Disarankan restock</small><strong>20/09/2027</strong></div><div class="prediction-date-line"></div><div><span class="prediction-date-dot danger"></span><small>Perkiraan habis</small><strong>05/10/2027</strong></div></div>
+                        <div class="prediction-analysis-note"><strong>Alasan dan rekomendasi</strong><p>Regresi tren menggunakan histori OUT hingga waktu analisis.</p> </div>
+        <details class="prediction-technical-audit"><summary>Rincian teknis dan audit</summary><dl><dt>Metode teknis</dt><dd><code>machine_learning</code></dd><dt>Minimal histori</dt><dd>30 hari</dd><dt>Status analisis</dt><dd>completed</dd><dt>Fallback</dt><dd>Tidak digunakan</dd></dl></details>
+        <div class="prediction-detail-actions"> </div>
+    </section></td></tr>
+                    <tr class="prediction-summary-row">
+        <td><strong>[TEST] Kertas Meningkat</strong><small>BRG-900102</small></td>
+        <td><span class="badge badge-warning">Perlu Restock</span>
+<span class="sr-only">Risiko stok Perlu Restock</span></td>
+        <td class="text-right text-nowrap">78 Pcs</td>
+        <td class="text-nowrap">30/09/2026</td>
+        <td class="text-right text-nowrap">106 Pcs</td>
+        <td class="text-right">93%</td>
+        <td><span class="badge badge-info">Menunggu</span>
+</td>
+        <td><div class="prediction-row-actions"><button class="btn btn-sm btn-outline-secondary prediction-detail-toggle" type="button" aria-expanded="false" aria-controls="prediction-detail-2">Detail</button><form method="POST" action="http://127.0.0.1:8765/prediksi-stok/barang/2"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"><button type="submit" class="btn btn-outline-primary btn-sm" disabled="disabled"><span>Analisis Ulang</span></button>
+</form></div></td>
+    </tr>
+    <tr id="prediction-detail-2" class="prediction-detail-row" hidden><td colspan="8"><section aria-label="Detail prediksi [TEST] Kertas Meningkat">
+        <div class="prediction-detail-heading"><div><span class="section-eyebrow">Dasar analisis</span><h3>[TEST] Kertas Meningkat</h3></div><button class="prediction-detail-close" type="button" aria-label="Tutup detail [TEST] Kertas Meningkat"><i class="ti-close"></i></button></div>
+        <div class="prediction-detail-metrics"><div><span>Metode</span><strong>Machine Learning</strong><small>Teknis: <code>machine_learning</code></small></div><div><span>Kebutuhan 30 hari</span><strong>148,29 Pcs</strong></div><div><span>Jumlah histori</span><strong>90 transaksi OUT</strong><small>90 hari transaksi; rentang 90 hari</small></div><div><span>Batas aman</span><strong>35 Pcs</strong></div><div><span>Waktu analisis</span><strong>14/09/2026 15:57 WIB</strong></div></div>
+        <div class="prediction-confidence"><div><span>Tingkat keyakinan data</span><strong>93%</strong></div><div class="progress" role="progressbar" aria-label="Tingkat keyakinan data" aria-valuemin="0" aria-valuemax="100"  aria-valuenow="93" ><div class="progress-bar" style="width: 93%"></div></div><small>Kualitas data yang digunakan dalam analisis, bukan probabilitas prediksi akan terjadi.</small></div>
+                <div class="prediction-date-flow" aria-label="Linimasa prediksi stok"><div><span class="prediction-date-dot"></span><small>Hari ini</small><strong>14/09/2026</strong></div><div class="prediction-date-line"></div><div><span class="prediction-date-dot warning"></span><small>Disarankan restock</small><strong>23/09/2026</strong></div><div class="prediction-date-line"></div><div><span class="prediction-date-dot danger"></span><small>Perkiraan habis</small><strong>30/09/2026</strong></div></div>
+                        <div class="prediction-analysis-note"><strong>Alasan dan rekomendasi</strong><p>Regresi tren menggunakan histori OUT hingga waktu analisis.</p> </div>
+        <details class="prediction-technical-audit"><summary>Rincian teknis dan audit</summary><dl><dt>Metode teknis</dt><dd><code>machine_learning</code></dd><dt>Minimal histori</dt><dd>30 hari</dd><dt>Status analisis</dt><dd>completed</dd><dt>Fallback</dt><dd>Tidak digunakan</dd></dl></details>
+        <div class="prediction-detail-actions"><form method="POST" action="http://127.0.0.1:8765/prediksi-stok/2/approve"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"><button type="submit" class="btn btn-primary btn-sm"><span>Setujui Restock</span></button>
+</form> </div>
+    </section></td></tr>
+                    <tr class="prediction-summary-row">
+        <td><strong>[TEST] Kabel LAN Stabil</strong><small>BRG-900101</small></td>
+        <td><span class="badge badge-warning">Perlu Restock</span>
+<span class="sr-only">Risiko stok Perlu Restock</span></td>
+        <td class="text-right text-nowrap">30 Pcs</td>
+        <td class="text-nowrap">24/09/2026</td>
+        <td class="text-right text-nowrap">81 Pcs</td>
+        <td class="text-right">95%</td>
+        <td><span class="badge badge-info">Menunggu</span>
+</td>
+        <td><div class="prediction-row-actions"><button class="btn btn-sm btn-outline-secondary prediction-detail-toggle" type="button" aria-expanded="false" aria-controls="prediction-detail-1">Detail</button><form method="POST" action="http://127.0.0.1:8765/prediksi-stok/barang/1"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"><button type="submit" class="btn btn-outline-primary btn-sm" disabled="disabled"><span>Analisis Ulang</span></button>
+</form></div></td>
+    </tr>
+    <tr id="prediction-detail-1" class="prediction-detail-row" hidden><td colspan="8"><section aria-label="Detail prediksi [TEST] Kabel LAN Stabil">
+        <div class="prediction-detail-heading"><div><span class="section-eyebrow">Dasar analisis</span><h3>[TEST] Kabel LAN Stabil</h3></div><button class="prediction-detail-close" type="button" aria-label="Tutup detail [TEST] Kabel LAN Stabil"><i class="ti-close"></i></button></div>
+        <div class="prediction-detail-metrics"><div><span>Metode</span><strong>Machine Learning</strong><small>Teknis: <code>machine_learning</code></small></div><div><span>Kebutuhan 30 hari</span><strong>90,00 Pcs</strong></div><div><span>Jumlah histori</span><strong>90 transaksi OUT</strong><small>90 hari transaksi; rentang 90 hari</small></div><div><span>Batas aman</span><strong>21 Pcs</strong></div><div><span>Waktu analisis</span><strong>14/09/2026 15:57 WIB</strong></div></div>
+        <div class="prediction-confidence"><div><span>Tingkat keyakinan data</span><strong>95%</strong></div><div class="progress" role="progressbar" aria-label="Tingkat keyakinan data" aria-valuemin="0" aria-valuemax="100"  aria-valuenow="95" ><div class="progress-bar" style="width: 95%"></div></div><small>Kualitas data yang digunakan dalam analisis, bukan probabilitas prediksi akan terjadi.</small></div>
+                <div class="prediction-date-flow" aria-label="Linimasa prediksi stok"><div><span class="prediction-date-dot"></span><small>Hari ini</small><strong>14/09/2026</strong></div><div class="prediction-date-line"></div><div><span class="prediction-date-dot warning"></span><small>Disarankan restock</small><strong>17/09/2026</strong></div><div class="prediction-date-line"></div><div><span class="prediction-date-dot danger"></span><small>Perkiraan habis</small><strong>24/09/2026</strong></div></div>
+                        <div class="prediction-analysis-note"><strong>Alasan dan rekomendasi</strong><p>Regresi tren menggunakan histori OUT hingga waktu analisis.</p> </div>
+        <details class="prediction-technical-audit"><summary>Rincian teknis dan audit</summary><dl><dt>Metode teknis</dt><dd><code>machine_learning</code></dd><dt>Minimal histori</dt><dd>30 hari</dd><dt>Status analisis</dt><dd>completed</dd><dt>Fallback</dt><dd>Tidak digunakan</dd></dl></details>
+        <div class="prediction-detail-actions"><form method="POST" action="http://127.0.0.1:8765/prediksi-stok/1/approve"><input type="hidden" name="_token" value="kpINuJagax0bIQnEsVrqpkAzukQ0BU2YLsSTO7LF" autocomplete="off"><button type="submit" class="btn btn-primary btn-sm"><span>Setujui Restock</span></button>
+</form> </div>
+    </section></td></tr>
+        </tbody></table></div></div></section>
+</main><footer class="footer"><span>LogistikKu · Manajemen Stok Barang</span></footer></div>
+    </div>
+</div>
+<script src="http://127.0.0.1:8765/assets/vendors/js/vendor.bundle.base.js"></script><script src="http://127.0.0.1:8765/assets/js/off-canvas.js"></script><script src="http://127.0.0.1:8765/assets/js/template.js"></script>
+<script>document.addEventListener('submit',function(event){const button=event.submitter||event.target.querySelector('button[type="submit"]');if(!button||!event.target.checkValidity())return;button.disabled=true;button.classList.add('is-loading');button.setAttribute('aria-busy','true');});</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const menu = document.getElementById('app-notifications');
+    const count = document.getElementById('notification-count');
+    const list = document.getElementById('ocr-notification-list');
+    if (!menu || !count || !list) return;
+    const predictionUnread = Number(menu.dataset.predictionUnread || 0);
+
+    const render = function (payload) {
+        const total = predictionUnread + Number(payload.unread_count || 0);
+        count.textContent = total;
+        count.hidden = total === 0;
+        list.replaceChildren();
+        if (!payload.notifications.length) {
+            const empty = document.createElement('div');
+            empty.className = 'dropdown-item text-muted ocr-notification-empty';
+            empty.textContent = 'Belum ada notifikasi OCR.';
+            list.appendChild(empty);
+            return;
+        }
+        payload.notifications.forEach(function (item) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'ocr-notification-item ' + (item.read ? 'is-read' : 'is-unread');
+            const link = document.createElement('a');
+            link.href = item.open_url;
+            const title = document.createElement('strong'); title.textContent = item.title;
+            const filename = document.createElement('span'); filename.textContent = item.filename;
+            const detail = document.createElement('small'); detail.textContent = item.document_type + ' · ' + item.time + (item.read ? ' · sudah dibaca' : ' · belum dibaca');
+            link.append(title, filename, detail);
+            wrapper.appendChild(link);
+            list.appendChild(wrapper);
+        });
+    };
+    const poll = function () {
+        if (document.hidden) return;
+        fetch(menu.dataset.endpoint, {headers: {'Accept': 'application/json'}, credentials: 'same-origin'})
+            .then(function (response) { if (!response.ok) throw new Error('Notifikasi tidak tersedia'); return response.json(); })
+            .then(render)
+            .catch(function () {})
+            .finally(function () { document.dispatchEvent(new CustomEvent('app:poll')); });
+    };
+    window.setInterval(poll, 15000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+});
+</script>
+<script src="http://127.0.0.1:8765/assets/js/prediction-view.js"></script>
+</body>
+</html>
