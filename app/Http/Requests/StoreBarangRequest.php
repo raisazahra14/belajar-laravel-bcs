@@ -28,6 +28,7 @@ class StoreBarangRequest extends FormRequest
             'nama_barang' => ['required', 'string', 'max:255'],
             'kategori' => ['required', Rule::in(Barang::KATEGORI)],
             'stok' => ['required', 'integer', 'min:0'],
+            'harga_beli' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999999999.99'],
             'warehouse_id' => [
                 Rule::requiredIf(fn (): bool => $this->integer('stok') > 0),
                 'nullable',
@@ -55,6 +56,10 @@ class StoreBarangRequest extends FormRequest
             'stok.required' => 'Stok wajib diisi.',
             'stok.integer' => 'Stok wajib berupa bilangan bulat.',
             'stok.min' => 'Stok minimal bernilai 0.',
+            'harga_beli.numeric' => 'Harga beli harus berupa angka.',
+            'harga_beli.decimal' => 'Harga beli maksimal menggunakan 2 angka desimal.',
+            'harga_beli.min' => 'Harga beli tidak boleh negatif.',
+            'harga_beli.max' => 'Harga beli melebihi batas yang dapat disimpan.',
             'warehouse_id.required' => 'Gudang stok awal wajib dipilih jika stok awal lebih dari 0.',
             'warehouse_id.integer' => 'Gudang stok awal yang dipilih tidak valid.',
             'warehouse_id.exists' => 'Gudang stok awal tidak aktif atau tidak tersedia.',

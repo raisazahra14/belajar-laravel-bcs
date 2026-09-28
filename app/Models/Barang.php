@@ -46,6 +46,7 @@ class Barang extends Model
         'nama_barang',
         'kategori',
         'stok',
+        'harga_beli',
         'daily_usage_estimate',
         'lead_time_days',
         'satuan',
@@ -56,6 +57,7 @@ class Barang extends Model
     protected function casts(): array
     {
         return [
+            'harga_beli' => 'decimal:2',
             'daily_usage_estimate' => 'decimal:2',
             'lead_time_days' => 'integer',
         ];

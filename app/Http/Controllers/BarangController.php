@@ -175,6 +175,7 @@ class BarangController extends Controller
                 'nama_barang' => $request->nama_barang,
                 'supplier_id' => $request->validated('supplier_id'),
                 'kategori' => $request->kategori,
+                'harga_beli' => $request->validated('harga_beli'),
                 'daily_usage_estimate' => $request->validated('daily_usage_estimate'),
                 'lead_time_days' => $request->validated('lead_time_days'),
                 'satuan' => $request->satuan,

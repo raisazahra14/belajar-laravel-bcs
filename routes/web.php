@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BarangController;
 use App\Http\Controllers\BarangImportController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\BarangTrashController;
 use App\Http\Controllers\DocumentToolController;
 use App\Http\Controllers\DocumentVerificationController;
 use App\Http\Controllers\DocumentVerificationNotificationController;
+use App\Http\Controllers\StockMutationReportController;
 use App\Http\Controllers\StockPredictionController;
 use App\Http\Controllers\StockPredictionNotificationController;
 use App\Http\Controllers\SupplierController;
@@ -67,6 +69,9 @@ Route::middleware('auth')->group(function () {
     Route::patch('/notifikasi-ocr/read-all', [DocumentVerificationNotificationController::class, 'readAll'])->name('ocr-notifications.read-all');
 
     Route::middleware('role:admin')->group(function () {
+        Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics.index');
+        Route::get('/analytics/csv', [AnalyticsController::class, 'csv'])->name('analytics.csv');
+        Route::get('/laporan-mutasi-stok', [StockMutationReportController::class, 'index'])->name('stock-mutations.index');
         Route::get('/suppliers/{supplier}/edit', [SupplierController::class, 'edit'])->name('suppliers.edit');
         Route::match(['put', 'patch'], '/suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
         Route::delete('/suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('suppliers.destroy');

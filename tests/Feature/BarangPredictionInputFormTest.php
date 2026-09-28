@@ -25,7 +25,10 @@ class BarangPredictionInputFormTest extends TestCase
             ->assertSee('14 hari')
             ->assertSee('21 hari')
             ->assertSee('30 hari');
-        $this->assertStringNotContainsString('step="0.01"', $response->getContent());
+        $this->assertMatchesRegularExpression(
+            '/<input(?=[^>]*id="daily_usage_estimate")(?=[^>]*min="1")(?=[^>]*step="1")[^>]*>/',
+            $response->getContent(),
+        );
     }
 
     public function test_decimal_daily_usage_and_unsupported_lead_time_are_rejected(): void
