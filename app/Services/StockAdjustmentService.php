@@ -89,7 +89,7 @@ class StockAdjustmentService
                 ]);
             }
 
-            $transactionSupplierId = $this->validatedSupplierId($type, $supplierId);
+            $transactionSupplierId = $this->transactionSupplierId($locked, $type, $supplierId);
 
             $warehouseStock->update(['stok' => $warehouseAfter]);
             $locked->update(['stok' => $after]);
@@ -163,10 +163,13 @@ class StockAdjustmentService
         );
     }
 
-    private function validatedSupplierId(string $type, ?int $supplierId): ?int
+    private function transactionSupplierId(Barang $barang, string $type, ?int $supplierId): ?int
     {
+        // Supplier eksplisit pada penerimaan adalah sumber transaksi yang sebenarnya.
+        // Jalur lain menyimpan supplier master saat transaksi terjadi sebagai snapshot
+        // agar perubahan supplier barang berikutnya tidak mengubah laporan historis.
         if ($type === 'keluar' || $supplierId === null) {
-            return null;
+            return $barang->supplier_id;
         }
 
         $exists = Supplier::query()

@@ -351,6 +351,7 @@ class InventoryAnalyticsTest extends TestCase
     ): StokTransaction {
         $transaction = new StokTransaction([
             'barang_id' => $barang->id,
+            'supplier_id' => $barang->supplier_id,
             'warehouse_stock_id' => $stock?->id,
             'jenis' => $type,
             'jumlah' => $quantity,

@@ -68,7 +68,7 @@ class StockMutationReportTest extends TestCase
         $this->assertSame(114, $thirty->viewData('report')['totals']['total_masuk']);
     }
 
-    public function test_custom_period_and_supplier_master_and_warehouse_filters_work_together(): void
+    public function test_custom_period_uses_historical_supplier_snapshot_with_warehouse_filter(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $supplier = Supplier::create(['kode_supplier' => 'SUP-MUT-A', 'nama_supplier' => 'Supplier Master A']);
@@ -79,11 +79,14 @@ class StockMutationReportTest extends TestCase
         $stock = WarehouseStock::create(['barang_id' => $barang->id, 'warehouse_id' => $warehouse->id, 'stok' => 15]);
         $this->transaction($barang, 'masuk', 10, '2026-09-01 02:00:00', $stock);
         $this->transaction($barang, 'masuk', 8, '2026-09-04 02:00:00', $stock);
-        $this->transaction($barang, 'keluar', 3, '2026-09-05 02:00:00', $stock); // Supplier transaksi sengaja NULL.
+        $this->transaction($barang, 'keluar', 3, '2026-09-05 02:00:00', $stock);
 
         $other = $this->barang('MUT-FILTER-B', 'Barang Supplier B', 4, $otherSupplier->id);
         $otherStock = WarehouseStock::create(['barang_id' => $other->id, 'warehouse_id' => $warehouse->id, 'stok' => 4]);
         $this->transaction($other, 'masuk', 4, '2026-09-04 02:00:00', $otherStock);
+
+        // Perubahan supplier master sesudah transaksi tidak boleh mengubah atribusi lama.
+        $barang->update(['supplier_id' => $otherSupplier->id]);
 
         $response = $this->actingAs($admin)->get(route('stock-mutations.index', [
             'period' => 'custom',
@@ -96,15 +99,19 @@ class StockMutationReportTest extends TestCase
         $response->assertOk()
             ->assertSee('Barang Supplier A')
             ->assertDontSee('Barang Supplier B')
-            ->assertSee('Filter berlaku berdasarkan supplier pada master barang');
+            ->assertSee('snapshot supplier yang tersimpan saat transaksi dibuat');
         $report = $response->viewData('report');
         $this->assertCount(1, $report['rows']);
         $row = $report['rows']->first();
-        $this->assertTrue($row['history_available']);
-        $this->assertSame(10, $row['saldo_awal']);
+        $this->assertFalse($row['history_available']);
+        $this->assertNull($row['saldo_awal']);
         $this->assertSame(8, $row['total_masuk']);
         $this->assertSame(3, $row['total_keluar']);
-        $this->assertSame(15, $row['saldo_akhir']);
+        $this->assertNull($row['saldo_akhir']);
+        $this->assertSame(
+            'Saldo stok tidak dipisahkan per supplier; hanya mutasi historis yang direkap.',
+            $row['unavailable_reason'],
+        );
     }
 
     public function test_warehouse_history_is_unavailable_for_missing_links_or_unrecorded_balance_move(): void
@@ -125,7 +132,7 @@ class StockMutationReportTest extends TestCase
             'warehouse_id' => $warehouse->id,
         ]));
 
-        $response->assertOk()->assertSee('Saldo historis gudang tidak tersedia');
+        $response->assertOk()->assertSee('tidak mempunyai saldo historis yang dapat dibuktikan');
         $report = $response->viewData('report');
         $this->assertFalse($report['totals']['history_available']);
         $this->assertSame(2, $report['totals']['unavailable_count']);
@@ -174,6 +181,7 @@ class StockMutationReportTest extends TestCase
     ): StokTransaction {
         $transaction = new StokTransaction([
             'barang_id' => $barang->id,
+            'supplier_id' => $barang->supplier_id,
             'warehouse_stock_id' => $stock?->id,
             'jenis' => $type,
             'jumlah' => $quantity,

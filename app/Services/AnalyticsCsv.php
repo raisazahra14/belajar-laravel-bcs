@@ -41,7 +41,7 @@ class AnalyticsCsv
         $movement = $data['movement'];
         $valuation = $data['valuation'];
         $warehouse = $data['selectedWarehouse']?->nama_gudang ?? 'Semua gudang';
-        $supplier = $data['selectedSupplier']?->nama_supplier ?? 'Semua supplier master';
+        $supplier = $data['selectedSupplier']?->nama_supplier ?? 'Semua supplier transaksi';
 
         yield ['ANALITIK BISNIS LOGISTIKKU'];
         yield ['Waktu dibuat', now(config('app.display_timezone'))->format('Y-m-d H:i:s T')];
@@ -67,7 +67,7 @@ class AnalyticsCsv
         yield [];
 
         yield ['REKAP MUTASI'];
-        yield ['Kode', 'Barang', 'Kategori', 'Supplier master', 'Saldo awal', 'Masuk', 'Keluar', 'Saldo akhir', 'Status'];
+        yield ['Kode', 'Barang', 'Kategori', 'Supplier saat ini', 'Saldo awal', 'Masuk', 'Keluar', 'Saldo akhir', 'Status'];
         foreach ($mutation['rows'] as $row) {
             yield [
                 $row['barang']->kode_barang,

@@ -168,15 +168,15 @@ Aturan penting: saldo per gudang berada di `warehouse_stocks`; `barang.stok` tet
 
 ### `stok_transactions`
 
-Fungsi: ledger mutasi stok masuk/keluar, supplier asal, saldo gudang asal, dan snapshot stok total sebelum/sesudah.
+Fungsi: ledger mutasi stok masuk/keluar, snapshot supplier saat transaksi, saldo gudang asal, dan snapshot stok total sebelum/sesudah.
 
-PK: `id` (AI). IDX: `stok_transactions_barang_id_foreign` (`barang_id`), `stok_transactions_supplier_id_foreign` (`supplier_id`), `stok_transactions_warehouse_stock_id_foreign` (`warehouse_stock_id`), `idx_stok_barang_created` (`barang_id`, `created_at`), dan `idx_stok_barang_jenis_created` (`barang_id`, `jenis`, `created_at`). Soft delete: tidak.
+PK: `id` (AI). IDX: `stok_transactions_barang_id_foreign` (`barang_id`), `stok_transactions_supplier_id_foreign` (`supplier_id`), `stok_transactions_warehouse_stock_id_foreign` (`warehouse_stock_id`), `idx_stok_barang_created` (`barang_id`, `created_at`), `idx_stok_barang_jenis_created` (`barang_id`, `jenis`, `created_at`), `idx_stok_supplier_created` (`supplier_id`, `created_at`), dan `idx_stok_supplier_jenis_created` (`supplier_id`, `jenis`, `created_at`). Soft delete: tidak.
 
 | Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
 |---|---|---:|---|---|---|
 | `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas transaksi. |
 | `barang_id` | `bigint(20) unsigned` | Tidak | — | FK → `barang.id`; delete/update `RESTRICT` | Barang wajib; histori tidak boleh menjadi yatim. |
-| `supplier_id` | `bigint(20) unsigned` | Ya | `NULL` | FK → `suppliers.id`; delete `SET NULL`, update `RESTRICT` | Supplier asal opsional. |
+| `supplier_id` | `bigint(20) unsigned` | Ya | `NULL` | FK → `suppliers.id`; delete `SET NULL`, update `RESTRICT` | Snapshot supplier saat transaksi dibuat; `NULL` untuk barang tanpa supplier atau transaksi lama yang belum merekam snapshot. |
 | `warehouse_stock_id` | `bigint(20) unsigned` | Ya | `NULL` | FK → `warehouse_stocks.id`; delete/update `RESTRICT` | Saldo gudang terkait; nullable untuk kompatibilitas data lama. |
 | `jenis` | `enum('masuk','keluar')` | Tidak | — | — | Arah mutasi. |
 | `jumlah` | `int(11)` | Tidak | — | CHECK `ck_stok_jumlah_pos` | Kuantitas mutasi, wajib `> 0`. |
@@ -186,7 +186,7 @@ PK: `id` (AI). IDX: `stok_transactions_barang_id_foreign` (`barang_id`), `stok_t
 | `created_at` | `timestamp` | Ya | `NULL` | — | Waktu transaksi dibuat. |
 | `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
 
-Aturan penting: kedua snapshot harus sama-sama `NULL` atau sama-sama terisi, harus nonnegatif, dan harus memenuhi `sesudah = sebelum + jumlah` untuk masuk atau `sebelum = sesudah + jumlah` untuk keluar. Implementasi terbaru memperbarui saldo gudang dan total legacy dalam satu transaksi database.
+Aturan penting: kedua snapshot stok harus sama-sama `NULL` atau sama-sama terisi, harus nonnegatif, dan harus memenuhi `sesudah = sebelum + jumlah` untuk masuk atau `sebelum = sesudah + jumlah` untuk keluar. Implementasi terbaru memperbarui saldo gudang dan total legacy dalam satu transaksi database. Supplier penerimaan yang dipilih operator menjadi snapshot transaksi masuk; jika tidak dipilih, serta untuk transaksi keluar, sistem menyalin supplier master barang saat transaksi terjadi. Data lama yang `NULL` tidak diisi dari master saat ini agar tidak menciptakan atribusi historis palsu.
 
 ### `stok_histories`
 

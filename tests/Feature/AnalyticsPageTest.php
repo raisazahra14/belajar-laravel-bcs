@@ -87,7 +87,7 @@ class AnalyticsPageTest extends TestCase
             ->assertSee('Barang Analitik Utama')
             ->assertDontSee('Barang Harus Tersaring')
             ->assertSee('Rp1.000,00')
-            ->assertSee('0.18')
+            ->assertSee('Tidak tersedia')
             ->assertSee('Top 5 Fast-Moving')
             ->assertSee('Slow-Moving')
             ->assertSee('Dead Stock')
@@ -104,7 +104,8 @@ class AnalyticsPageTest extends TestCase
         $valuation = $page->viewData('valuation');
         $this->assertSame(0, $mutation['totals']['total_masuk']);
         $this->assertSame(2, $mutation['totals']['total_keluar']);
-        $this->assertSame('0.18', $mutation['turnover']['formatted']);
+        $this->assertNull($mutation['turnover']['formatted']);
+        $this->assertFalse($mutation['turnover']['available']);
         $this->assertSame('1000.00', $valuation['total']['calculated_value']);
         $this->assertArrayHasKey('coverage_percentage', $valuation['total']);
 
@@ -113,7 +114,7 @@ class AnalyticsPageTest extends TestCase
         $this->assertSame('0', $this->valueAfterLabel($rows, 'Total mutasi masuk'));
         $this->assertSame('2', $this->valueAfterLabel($rows, 'Total mutasi keluar'));
         $this->assertSame('1000.00', $this->valueAfterLabel($rows, 'Total valuasi aset'));
-        $this->assertSame('0.18', $this->valueAfterLabel($rows, 'Rasio perputaran'));
+        $this->assertSame('Tidak tersedia', $this->valueAfterLabel($rows, 'Rasio perputaran'));
         $this->assertStringContainsString('Barang Analitik Utama', $csv->streamedContent());
         $this->assertStringNotContainsString('Barang Harus Tersaring', $csv->streamedContent());
     }
@@ -283,6 +284,7 @@ class AnalyticsPageTest extends TestCase
     ): StokTransaction {
         $transaction = new StokTransaction([
             'barang_id' => $barang->id,
+            'supplier_id' => $barang->supplier_id,
             'warehouse_stock_id' => $stock->id,
             'jenis' => $type,
             'jumlah' => $quantity,

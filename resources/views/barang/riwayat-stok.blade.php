@@ -17,7 +17,7 @@
 <article class="stock-transaction-entry type-{{ $transaction->jenis }}"><div class="stock-transaction-marker"><i class="{{ $transaction->jenis === 'masuk' ? 'ti-arrow-down' : 'ti-arrow-up' }}"></i></div><div class="stock-transaction-content"><div class="stock-transaction-heading"><div><x-ui.badge :variant="$transaction->jenis === 'masuk' ? 'success' : 'danger'">{{ $transaction->jenis === 'masuk' ? 'Barang Masuk' : 'Barang Keluar' }}</x-ui.badge><strong>{{ $transaction->jenis === 'masuk' ? '+' : '-' }}{{ $transaction->jumlah }} {{ $barang->satuan }}</strong></div><time datetime="{{ $transaction->created_at->toIso8601String() }}">{{ $transaction->created_at->copy()->timezone(config('app.display_timezone'))->format('d/m/Y H:i') }} WIB</time></div>
 @if($validSnapshot)<p class="stock-balance-change">Saldo: <strong>{{ $transaction->stok_sebelum }}</strong> <i class="ti-arrow-right"></i> <strong>{{ $transaction->stok_sesudah }} {{ $barang->satuan }}</strong></p>@else<p class="legacy-snapshot-note"><i class="ti-info-alt"></i> Snapshot historis tidak tersedia</p>@endif
 <p class="mb-1"><strong>Gudang:</strong> {{ $transaction->warehouseStock?->warehouse?->nama_gudang ?? 'Tidak tercatat (transaksi lama)' }}</p>
-@if($transaction->jenis === 'masuk')<p class="mb-1"><strong>Supplier asal:</strong> {{ $transaction->supplier?->nama_supplier ?? 'Tidak dicatat' }}</p>@endif
+<p class="mb-1"><strong>Supplier saat transaksi:</strong> {{ $transaction->supplier?->nama_supplier ?? 'Tidak dicatat' }}</p>
 <p class="mb-1"><strong>Pengguna:</strong> {{ $transaction->actor?->user?->name ?? 'Tidak tercatat (transaksi lama)' }}</p>
 @if(filled($transaction->keterangan))<p class="stock-transaction-note">{{ $transaction->keterangan }}</p>@endif</div></article>
 @endforeach

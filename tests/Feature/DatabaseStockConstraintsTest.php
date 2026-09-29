@@ -70,6 +70,8 @@ class DatabaseStockConstraintsTest extends TestCase
 
         $this->assertSame(1, $columnSets->filter(fn (string $columns): bool => $columns === 'barang_id,created_at')->count());
         $this->assertSame(1, $columnSets->filter(fn (string $columns): bool => $columns === 'barang_id,jenis,created_at')->count());
+        $this->assertSame(1, $columnSets->filter(fn (string $columns): bool => $columns === 'supplier_id,created_at')->count());
+        $this->assertSame(1, $columnSets->filter(fn (string $columns): bool => $columns === 'supplier_id,jenis,created_at')->count());
     }
 
     public function test_migration_rollback_preserves_data_and_can_be_applied_again(): void

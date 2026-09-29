@@ -21,15 +21,12 @@ class StockMutationReportService
         $asOf = CarbonImmutable::now($timezone)->utc();
         [$start, $endExclusive, $periodLabel] = $this->period($filters, $timezone);
         $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
+        $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
 
         $barangQuery = Barang::query()
             ->with('supplier')
             ->orderBy('nama_barang')
             ->orderBy('id');
-
-        if (! empty($filters['supplier_id'])) {
-            $barangQuery->where('supplier_id', (int) $filters['supplier_id']);
-        }
 
         $warehouseStocks = collect();
         if ($warehouseId !== null) {
@@ -38,6 +35,26 @@ class StockMutationReportService
                 ->get(['id', 'barang_id', 'stok'])
                 ->keyBy('barang_id');
             $barangQuery->whereIn('id', $warehouseStocks->keys());
+        }
+
+        if ($supplierId !== null) {
+            $barangQuery->whereHas('stokTransactions', function (Builder $query) use (
+                $supplierId,
+                $start,
+                $endExclusive,
+                $asOf,
+                $warehouseStocks,
+                $warehouseId,
+            ): void {
+                $query->where('supplier_id', $supplierId)
+                    ->whereNotNull('created_at')
+                    ->where('created_at', '>=', $start)
+                    ->where('created_at', '<', $endExclusive)
+                    ->where('created_at', '<=', $asOf);
+                if ($warehouseId !== null) {
+                    $query->whereIn('warehouse_stock_id', $warehouseStocks->pluck('id'));
+                }
+            });
         }
 
         $barang = $barangQuery->get([
@@ -52,6 +69,7 @@ class StockMutationReportService
             $endExclusive,
             $asOf,
             $warehouseId === null ? null : $stockIds,
+            $supplierId,
         );
         $dailyTrend = $this->dailyTrend(
             $barangIds,
@@ -60,6 +78,7 @@ class StockMutationReportService
             $asOf,
             $warehouseId === null ? null : $stockIds,
             $timezone,
+            $supplierId,
         );
         $sinceStartMovements = $this->netMovements(
             $barangIds,
@@ -80,6 +99,7 @@ class StockMutationReportService
             $warehouseStocks,
             $warehouseAudit,
             $warehouseId,
+            $supplierId,
         ): array {
             $movement = $periodMovements->get($item->id);
             $masuk = (int) ($movement?->total_masuk ?? 0);
@@ -90,6 +110,14 @@ class StockMutationReportService
             $netSinceStart = (int) ($sinceStartMovements->get($item->id)?->net_movement ?? 0);
             $historyAvailable = ! $undatedTransactions->contains($item->id);
             $unavailableReason = $historyAvailable ? null : 'Terdapat transaksi tanpa tanggal.';
+
+            if ($supplierId !== null) {
+                // Stok saat ini tidak dipisahkan per supplier/lot. Mutasi dapat difilter
+                // secara historis, tetapi saldo supplier tidak boleh direkonstruksi dari
+                // saldo barang gabungan karena hasilnya akan menyesatkan.
+                $historyAvailable = false;
+                $unavailableReason = 'Saldo stok tidak dipisahkan per supplier; hanya mutasi historis yang direkap.';
+            }
 
             if ($warehouseId !== null) {
                 $audit = $warehouseAudit->get($item->id, [
@@ -189,12 +217,13 @@ class StockMutationReportService
         CarbonImmutable $endExclusive,
         CarbonImmutable $asOf,
         ?Collection $warehouseStockIds,
+        ?int $supplierId,
     ): Collection {
         if ($barangIds->isEmpty()) {
             return collect();
         }
 
-        return $this->datedTransactions($barangIds, $warehouseStockIds)
+        return $this->datedTransactions($barangIds, $warehouseStockIds, $supplierId)
             ->where('created_at', '>=', $start)
             ->where('created_at', '<', $endExclusive)
             ->where('created_at', '<=', $asOf)
@@ -213,10 +242,11 @@ class StockMutationReportService
         CarbonImmutable $asOf,
         ?Collection $warehouseStockIds,
         string $timezone,
+        ?int $supplierId,
     ): array {
         $totals = [];
         if ($barangIds->isNotEmpty()) {
-            $transactions = $this->datedTransactions($barangIds, $warehouseStockIds)
+            $transactions = $this->datedTransactions($barangIds, $warehouseStockIds, $supplierId)
                 ->where('created_at', '>=', $start)
                 ->where('created_at', '<', $endExclusive)
                 ->where('created_at', '<=', $asOf)
@@ -272,11 +302,15 @@ class StockMutationReportService
             ->keyBy('barang_id');
     }
 
-    private function datedTransactions(Collection $barangIds, ?Collection $warehouseStockIds): Builder
-    {
+    private function datedTransactions(
+        Collection $barangIds,
+        ?Collection $warehouseStockIds,
+        ?int $supplierId = null,
+    ): Builder {
         $query = StokTransaction::query()
             ->whereIn('barang_id', $barangIds)
-            ->whereNotNull('created_at');
+            ->whereNotNull('created_at')
+            ->when($supplierId !== null, fn (Builder $query) => $query->where('supplier_id', $supplierId));
 
         if ($warehouseStockIds !== null) {
             $query->whereIn('warehouse_stock_id', $warehouseStockIds);

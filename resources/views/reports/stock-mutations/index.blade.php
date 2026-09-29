@@ -35,14 +35,14 @@
                 @error('warehouse_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
             <div class="col-md-6 form-group">
-                <label for="supplier_id" class="form-label">Supplier master barang</label>
+                <label for="supplier_id" class="form-label">Supplier transaksi (historis)</label>
                 <select id="supplier_id" name="supplier_id" class="form-select @error('supplier_id') is-invalid @enderror">
                     <option value="">Semua supplier</option>
                     @foreach($suppliers as $supplier)
                         <option value="{{ $supplier->id }}" @selected((string) ($filters['supplier_id'] ?? '') === (string) $supplier->id)>{{ $supplier->nama_supplier }}{{ $supplier->trashed() ? ' (dihapus)' : '' }}</option>
                     @endforeach
                 </select>
-                <div class="form-text">Filter berlaku berdasarkan supplier pada master barang untuk transaksi masuk dan keluar, bukan supplier yang tercatat pada transaksi.</div>
+                <div class="form-text">Memakai snapshot supplier yang tersimpan saat transaksi dibuat. Perubahan supplier master tidak mengubah laporan lama.</div>
                 @error('supplier_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
             <div class="col-md-6 form-group d-flex align-items-end justify-content-end">
@@ -65,7 +65,7 @@
     @endif
     <div class="table-responsive">
         <table class="table">
-            <thead><tr><th>Barang</th><th>Kategori</th><th>Supplier master</th><th class="text-end">Saldo awal</th><th class="text-end">Masuk</th><th class="text-end">Keluar</th><th class="text-end">Saldo akhir</th></tr></thead>
+            <thead><tr><th>Barang</th><th>Kategori</th><th>Supplier saat ini</th><th class="text-end">Saldo awal</th><th class="text-end">Masuk</th><th class="text-end">Keluar</th><th class="text-end">Saldo akhir</th></tr></thead>
             <tbody>
             @forelse($report['rows'] as $row)
                 <tr>
@@ -75,14 +75,14 @@
                     @if($row['history_available'])
                         <td class="text-end">{{ number_format($row['saldo_awal'], 0, ',', '.') }}</td>
                     @else
-                        <td class="text-end text-warning" title="{{ $row['unavailable_reason'] }}">Saldo historis gudang tidak tersedia</td>
+                        <td class="text-end text-warning" title="{{ $row['unavailable_reason'] }}">Tidak tersedia</td>
                     @endif
                     <td class="text-end text-success">{{ number_format($row['total_masuk'], 0, ',', '.') }}</td>
                     <td class="text-end text-danger">{{ number_format($row['total_keluar'], 0, ',', '.') }}</td>
                     @if($row['history_available'])
                         <td class="text-end"><strong>{{ number_format($row['saldo_akhir'], 0, ',', '.') }}</strong></td>
                     @else
-                        <td class="text-end text-warning" title="{{ $row['unavailable_reason'] }}">Saldo historis gudang tidak tersedia</td>
+                        <td class="text-end text-warning" title="{{ $row['unavailable_reason'] }}">Tidak tersedia</td>
                     @endif
                 </tr>
             @empty

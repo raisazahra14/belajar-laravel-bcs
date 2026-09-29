@@ -240,7 +240,7 @@ class InventoryAnalyticsService
             ->where('transactions.created_at', '<=', $asOf);
 
         if ($supplierId !== null) {
-            $query->where('barang.supplier_id', $supplierId);
+            $query->where('transactions.supplier_id', $supplierId);
         }
 
         if ($warehouseId !== null) {
@@ -302,6 +302,7 @@ class InventoryAnalyticsService
             ->whereNotNull('transactions.created_at')
             ->where('transactions.created_at', '>=', $start)
             ->where('transactions.created_at', '<=', $asOf)
+            ->when($supplierId !== null, fn ($query) => $query->where('transactions.supplier_id', $supplierId))
             ->selectRaw('transactions.barang_id, SUM(transactions.jumlah) AS total_unit_keluar')
             ->selectRaw('COUNT(transactions.id) AS jumlah_transaksi')
             ->selectRaw('MAX(transactions.created_at) AS out_terakhir')
@@ -320,7 +321,24 @@ class InventoryAnalyticsService
                 $join->on('out_movements.barang_id', '=', 'barang.id');
             })
             ->whereNull('barang.deleted_at')
-            ->when($supplierId !== null, fn ($query) => $query->where('barang.supplier_id', $supplierId))
+            ->when($supplierId !== null, function ($query) use ($supplierId, $start, $asOf, $warehouseId): void {
+                $query->whereExists(function ($transactions) use ($supplierId, $start, $asOf, $warehouseId): void {
+                    $transactions->selectRaw('1')
+                        ->from('stok_transactions as supplier_transactions')
+                        ->whereColumn('supplier_transactions.barang_id', 'barang.id')
+                        ->where('supplier_transactions.supplier_id', $supplierId)
+                        ->whereNotNull('supplier_transactions.created_at')
+                        ->where('supplier_transactions.created_at', '>=', $start)
+                        ->where('supplier_transactions.created_at', '<=', $asOf);
+                    if ($warehouseId !== null) {
+                        $transactions->whereIn('supplier_transactions.warehouse_stock_id', function ($stocks) use ($warehouseId): void {
+                            $stocks->select('id')
+                                ->from('warehouse_stocks')
+                                ->where('warehouse_id', $warehouseId);
+                        });
+                    }
+                });
+            })
             ->when($excludedBarangIds->isNotEmpty(), fn ($query) => $query->whereNotIn('barang.id', $excludedBarangIds))
             ->select([
                 'barang.id as barang_id',
@@ -373,7 +391,7 @@ class InventoryAnalyticsService
             ->whereNotNull('transactions.created_at')
             ->where('transactions.created_at', '>=', $start)
             ->where('transactions.created_at', '<=', $asOf)
-            ->when($supplierId !== null, fn ($query) => $query->where('barang.supplier_id', $supplierId))
+            ->when($supplierId !== null, fn ($query) => $query->where('transactions.supplier_id', $supplierId))
             ->where(function ($query): void {
                 $query->whereNull('transactions.warehouse_stock_id')
                     ->orWhereNull('linked_stock.id')

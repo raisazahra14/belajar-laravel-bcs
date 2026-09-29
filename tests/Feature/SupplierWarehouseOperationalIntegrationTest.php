@@ -74,7 +74,7 @@ class SupplierWarehouseOperationalIntegrationTest extends TestCase
         $supplier = $this->supplier('SUP-TRX', 'Supplier Transaksi');
         $first = $this->warehouse('GDG-1', 'Gudang Satu');
         $second = $this->warehouse('GDG-2', 'Gudang Dua');
-        $barang = $this->barang(12);
+        $barang = $this->barang(12, $supplier->id);
         $firstStock = $this->stock($barang, $first, 5);
         $secondStock = $this->stock($barang, $second, 7);
 
@@ -98,7 +98,7 @@ class SupplierWarehouseOperationalIntegrationTest extends TestCase
             $barang->fresh(), 'keluar', 3, 'Pemakaian cabang', $second->id, $supplier->id, $manager->id
         );
         $outgoing = StokTransaction::latest('id')->firstOrFail();
-        $this->assertNull($outgoing->supplier_id);
+        $this->assertSame($supplier->id, $outgoing->supplier_id);
         $this->assertSame(8, $secondStock->fresh()->stok);
         $this->assertSame(13, $barang->fresh()->stok);
         $this->assertSame(
@@ -129,6 +129,43 @@ class SupplierWarehouseOperationalIntegrationTest extends TestCase
         $this->assertSame(20, $largeStock->fresh()->stok);
         $this->assertSame(21, $barang->fresh()->stok);
         $this->assertDatabaseCount('stok_transactions', 0);
+    }
+
+    public function test_stock_transactions_keep_supplier_snapshot_after_master_supplier_changes(): void
+    {
+        $manager = User::factory()->create(['role' => 'manager']);
+        $originalSupplier = $this->supplier('SUP-SNAPSHOT-A', 'Supplier Snapshot Awal');
+        $newSupplier = $this->supplier('SUP-SNAPSHOT-B', 'Supplier Snapshot Baru');
+        $warehouse = $this->warehouse('GDG-SNAPSHOT', 'Gudang Snapshot');
+        $barang = $this->barang(5, $originalSupplier->id, 'SNAPSHOT-ITEM');
+        $this->stock($barang, $warehouse, 5);
+
+        $this->actingAs($manager)->post("/barang/{$barang->id}/stok", [
+            'jenis' => 'masuk',
+            'jumlah' => 2,
+            'warehouse_id' => $warehouse->id,
+            'keterangan' => 'Sebelum supplier berubah',
+        ])->assertRedirect("/barang/{$barang->id}");
+
+        $incoming = StokTransaction::latest('id')->firstOrFail();
+        $this->assertSame($originalSupplier->id, $incoming->supplier_id);
+
+        $barang->update(['supplier_id' => $newSupplier->id]);
+        $this->post("/barang/{$barang->id}/stok", [
+            'jenis' => 'keluar',
+            'jumlah' => 1,
+            'warehouse_id' => $warehouse->id,
+            'keterangan' => 'Sesudah supplier berubah',
+        ])->assertRedirect("/barang/{$barang->id}");
+
+        $outgoing = StokTransaction::latest('id')->firstOrFail();
+        $this->assertSame($newSupplier->id, $outgoing->supplier_id);
+        $this->assertSame($originalSupplier->id, $incoming->fresh()->supplier_id);
+
+        $this->get("/barang/{$barang->id}/riwayat-stok?supplier_id={$originalSupplier->id}")
+            ->assertOk()
+            ->assertSee('Sebelum supplier berubah')
+            ->assertDontSee('Sesudah supplier berubah');
     }
 
     public function test_inactive_or_deleted_warehouse_is_rejected_for_new_transaction(): void
