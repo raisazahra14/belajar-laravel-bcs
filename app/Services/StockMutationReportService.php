@@ -53,6 +53,14 @@ class StockMutationReportService
             $asOf,
             $warehouseId === null ? null : $stockIds,
         );
+        $dailyTrend = $this->dailyTrend(
+            $barangIds,
+            $start,
+            $endExclusive,
+            $asOf,
+            $warehouseId === null ? null : $stockIds,
+            $timezone,
+        );
         $sinceStartMovements = $this->netMovements(
             $barangIds,
             $start,
@@ -143,6 +151,7 @@ class StockMutationReportService
                 },
                 'definition' => 'Total unit OUT ÷ ((saldo awal + saldo akhir) / 2).',
             ],
+            'daily_trend' => $dailyTrend,
             'period' => [
                 'key' => $filters['period'],
                 'label' => $periodLabel,
@@ -194,6 +203,54 @@ class StockMutationReportService
             ->groupBy('barang_id')
             ->get()
             ->keyBy('barang_id');
+    }
+
+    /** @return array<string,mixed> */
+    private function dailyTrend(
+        Collection $barangIds,
+        CarbonImmutable $start,
+        CarbonImmutable $endExclusive,
+        CarbonImmutable $asOf,
+        ?Collection $warehouseStockIds,
+        string $timezone,
+    ): array {
+        $totals = [];
+        if ($barangIds->isNotEmpty()) {
+            $transactions = $this->datedTransactions($barangIds, $warehouseStockIds)
+                ->where('created_at', '>=', $start)
+                ->where('created_at', '<', $endExclusive)
+                ->where('created_at', '<=', $asOf)
+                ->get(['jenis', 'jumlah', 'created_at']);
+
+            foreach ($transactions as $transaction) {
+                $date = CarbonImmutable::parse($transaction->created_at, config('app.timezone', 'UTC'))
+                    ->setTimezone($timezone)
+                    ->toDateString();
+                $totals[$date] ??= ['masuk' => 0, 'keluar' => 0];
+                $totals[$date][$transaction->jenis] += (int) $transaction->jumlah;
+            }
+        }
+
+        $dates = [];
+        $labels = [];
+        $incoming = [];
+        $outgoing = [];
+        $lastDate = $endExclusive->setTimezone($timezone)->subDay()->startOfDay();
+        for ($date = $start->setTimezone($timezone)->startOfDay(); $date->lte($lastDate); $date = $date->addDay()) {
+            $key = $date->toDateString();
+            $dates[] = $key;
+            $labels[] = $date->translatedFormat('d M');
+            $incoming[] = $totals[$key]['masuk'] ?? 0;
+            $outgoing[] = $totals[$key]['keluar'] ?? 0;
+        }
+
+        return [
+            'dates' => $dates,
+            'labels' => $labels,
+            'masuk' => $incoming,
+            'keluar' => $outgoing,
+            'has_activity' => array_sum($incoming) + array_sum($outgoing) > 0,
+        ];
     }
 
     private function netMovements(

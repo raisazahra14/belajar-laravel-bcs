@@ -52,6 +52,11 @@ class InventoryAnalyticsTest extends TestCase
             $row['saldo_awal'] + $row['total_masuk'] - $row['total_keluar'],
             $row['saldo_akhir'],
         );
+        $this->assertSame('2026-09-24', $report['daily_trend']['dates'][0]);
+        $this->assertSame('2026-09-30', $report['daily_trend']['dates'][6]);
+        $this->assertSame(5, array_sum($report['daily_trend']['masuk']));
+        $this->assertSame(3, array_sum($report['daily_trend']['keluar']));
+        $this->assertTrue($report['daily_trend']['has_activity']);
     }
 
     public function test_turnover_is_unavailable_when_average_stock_denominator_is_zero(): void
@@ -140,6 +145,9 @@ class InventoryAnalyticsTest extends TestCase
             $analysis['slow_moving']->pluck('barang_id')->all(),
             $analysis['dead_stock']->pluck('barang_id')->all(),
         ));
+        $this->assertSame([1, 2, 2], $analysis['composition']['item_counts']);
+        $this->assertSame([3, 6, 9], $analysis['composition']['stock_units']);
+        $this->assertTrue($analysis['composition']['has_items']);
     }
 
     public function test_transaction_without_warehouse_counts_only_for_consolidated_and_limits_warehouse_analysis(): void
@@ -193,6 +201,8 @@ class InventoryAnalyticsTest extends TestCase
         $this->assertSame(6, $total['priced_stock_units']);
         $this->assertSame(1, $total['unpriced_item_count']);
         $this->assertSame(4, $total['unpriced_stock_units']);
+        $this->assertSame(10, $total['stock_units']);
+        $this->assertSame('60.0', $total['coverage_percentage']);
         $this->assertFalse($total['is_complete']);
         $this->assertSame('Valuasi terhitung', $total['label']);
 
@@ -211,6 +221,10 @@ class InventoryAnalyticsTest extends TestCase
         $this->assertSame('2000.00', $warehouseValueB['calculated_value']);
         $this->assertSame(4, $warehouseValueB['unpriced_stock_units']);
         $this->assertTrue($valuation['stock_consistency']['is_consistent']);
+        $this->assertSame(['ATK', 'Elektronik'], $valuation['category_chart']['labels']);
+        $this->assertSame(['5999.97', '0.01'], $valuation['category_chart']['values']);
+        $this->assertTrue($valuation['category_chart']['has_value']);
+        $this->assertFalse($valuation['category_chart']['is_complete']);
     }
 
     public function test_valuation_reports_stock_mismatch_without_changing_balances(): void

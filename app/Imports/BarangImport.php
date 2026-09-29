@@ -16,7 +16,12 @@ use RuntimeException;
 
 class BarangImport implements ToArray
 {
+    /** Kolom lama tetap wajib agar file import yang sudah ada tetap kompatibel. */
     public const COLUMNS = ['kode_barang', 'nama_barang', 'kategori', 'stok', 'satuan', 'lokasi'];
+
+    public const OPTIONAL_COLUMNS = ['harga_beli'];
+
+    public const IMPORT_COLUMNS = [...self::COLUMNS, ...self::OPTIONAL_COLUMNS];
 
     public function __construct(private StockAdjustmentService $stock) {}
 
@@ -62,13 +67,15 @@ class BarangImport implements ToArray
             $total++;
             $previousErrors = count($errors);
             $item = $this->normalize($row);
+            $existingFieldRule = $matched ? 'nullable' : 'required';
             $validator = Validator::make($item, [
                 'kode_barang' => ['required', 'string', 'max:255'],
-                'nama_barang' => ['required', 'string', 'max:255'],
-                'kategori' => ['required', Rule::in(Barang::KATEGORI)],
-                'stok' => ['required', 'integer', 'min:0'],
-                'satuan' => ['required', Rule::in(Barang::SATUAN)],
-                'lokasi' => ['required', 'string', 'max:255'],
+                'nama_barang' => [$existingFieldRule, 'string', 'max:255'],
+                'kategori' => [$existingFieldRule, Rule::in(Barang::KATEGORI)],
+                'stok' => [$existingFieldRule, 'integer', 'min:0'],
+                'satuan' => [$existingFieldRule, Rule::in(Barang::SATUAN)],
+                'lokasi' => [$existingFieldRule, 'string', 'max:255'],
+                'harga_beli' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999999999.99'],
             ], [
                 'kode_barang.required' => 'Kode barang wajib diisi.',
                 'nama_barang.required' => 'Nama barang wajib diisi.',
@@ -80,6 +87,10 @@ class BarangImport implements ToArray
                 'satuan.required' => 'Satuan wajib dipilih.',
                 'satuan.in' => 'Satuan yang dipilih tidak valid.',
                 'lokasi.required' => 'Lokasi wajib diisi.',
+                'harga_beli.numeric' => 'Harga beli harus berupa angka.',
+                'harga_beli.decimal' => 'Harga beli maksimal menggunakan 2 angka desimal.',
+                'harga_beli.min' => 'Harga beli tidak boleh negatif.',
+                'harga_beli.max' => 'Harga beli melebihi batas yang dapat disimpan.',
             ]);
 
             foreach ($validator->errors()->messages() as $column => $messages) {
@@ -100,6 +111,11 @@ class BarangImport implements ToArray
             } elseif ($matched) {
                 $item['kode_barang'] = $matched->kode_barang;
                 $item['_existing_id'] = $matched->id;
+                foreach (['nama_barang', 'kategori', 'stok', 'satuan', 'lokasi'] as $column) {
+                    if (($item[$column] ?? '') === '') {
+                        unset($item[$column]);
+                    }
+                }
             } elseif ($item['kode_barang'] !== '' && preg_match('/^BRG-\d{6}$/', strtoupper($item['kode_barang'])) !== 1) {
                 $errors[] = "Baris {$rowNumber}, kolom kode_barang: Kode barang '{$item['kode_barang']}' tidak ditemukan. Kode barang baru harus menggunakan format BRG- diikuti 6 angka, contoh BRG-000001.";
             } else {
@@ -140,15 +156,21 @@ class BarangImport implements ToArray
                 while (($line = fgets($prepared)) !== false) {
                     $item = json_decode($line, true, flags: JSON_THROW_ON_ERROR);
                     $existingId = $item['_existing_id'];
-                    $targetStock = (int) $item['stok'];
+                    $targetStock = array_key_exists('stok', $item) ? (int) $item['stok'] : null;
                     unset($item['_existing_id'], $item['stok']);
                     $barang = $existingId ? Barang::lockForUpdate()->findOrFail($existingId) : new Barang;
                     $existingId ? $updated++ : $created++;
+                    // Harga kosong pada barang lama berarti pertahankan harga, bukan hapus diam-diam.
+                    if ($existingId && ($item['harga_beli'] ?? null) === null) {
+                        unset($item['harga_beli']);
+                    }
                     if (! $existingId) {
                         $item['stok'] = 0;
                     }
                     $barang->fill($item)->save();
-                    $this->stock->setTarget($barang, $targetStock, 'Penyesuaian melalui import '.$source);
+                    if ($targetStock !== null) {
+                        $this->stock->setTarget($barang, $targetStock, 'Penyesuaian melalui import '.$source);
+                    }
                 }
                 if (! feof($prepared)) {
                     throw new RuntimeException('Penyimpanan sementara import tidak dapat dibaca.');
@@ -197,11 +219,18 @@ class BarangImport implements ToArray
     private function normalize(array $row): array
     {
         $normalized = [];
-        foreach (self::COLUMNS as $column) {
+        foreach (self::IMPORT_COLUMNS as $column) {
+            if (in_array($column, self::OPTIONAL_COLUMNS, true) && ! array_key_exists($column, $row)) {
+                continue;
+            }
             $value = $row[$column] ?? '';
             $normalized[$column] = is_string($value)
                 ? preg_replace('/\s+/u', ' ', trim($value))
                 : $value;
+        }
+
+        if (array_key_exists('harga_beli', $normalized) && $normalized['harga_beli'] === '') {
+            $normalized['harga_beli'] = null;
         }
 
         foreach (['kategori' => Barang::KATEGORI, 'satuan' => Barang::SATUAN] as $column => $options) {

@@ -56,7 +56,7 @@ class BarangExistingFeaturesTest extends TestCase
             ->assertOk()
             ->assertSee('Tambah Barang')
             ->assertSee('Import Excel')
-            ->assertSee('Download Template')
+            ->assertSee('Template Excel')
             ->assertSee('Export')
             ->assertSee('Tong Sampah')
             ->assertSee('Reset');

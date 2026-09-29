@@ -60,6 +60,59 @@ class BarangCsvTest extends TestCase
         $this->assertDatabaseHas('barang', ['kode_barang' => 'BRG-900002', 'stok' => 0]);
     }
 
+    public function test_csv_import_supports_optional_purchase_price_and_preserves_existing_price_when_blank(): void
+    {
+        $existing = Barang::create([...$this->item('BRG172', 'Lama', 3), 'harga_beli' => '9000.00']);
+        $headers = ['harga_beli', ...BarangImport::COLUMNS];
+        $content = $this->csv([
+            ['15000.75', 'BRG-900003', 'Harga Baru', 'ATK', '2', 'Pcs', 'Rak A'],
+            ['', 'brg172', 'Harga Lama Tetap', 'ATK', '3', 'Pcs', 'Rak B'],
+            ['0', 'BRG-900004', 'Harga Nol', 'ATK', '1', 'Pcs', 'Rak C'],
+        ], $headers);
+
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->post(route('barang.import.store'), ['spreadsheet' => $this->upload($content)])
+            ->assertSessionHasNoErrors()->assertSessionHas('import_summary.total', 3);
+
+        $this->assertSame('15000.75', Barang::where('kode_barang', 'BRG-900003')->firstOrFail()->harga_beli);
+        $this->assertSame('9000.00', $existing->fresh()->harga_beli);
+        $this->assertSame('0.00', Barang::where('kode_barang', 'BRG-900004')->firstOrFail()->harga_beli);
+    }
+
+    public function test_invalid_purchase_price_rejects_the_entire_csv_batch(): void
+    {
+        $headers = [...BarangImport::COLUMNS, 'harga_beli'];
+        $content = $this->csv([
+            ['BRG-900005', 'Valid', 'ATK', '1', 'Pcs', 'Rak A', '1000'],
+            ['BRG-900006', 'Invalid', 'ATK', '1', 'Pcs', 'Rak B', '-0.01'],
+        ], $headers);
+
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->post(route('barang.import.store'), ['spreadsheet' => $this->upload($content)])
+            ->assertSessionHasErrors('spreadsheet');
+
+        $this->assertStringContainsString('Baris 3, kolom harga_beli', implode(' ', session('errors')->get('spreadsheet')));
+        $this->assertDatabaseMissing('barang', ['kode_barang' => 'BRG-900005']);
+        $this->assertDatabaseMissing('barang', ['kode_barang' => 'BRG-900006']);
+    }
+
+    public function test_price_only_csv_row_does_not_adjust_existing_stock(): void
+    {
+        $existing = Barang::create([...$this->item('BRG174', 'Tidak Berubah', 8), 'harga_beli' => null]);
+        $content = $this->csv([
+            ['BRG174', '', '', '', '', '', '4500.25'],
+        ], [...BarangImport::COLUMNS, 'harga_beli']);
+
+        $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->post(route('barang.import.store'), ['spreadsheet' => $this->upload($content)])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(8, $existing->fresh()->stok);
+        $this->assertSame('Tidak Berubah', $existing->fresh()->nama_barang);
+        $this->assertSame('4500.25', $existing->fresh()->harga_beli);
+        $this->assertDatabaseMissing('stok_transactions', ['barang_id' => $existing->id]);
+    }
+
     #[DataProvider('invalidRows')]
     public function test_invalid_rows_reject_the_entire_batch(array $changes, string $column): void
     {
@@ -175,7 +228,7 @@ class BarangCsvTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'admin']));
         $template = $this->get(route('barang.import.template.csv'))->assertOk()
             ->assertDownload('template-import-barang-20260908-123456.csv')->assertHeader('content-type', 'text/csv; charset=UTF-8');
-        $this->assertSame(BarangCsv::BOM.implode(',', BarangImport::COLUMNS)."\r\n", $template->streamedContent());
+        $this->assertSame(BarangCsv::BOM.implode(',', BarangImport::IMPORT_COLUMNS)."\r\n", $template->streamedContent());
 
         $item = $this->item('BRG-900001', "Café, \"Switch\"\nBaris kedua");
         $item['lokasi'] = 'Rak C:\\Tools, "A"';
@@ -335,7 +388,7 @@ class BarangCsvTest extends TestCase
             }
         }
         $this->actingAs(User::factory()->create(['role' => 'admin']))->get(route('barang.index'))
-            ->assertSee('Export CSV')->assertSee('Download Template CSV')->assertSee('Laporan Excel')->assertSee('Laporan PDF');
+            ->assertSee('Export CSV')->assertSee('Template CSV')->assertSee('Laporan Excel')->assertSee('Laporan PDF');
         $this->get(route('document-tools.index'))->assertSee('Download Template CSV');
     }
 

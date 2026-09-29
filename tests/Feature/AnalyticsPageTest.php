@@ -91,6 +91,12 @@ class AnalyticsPageTest extends TestCase
             ->assertSee('Top 5 Fast-Moving')
             ->assertSee('Slow-Moving')
             ->assertSee('Dead Stock')
+            ->assertSee('Tren Mutasi Harian')
+            ->assertSee('Komposisi Pergerakan')
+            ->assertSee('analytics-mutation-chart', false)
+            ->assertSee('analytics-composition-chart', false)
+            ->assertSee('analytics-valuation-chart', false)
+            ->assertSee('assets/js/analytics-charts.js', false)
             ->assertSee('Acuan 30/09/2026 12:00 WIB')
             ->assertSee('table-responsive', false);
 
@@ -100,6 +106,7 @@ class AnalyticsPageTest extends TestCase
         $this->assertSame(2, $mutation['totals']['total_keluar']);
         $this->assertSame('0.18', $mutation['turnover']['formatted']);
         $this->assertSame('1000.00', $valuation['total']['calculated_value']);
+        $this->assertArrayHasKey('coverage_percentage', $valuation['total']);
 
         $csv = $this->get(route('analytics.csv', $filters))->assertOk();
         $rows = $this->csvRows($csv->streamedContent());
@@ -137,8 +144,105 @@ class AnalyticsPageTest extends TestCase
             ->assertSee('Tidak ada Dead Stock')
             ->assertSee('Belum ada valuasi kategori')
             ->assertSee('Belum ada valuasi gudang')
+            ->assertSee('Belum ada mutasi')
+            ->assertSee('Belum ada komposisi')
+            ->assertSee('Valuasi belum tersedia')
             ->assertSee('Tidak tersedia')
             ->assertSee('table-responsive', false);
+    }
+
+    public function test_mutation_recap_is_paginated_without_limiting_analytics_data(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        foreach (range(1, 12) as $number) {
+            $this->barang(
+                sprintf('PAGE-%02d', $number),
+                sprintf('Barang Pagination %02d', $number),
+                1,
+                '100.00',
+            );
+        }
+
+        $firstPage = $this->actingAs($admin)->get(route('analytics.index', ['period' => '7']));
+        $firstPage->assertOk()
+            ->assertSee('Menampilkan 1–10 dari 12 barang');
+
+        $paginator = $firstPage->viewData('mutationRows');
+        $this->assertSame(12, $paginator->total());
+        $this->assertSame(10, $paginator->perPage());
+        $this->assertSame(
+            ['PAGE-01', 'PAGE-02', 'PAGE-03', 'PAGE-04', 'PAGE-05', 'PAGE-06', 'PAGE-07', 'PAGE-08', 'PAGE-09', 'PAGE-10'],
+            $paginator->getCollection()->pluck('barang.kode_barang')->all(),
+        );
+        $this->assertStringContainsString('period=7', $paginator->url(2));
+        $this->assertStringContainsString('mutation_page=2', $paginator->url(2));
+
+        $deadStock = $firstPage->viewData('deadStockRows');
+        $this->assertSame(12, $deadStock->total());
+        $this->assertSame(5, $deadStock->perPage());
+        $this->assertSame(
+            ['PAGE-01', 'PAGE-02', 'PAGE-03', 'PAGE-04', 'PAGE-05'],
+            $deadStock->getCollection()->pluck('kode_barang')->all(),
+        );
+        $this->assertStringContainsString('dead_page=2', $deadStock->url(2));
+
+        $secondPage = $this->actingAs($admin)->get(route('analytics.index', [
+            'period' => '7',
+            'mutation_page' => 2,
+        ]));
+        $secondPage->assertOk()->assertSee('Menampilkan 11–12 dari 12 barang');
+        $this->assertSame(
+            ['PAGE-11', 'PAGE-12'],
+            $secondPage->viewData('mutationRows')->getCollection()->pluck('barang.kode_barang')->all(),
+        );
+
+        $csv = $this->get(route('analytics.csv', ['period' => '7']))->assertOk()->streamedContent();
+        $this->assertStringContainsString('Barang Pagination 01', $csv);
+        $this->assertStringContainsString('Barang Pagination 12', $csv);
+    }
+
+    public function test_each_long_analytics_table_has_independent_five_row_pagination(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        foreach (range(1, 7) as $number) {
+            $warehouse = Warehouse::create([
+                'kode_gudang' => sprintf('PAGE-WH-%02d', $number),
+                'nama_gudang' => sprintf('Gudang Pagination %02d', $number),
+            ]);
+            $barang = $this->barang(
+                sprintf('SLOW-PAGE-%02d', $number),
+                sprintf('Barang Slow Pagination %02d', $number),
+                5,
+                '100.00',
+            );
+            $barang->update(['kategori' => sprintf('Kategori Pagination %02d', $number)]);
+            $stock = $this->stock($barang, $warehouse, 5);
+            $this->transaction($barang, $stock, 'keluar', 1, '2026-09-20 02:00:00');
+        }
+
+        $firstPage = $this->actingAs($admin)->get(route('analytics.index', ['period' => '7']))->assertOk();
+        foreach (['slowMovingRows', 'valuationCategoryRows', 'valuationWarehouseRows'] as $viewKey) {
+            $rows = $firstPage->viewData($viewKey);
+            $this->assertSame(7, $rows->total());
+            $this->assertSame(5, $rows->perPage());
+            $this->assertCount(5, $rows->items());
+        }
+
+        $secondPage = $this->actingAs($admin)->get(route('analytics.index', [
+            'period' => '7',
+            'slow_page' => 2,
+            'category_page' => 2,
+            'warehouse_page' => 2,
+        ]))->assertOk();
+        foreach (['slowMovingRows', 'valuationCategoryRows', 'valuationWarehouseRows'] as $viewKey) {
+            $rows = $secondPage->viewData($viewKey);
+            $this->assertSame(2, $rows->currentPage());
+            $this->assertCount(2, $rows->items());
+        }
+
+        $this->assertStringContainsString('slow_page=2', $firstPage->viewData('slowMovingRows')->url(2));
+        $this->assertStringContainsString('category_page=2', $firstPage->viewData('valuationCategoryRows')->url(2));
+        $this->assertStringContainsString('warehouse_page=2', $firstPage->viewData('valuationWarehouseRows')->url(2));
     }
 
     private function barang(

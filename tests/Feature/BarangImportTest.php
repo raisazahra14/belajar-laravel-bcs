@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Imports\BarangImport;
 use App\Jobs\ProcessStockPrediction;
 use App\Models\Barang;
 use App\Models\StokTransaction;
@@ -41,7 +42,7 @@ class BarangImportTest extends TestCase
         try {
             file_put_contents($path, $response->streamedContent());
             $workbook = IOFactory::load($path);
-            $headers = $workbook->getSheet(0)->rangeToArray('A1:F1')[0];
+            $headers = $workbook->getSheet(0)->rangeToArray('A1:G1')[0];
             $this->assertSame(BarangImportHeaders::VALUE, $headers);
             $this->assertSame('Petunjuk', $workbook->getSheet(1)->getTitle());
             $this->assertSame('BRG-000001', $workbook->getSheet(1)->getCell('C2')->getValue());
@@ -63,6 +64,63 @@ class BarangImportTest extends TestCase
         $response->assertRedirect(route('barang.index'))->assertSessionHas('success', 'Berhasil mengimpor 2 data barang. Prediksi barang yang berubah dijadwalkan.');
         $this->assertDatabaseHas('barang', ['kode_barang' => 'BRG-000123', 'nama_barang' => 'Router Baru', 'satuan' => 'Unit']);
         $this->assertDatabaseHas('barang', ['kode_barang' => 'BRG172', 'stok' => 3, 'lokasi' => 'Rak B']);
+    }
+
+    public function test_excel_import_can_fill_prices_in_bulk_and_blank_price_preserves_existing_value(): void
+    {
+        $existing = Barang::create([
+            'kode_barang' => 'BRG172', 'nama_barang' => 'Lama', 'kategori' => 'ATK',
+            'stok' => 9, 'harga_beli' => '7500.00', 'satuan' => 'Pcs', 'lokasi' => 'Rak Lama',
+        ]);
+
+        $response = $this->actingAs($this->admin())->post(route('barang.import.store'), [
+            'spreadsheet' => $this->xlsx([
+                ['BRG-000124', 'Barang Berharga', 'ATK', 2, 'Pcs', 'Rak A', '12500.50'],
+                ['BRG172', 'Harga Dipertahankan', 'ATK', 9, 'Pcs', 'Rak Lama', ''],
+                ['BRG-000125', 'Barang Harga Nol', 'ATK', 1, 'Pcs', 'Rak B', '0'],
+            ]),
+        ]);
+
+        $response->assertSessionHasNoErrors()->assertSessionHas('import_summary.total', 3);
+        $this->assertSame('12500.50', Barang::where('kode_barang', 'BRG-000124')->firstOrFail()->harga_beli);
+        $this->assertSame('7500.00', $existing->fresh()->harga_beli);
+        $this->assertSame('0.00', Barang::where('kode_barang', 'BRG-000125')->firstOrFail()->harga_beli);
+    }
+
+    public function test_legacy_six_column_excel_remains_supported(): void
+    {
+        $response = $this->actingAs($this->admin())->post(route('barang.import.store'), [
+            'spreadsheet' => $this->xlsxWithHeaders(
+                BarangImport::COLUMNS,
+                [['BRG-000126', 'Format Lama', 'ATK', 4, 'Pcs', 'Rak Lama']],
+            ),
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('barang', ['kode_barang' => 'BRG-000126', 'harga_beli' => null]);
+    }
+
+    public function test_existing_item_can_update_only_purchase_price_without_changing_stock_or_master_data(): void
+    {
+        $existing = Barang::create([
+            'kode_barang' => 'BRG173', 'nama_barang' => 'Nama Tetap', 'kategori' => 'Jaringan',
+            'stok' => 12, 'harga_beli' => null, 'satuan' => 'Unit', 'lokasi' => 'Rak Tetap',
+        ]);
+
+        $this->actingAs($this->admin())->post(route('barang.import.store'), [
+            'spreadsheet' => $this->xlsx([
+                ['BRG173', '', '', '', '', '', '34567.89'],
+            ]),
+        ])->assertSessionHasNoErrors();
+
+        $existing->refresh();
+        $this->assertSame('Nama Tetap', $existing->nama_barang);
+        $this->assertSame('Jaringan', $existing->kategori);
+        $this->assertSame(12, $existing->stok);
+        $this->assertSame('Unit', $existing->satuan);
+        $this->assertSame('Rak Tetap', $existing->lokasi);
+        $this->assertSame('34567.89', $existing->harga_beli);
+        $this->assertDatabaseMissing('stok_transactions', ['barang_id' => $existing->id]);
     }
 
     public function test_successful_import_exposes_structured_created_updated_and_failed_summary(): void

@@ -12,6 +12,7 @@ use App\Services\StockPredictionScheduler;
 use Illuminate\Http\RedirectResponse;
 use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -19,7 +20,7 @@ class BarangImportController extends Controller
 {
     public function templateCsv(BarangCsv $csv): StreamedResponse
     {
-        return $csv->download([], 'template-import-barang');
+        return $csv->download([], 'template-import-barang', BarangImport::IMPORT_COLUMNS);
     }
 
     public function template(): StreamedResponse
@@ -28,12 +29,16 @@ class BarangImportController extends Controller
             $spreadsheet = new Spreadsheet;
             $sheet = $spreadsheet->getActiveSheet();
             $sheet->setTitle('Data Barang');
-            $sheet->fromArray(BarangImport::COLUMNS, null, 'A1');
-            $sheet->getStyle('A1:F1')->getFont()->setBold(true);
+            $sheet->fromArray(BarangImport::IMPORT_COLUMNS, null, 'A1');
+            $sheet->getStyle('A1:G1')->getFont()->setBold(true);
+            $sheet->getStyle('A1:G1')->getFill()
+                ->setFillType(Fill::FILL_SOLID)
+                ->getStartColor()->setARGB('FFE8EEFF');
             $sheet->freezePane('A2');
-            foreach (range('A', 'F') as $column) {
+            foreach (range('A', 'G') as $column) {
                 $sheet->getColumnDimension($column)->setAutoSize(true);
             }
+            $sheet->getStyle('G2:G1000')->getNumberFormat()->setFormatCode('#,##0.00');
             foreach ([
                 'C2:C1000' => Barang::KATEGORI,
                 'E2:E1000' => Barang::SATUAN,
@@ -58,9 +63,14 @@ class BarangImportController extends Controller
                 ['stok', 'Bilangan bulat minimal 0', 20],
                 ['satuan', 'Sesuai pilihan aplikasi', 'Pcs'],
                 ['lokasi', 'Rak/lokasi detail di dalam gudang', 'Rak B2'],
+                ['harga_beli', 'Opsional; angka minimal 0, maksimal 2 desimal', 125000.00],
                 [],
                 ['Catatan', 'Gunakan kode existing untuk update barang.'],
                 ['', 'Gunakan kode baru berformat BRG-000001 untuk menambah barang.'],
+                ['', 'Untuk barang existing, kolom kosong tidak mengubah nilai yang tersimpan.'],
+                ['', 'Kosongkan stok jika hanya ingin memperbarui harga beli.'],
+                ['', 'Harga beli kosong pada barang lama akan mempertahankan harga yang tersimpan.'],
+                ['', 'Isi 0 jika harga barang memang bernilai nol. Jangan gunakan Rp atau pemisah ribuan.'],
             ]);
             $guide->getStyle('A1:C1')->getFont()->setBold(true);
             foreach (range('A', 'C') as $column) {

@@ -54,16 +54,20 @@ class BarangCsv
                 }
                 if ($headers === null) {
                     $headers = array_map(fn ($value) => strtolower(trim((string) $value)), $row);
-                    if (count($headers) !== count(BarangImport::COLUMNS)
-                        || count(array_unique($headers)) !== count($headers)
-                        || array_diff(BarangImport::COLUMNS, $headers) !== []) {
-                        $this->invalid($rowNumber, 'Header CSV harus memuat tepat satu dari setiap kolom: '.implode(', ', BarangImport::COLUMNS).'.');
+                    $missing = array_diff(BarangImport::COLUMNS, $headers);
+                    $unsupported = array_diff($headers, BarangImport::IMPORT_COLUMNS);
+                    if (count(array_unique($headers)) !== count($headers) || $missing !== [] || $unsupported !== []) {
+                        $this->invalid(
+                            $rowNumber,
+                            'Header CSV wajib memuat '.implode(', ', BarangImport::COLUMNS)
+                            .'; harga_beli opsional; kolom lain tidak didukung.',
+                        );
                     }
 
                     continue;
                 }
                 if (count($row) !== count($headers)) {
-                    $this->invalid($rowNumber, 'Jumlah kolom harus sama dengan header (6 kolom).');
+                    $this->invalid($rowNumber, 'Jumlah kolom harus sama dengan header (6 kolom lama atau 7 kolom dengan harga_beli).');
                 }
 
                 yield $rowNumber => array_combine($headers, $row);
@@ -77,16 +81,16 @@ class BarangCsv
     }
 
     /** @param iterable<array<int, mixed>> $rows */
-    public function download(iterable $rows, string $prefix): StreamedResponse
+    public function download(iterable $rows, string $prefix, array $headers = BarangImport::COLUMNS): StreamedResponse
     {
-        return response()->streamDownload(function () use ($rows): void {
+        return response()->streamDownload(function () use ($rows, $headers): void {
             $stream = fopen('php://output', 'wb');
             if ($stream === false) {
                 throw new RuntimeException('Tidak dapat membuka stream CSV.');
             }
             try {
                 fwrite($stream, self::BOM);
-                fputcsv($stream, BarangImport::COLUMNS, ',', '"', '', "\r\n");
+                fputcsv($stream, $headers, ',', '"', '', "\r\n");
                 foreach ($rows as $row) {
                     fputcsv($stream, array_map($this->safeCell(...), $row), ',', '"', '', "\r\n");
                 }

@@ -37,9 +37,22 @@ class BarangSpreadsheetImporter
 
         $headers = array_map(fn ($value) => $this->normalizeHeader((string) $value), array_shift($rows));
         $missing = array_diff(BarangImport::COLUMNS, $headers);
-        if ($missing !== []) {
+        $unsupported = array_diff($headers, BarangImport::IMPORT_COLUMNS);
+        if (count(array_unique($headers)) !== count($headers)) {
             throw ValidationException::withMessages([
-                'spreadsheet' => 'Kolom wajib tidak ditemukan: '.implode(', ', $missing).'.',
+                'spreadsheet' => 'Header spreadsheet tidak boleh duplikat.',
+            ]);
+        }
+        if ($missing !== [] || $unsupported !== []) {
+            $messages = [];
+            if ($missing !== []) {
+                $messages[] = 'Kolom wajib tidak ditemukan: '.implode(', ', $missing).'.';
+            }
+            if ($unsupported !== []) {
+                $messages[] = 'Kolom tidak didukung: '.implode(', ', $unsupported).'.';
+            }
+            throw ValidationException::withMessages([
+                'spreadsheet' => implode(' ', $messages),
             ]);
         }
 
@@ -51,7 +64,7 @@ class BarangSpreadsheetImporter
             }
 
             $item = [];
-            foreach (BarangImport::COLUMNS as $column) {
+            foreach (array_intersect(BarangImport::IMPORT_COLUMNS, $headers) as $column) {
                 $item[$column] = $row[$indexes[$column]] ?? '';
             }
             $prepared[$offset + 2] = $item;

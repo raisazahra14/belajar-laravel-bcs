@@ -33,6 +33,8 @@ class SyncEndpointBenchmark extends TestCase
 
     private int $verificationId;
 
+    private int $warehouseId;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -67,14 +69,14 @@ class SyncEndpointBenchmark extends TestCase
             'POST stok masuk' => [
                 'prepare' => fn (int $iteration): array => $this->stockContext(200 + $iteration, 'masuk'),
                 'request' => fn (int $iteration, array $context): TestResponse => $this->post("/barang/{$context['barang_id']}/stok", [
-                    'jenis' => 'masuk', 'jumlah' => 1, 'keterangan' => 'Benchmark masuk',
+                    'jenis' => 'masuk', 'jumlah' => 1, 'warehouse_id' => $context['warehouse_id'], 'keterangan' => 'Benchmark masuk',
                 ]),
                 'validate' => fn (TestResponse $response, array $context) => $this->validateStockMutation($response, $context),
             ],
             'POST stok keluar' => [
                 'prepare' => fn (int $iteration): array => $this->stockContext(300 + $iteration, 'keluar'),
                 'request' => fn (int $iteration, array $context): TestResponse => $this->post("/barang/{$context['barang_id']}/stok", [
-                    'jenis' => 'keluar', 'jumlah' => 1, 'keterangan' => 'Benchmark keluar',
+                    'jenis' => 'keluar', 'jumlah' => 1, 'warehouse_id' => $context['warehouse_id'], 'keterangan' => 'Benchmark keluar',
                 ]),
                 'validate' => fn (TestResponse $response, array $context) => $this->validateStockMutation($response, $context),
             ],
@@ -210,13 +212,14 @@ class SyncEndpointBenchmark extends TestCase
         ];
     }
 
-    /** @return array{barang_id:int,jenis:string,jumlah:int,stok_sebelum:int,transaksi_sebelum:int} */
+    /** @return array{barang_id:int,warehouse_id:int,jenis:string,jumlah:int,stok_sebelum:int,transaksi_sebelum:int} */
     private function stockContext(int $barangIndex, string $jenis): array
     {
         $barangId = $this->barangIds[$barangIndex];
 
         return [
             'barang_id' => $barangId,
+            'warehouse_id' => $this->warehouseId,
             'jenis' => $jenis,
             'jumlah' => 1,
             'stok_sebelum' => (int) DB::table('barang')->where('id', $barangId)->value('stok'),
@@ -224,7 +227,7 @@ class SyncEndpointBenchmark extends TestCase
         ];
     }
 
-    /** @param array{barang_id:int,jenis:string,jumlah:int,stok_sebelum:int,transaksi_sebelum:int} $context */
+    /** @param array{barang_id:int,warehouse_id:int,jenis:string,jumlah:int,stok_sebelum:int,transaksi_sebelum:int} $context */
     private function validateStockMutation(TestResponse $response, array $context): void
     {
         $errors = $response->getSession()->get('errors');
@@ -295,6 +298,20 @@ class SyncEndpointBenchmark extends TestCase
         }
         $this->barangIds = DB::table('barang')->orderBy('id')->pluck('id')->map(fn ($id): int => (int) $id)->all();
         $this->historyBarangId = $this->barangIds[0];
+        $this->warehouseId = (int) DB::table('warehouses')
+            ->where('kode_gudang', 'GDG-UTAMA')
+            ->value('id');
+
+        foreach (array_chunk($this->barangIds, 250) as $barangIds) {
+            DB::table('warehouse_stocks')->insert(array_map(fn (int $barangId): array => [
+                'barang_id' => $barangId,
+                'warehouse_id' => $this->warehouseId,
+                'stok' => 10000,
+                'stok_minimum' => 0,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ], $barangIds));
+        }
 
         $transactions = [];
         for ($index = 1; $index <= 10000; $index++) {

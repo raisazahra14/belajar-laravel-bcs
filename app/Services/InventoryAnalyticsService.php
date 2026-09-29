@@ -114,10 +114,33 @@ class InventoryAnalyticsService
             }
         }
 
+        $finalTotal = $this->finalizeValuationBucket($total);
+        $valuationChartRows = $categoryRows
+            ->sortByDesc(fn (array $row): float => (float) $row['calculated_value'])
+            ->values();
+        if ($valuationChartRows->count() > 7) {
+            $otherValue = $valuationChartRows->skip(7)
+                ->sum(fn (array $row): float => (float) $row['calculated_value']);
+            $valuationChartRows = $valuationChartRows->take(7)->push([
+                'kategori' => 'Kategori lainnya',
+                'calculated_value' => number_format($otherValue, 2, '.', ''),
+            ]);
+        }
+
         return [
-            'total' => $this->finalizeValuationBucket($total),
+            'total' => $finalTotal,
             'categories' => $categoryRows,
             'warehouses' => $warehouseRows,
+            'category_chart' => [
+                'labels' => $valuationChartRows->pluck('kategori')->all(),
+                'values' => $valuationChartRows->pluck('calculated_value')->all(),
+                'has_value' => $valuationChartRows->contains(
+                    fn (array $row): bool => (float) $row['calculated_value'] > 0,
+                ),
+                'priced_stock_units' => $finalTotal['priced_stock_units'],
+                'unpriced_stock_units' => $finalTotal['unpriced_stock_units'],
+                'is_complete' => $finalTotal['is_complete'],
+            ],
             'stock_consistency' => [
                 'is_consistent' => $mismatches->isEmpty(),
                 'status' => $mismatches->isEmpty() ? 'Sesuai' : 'Terdapat selisih',
@@ -159,7 +182,7 @@ class InventoryAnalyticsService
             : $this->invalidWarehouseHistory($warehouseId, $start60, $asOf, $supplierId);
 
         $fastMoving = $this->fastMoving($start30, $asOf, $warehouseId, $supplierId, $invalid30);
-        [$slowMoving, $deadStock] = $this->slowAndDeadStock(
+        [$slowMoving, $deadStock, $activeMoving] = $this->slowAndDeadStock(
             $start60,
             $asOf,
             $warehouseId,
@@ -171,6 +194,16 @@ class InventoryAnalyticsService
             'fast_moving' => $fastMoving,
             'slow_moving' => $slowMoving,
             'dead_stock' => $deadStock,
+            'composition' => [
+                'labels' => ['Aktif (>2 OUT)', 'Slow-Moving (1–2 OUT)', 'Dead Stock (0 OUT)'],
+                'item_counts' => [$activeMoving->count(), $slowMoving->count(), $deadStock->count()],
+                'stock_units' => [
+                    (int) $activeMoving->sum('stok_saat_ini'),
+                    (int) $slowMoving->sum('stok_saat_ini'),
+                    (int) $deadStock->sum('stok_saat_ini'),
+                ],
+                'has_items' => $activeMoving->isNotEmpty() || $slowMoving->isNotEmpty() || $deadStock->isNotEmpty(),
+            ],
             'periods' => [
                 'start_30' => $start30->setTimezone($timezone)->toDateString(),
                 'start_60' => $start60->setTimezone($timezone)->toDateString(),
@@ -249,7 +282,7 @@ class InventoryAnalyticsService
             ->map(fn (object $row): array => $this->movementRow($row));
     }
 
-    /** @return array{Collection<int,array<string,mixed>>,Collection<int,array<string,mixed>>} */
+    /** @return array{Collection<int,array<string,mixed>>,Collection<int,array<string,mixed>>,Collection<int,array<string,mixed>>} */
     private function slowAndDeadStock(
         CarbonImmutable $start,
         CarbonImmutable $asOf,
@@ -310,8 +343,11 @@ class InventoryAnalyticsService
         $dead = $items
             ->filter(fn (array $row): bool => $row['total_unit_keluar'] === 0)
             ->values();
+        $active = $items
+            ->filter(fn (array $row): bool => $row['total_unit_keluar'] > 2)
+            ->values();
 
-        return [$slow, $dead];
+        return [$slow, $dead, $active];
     }
 
     /**
@@ -403,10 +439,16 @@ class InventoryAnalyticsService
     private function finalizeValuationBucket(array $bucket): array
     {
         $hasUnpricedStock = $bucket['unpriced_item_count'] > 0;
+        $stockUnits = $bucket['priced_stock_units'] + $bucket['unpriced_stock_units'];
+        $coveragePercentage = $stockUnits === 0
+            ? '100.0'
+            : number_format(($bucket['priced_stock_units'] / $stockUnits) * 100, 1, '.', '');
 
         return [
             ...$bucket,
             'calculated_value' => $this->centsToMoney((string) $bucket['calculated_value_cents']),
+            'stock_units' => $stockUnits,
+            'coverage_percentage' => $coveragePercentage,
             'is_complete' => ! $hasUnpricedStock,
             'label' => $hasUnpricedStock ? 'Valuasi terhitung' : 'Total valuasi aset',
         ];
