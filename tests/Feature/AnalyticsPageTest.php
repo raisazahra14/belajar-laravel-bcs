@@ -134,6 +134,24 @@ class AnalyticsPageTest extends TestCase
         $this->assertStringNotContainsString(',=SUM(1+1)', $content);
     }
 
+    public function test_dead_stock_value_is_visible_and_exported_without_treating_missing_prices_as_zero(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->barang('DEAD-PRICED', 'Dead Stock Bernilai', 3, '1250.50');
+        $this->barang('DEAD-UNKNOWN', 'Dead Stock Tanpa Harga', 2, null);
+
+        $page = $this->actingAs($admin)->get(route('analytics.index'))->assertOk();
+        $page->assertSee('Nilai stok mati')
+            ->assertSee('Rp3.751,50')
+            ->assertSee('Harga belum diisi');
+        $this->assertSame('3751.50', $page->viewData('movement')['dead_stock_valuation']['calculated_value']);
+        $this->assertSame(2, $page->viewData('movement')['dead_stock_valuation']['unpriced_stock_units']);
+
+        $rows = $this->csvRows($this->get(route('analytics.csv'))->assertOk()->streamedContent());
+        $this->assertSame('3751.50', $this->valueAfterLabel($rows, 'Nilai dead stock terhitung'));
+        $this->assertSame('2', $this->valueAfterLabel($rows, 'Unit dead stock tanpa harga'));
+    }
+
     public function test_empty_analytics_page_has_responsive_empty_states(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -169,6 +187,7 @@ class AnalyticsPageTest extends TestCase
             ->assertSee('Menampilkan 1–10 dari 12 barang');
 
         $paginator = $firstPage->viewData('mutationRows');
+        $this->assertSame('1200.00', $firstPage->viewData('valuation')['total']['calculated_value']);
         $this->assertSame(12, $paginator->total());
         $this->assertSame(10, $paginator->perPage());
         $this->assertSame(
@@ -192,6 +211,7 @@ class AnalyticsPageTest extends TestCase
             'mutation_page' => 2,
         ]));
         $secondPage->assertOk()->assertSee('Menampilkan 11–12 dari 12 barang');
+        $this->assertSame('1200.00', $secondPage->viewData('valuation')['total']['calculated_value']);
         $this->assertSame(
             ['PAGE-11', 'PAGE-12'],
             $secondPage->viewData('mutationRows')->getCollection()->pluck('barang.kode_barang')->all(),

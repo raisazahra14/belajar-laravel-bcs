@@ -23,5 +23,9 @@ class DatabaseSeeder extends Seeder
         User::updateOrCreate(['email' => 'staff@logistikku.test'], [
             'name' => 'Staff Gudang', 'role' => 'staff', 'password' => Hash::make('password'),
         ]);
+
+        if (app()->environment(['local', 'testing'])) {
+            $this->call(LogisticsDemoDataSeeder::class);
+        }
     }
 }

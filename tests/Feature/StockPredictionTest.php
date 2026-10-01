@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\StockPredictionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -190,17 +191,18 @@ class StockPredictionTest extends TestCase
 
     public function test_short_history_uses_simple_average_and_enough_history_uses_machine_learning(): void
     {
+        $service = $this->historyAwareService();
         $short = $this->barang();
         $this->out($short, 2, 4);
         $this->out($short, 0, 2);
-        $this->assertSame('simple_average', app(StockPredictionService::class)->analyze($short)->method);
+        $this->assertSame('simple_average', $service->analyze($short)->method);
 
         $long = Barang::create(['kode_barang' => 'BRG-900020', 'nama_barang' => '[TEST] Histori Cukup',
             'kategori' => 'ATK', 'stok' => 200, 'satuan' => 'Pcs', 'lokasi' => 'Rak P']);
         foreach ([35, 28, 21, 14, 7, 0] as $daysAgo) {
             $this->out($long, $daysAgo, 2 + ($daysAgo % 2));
         }
-        $this->assertSame('machine_learning', app(StockPredictionService::class)->analyze($long)->method);
+        $this->assertSame('machine_learning', $service->analyze($long)->method);
     }
 
     public function test_timeout_and_invalid_json_errors_use_fallback(): void
@@ -246,6 +248,38 @@ class StockPredictionTest extends TestCase
             protected function runPython(array $payload): array
             {
                 return $this->result;
+            }
+        };
+    }
+
+    private function historyAwareService(): StockPredictionService
+    {
+        return new class extends StockPredictionService
+        {
+            protected function runPython(array $payload): array
+            {
+                $dates = collect($payload['out_transactions'])
+                    ->pluck('date')
+                    ->map(fn (string $date) => Carbon::parse($date)->startOfDay());
+                $historyDays = $dates->isEmpty() ? 0 : $dates->min()->diffInDays(today()) + 1;
+                $outDays = $dates->map->toDateString()->unique()->count();
+                $enoughHistory = $historyDays >= $payload['minimum_history_days']
+                    && $outDays >= $payload['minimum_out_transaction_days'];
+
+                return [
+                    'predicted_30_day_need' => 60,
+                    'predicted_minimum_date' => today()->addDays(20)->toDateString(),
+                    'predicted_depletion_date' => today()->addDays(25)->toDateString(),
+                    'safety_stock' => 15,
+                    'recommended_restock' => 25,
+                    'status' => 'Aman',
+                    'method' => $enoughHistory ? 'machine_learning' : 'simple_average',
+                    'analysis_status' => 'completed',
+                    'metrics' => ['history_days' => $historyDays],
+                    'prediction_available' => true,
+                    'out_transaction_days' => $outDays,
+                    'history_days' => $historyDays,
+                ];
             }
         };
     }

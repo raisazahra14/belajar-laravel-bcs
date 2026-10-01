@@ -1,10 +1,62 @@
 @extends('layouts.skydash')
 
 @section('content')
-<x-ui.page-header title="Laporan Mutasi Stok" description="Rekap saldo awal, barang masuk, barang keluar, dan saldo akhir per periode." />
+<x-ui.page-header title="Laporan Mutasi Stok" description="Rekap saldo awal, barang masuk, barang keluar, dan saldo akhir per periode.">
+    <div class="page-actions">
+        <x-ui.button :href="route('stock-mutations.csv', $filters)" variant="outline-secondary" icon="ti-file">CSV</x-ui.button>
+        <x-ui.button :href="route('stock-mutations.excel', $filters)" variant="outline-success" icon="ti-layout-grid2">Excel</x-ui.button>
+        <x-ui.button :href="route('stock-mutations.pdf', $filters)" variant="outline-danger" icon="ti-printer">PDF</x-ui.button>
+    </div>
+</x-ui.page-header>
 
-<x-ui.card class="mb-4">
-    <form method="GET" action="{{ route('stock-mutations.index') }}">
+<x-ui.card class="filter-card mb-4">
+    <form method="GET" action="{{ route('stock-mutations.index') }}" data-stock-mutation-filter>
+        <div class="row">
+            <div class="col-lg-4 col-md-6 form-group">
+                <label for="q" class="form-label">Cari barang</label>
+                <div class="input-icon">
+                    <i class="ti-search" aria-hidden="true"></i>
+                    <input id="q" name="q" type="search" class="form-control @error('q') is-invalid @enderror" maxlength="100" value="{{ $filters['q'] ?? '' }}" placeholder="Kode atau nama barang">
+                </div>
+                @error('q')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-lg-2 col-md-6 form-group">
+                <label for="category" class="form-label">Kategori</label>
+                <select id="category" name="category" class="form-select @error('category') is-invalid @enderror">
+                    <option value="">Semua kategori</option>
+                    @foreach($categories as $category)
+                        <option value="{{ $category }}" @selected(($filters['category'] ?? '') === $category)>{{ $category }}</option>
+                    @endforeach
+                </select>
+                @error('category')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-lg-2 col-md-4 form-group">
+                <label for="activity" class="form-label">Aktivitas</label>
+                <select id="activity" name="activity" class="form-select @error('activity') is-invalid @enderror" data-activity-select>
+                    <option value="mutated" @selected(($filters['activity'] ?? 'mutated') === 'mutated')>Memiliki mutasi</option>
+                    <option value="all" @selected(($filters['activity'] ?? '') === 'all')>Semua barang</option>
+                </select>
+                @error('activity')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-lg-2 col-md-4 form-group">
+                <label for="direction" class="form-label">Arah mutasi</label>
+                <select id="direction" name="direction" class="form-select @error('direction') is-invalid @enderror" data-direction-select>
+                    <option value="all" @selected(($filters['direction'] ?? 'all') === 'all')>Masuk &amp; keluar</option>
+                    <option value="masuk" @selected(($filters['direction'] ?? '') === 'masuk')>Barang masuk</option>
+                    <option value="keluar" @selected(($filters['direction'] ?? '') === 'keluar')>Barang keluar</option>
+                </select>
+                @error('direction')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-lg-2 col-md-4 form-group">
+                <label for="per_page" class="form-label">Baris per halaman</label>
+                <select id="per_page" name="per_page" class="form-select @error('per_page') is-invalid @enderror">
+                    @foreach([10, 25, 50] as $size)
+                        <option value="{{ $size }}" @selected((int) ($filters['per_page'] ?? 25) === $size)>{{ $size }} baris</option>
+                    @endforeach
+                </select>
+                @error('per_page')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            </div>
+        </div>
         <div class="row">
             <div class="col-md-3 form-group">
                 <label for="period" class="form-label">Periode</label>
@@ -46,7 +98,7 @@
                 @error('supplier_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
             <div class="col-md-6 form-group d-flex align-items-end justify-content-end">
-                <x-ui.button :href="route('stock-mutations.index')" variant="light" class="me-2">Reset</x-ui.button>
+                <x-ui.button :href="route('stock-mutations.index')" variant="light" class="me-2" icon="ti-reload">Reset Filter</x-ui.button>
                 <x-ui.button type="submit" icon="ti-filter">Terapkan Filter</x-ui.button>
             </div>
         </div>
@@ -67,7 +119,7 @@
         <table class="table">
             <thead><tr><th>Barang</th><th>Kategori</th><th>Supplier saat ini</th><th class="text-end">Saldo awal</th><th class="text-end">Masuk</th><th class="text-end">Keluar</th><th class="text-end">Saldo akhir</th></tr></thead>
             <tbody>
-            @forelse($report['rows'] as $row)
+            @forelse($mutationRows as $row)
                 <tr>
                     <td><strong>{{ $row['barang']->nama_barang }}</strong><small class="d-block text-muted">{{ $row['barang']->kode_barang }} · {{ $row['barang']->satuan }}</small></td>
                     <td>{{ $row['barang']->kategori }}</td>
@@ -100,6 +152,12 @@
             </tfoot>
         </table>
     </div>
+    @if($mutationRows->hasPages())
+        <div class="pagination-wrap">
+            <small class="text-muted">Menampilkan {{ $mutationRows->firstItem() }}–{{ $mutationRows->lastItem() }} dari {{ $mutationRows->total() }} barang</small>
+            {{ $mutationRows->onEachSide(1)->links() }}
+        </div>
+    @endif
 </x-ui.card>
 @endsection
 
@@ -108,11 +166,20 @@
 (function () {
     const period = document.querySelector('[data-period-select]');
     const customFields = document.querySelectorAll('[data-custom-date]');
+    const activity = document.querySelector('[data-activity-select]');
+    const direction = document.querySelector('[data-direction-select]');
     if (!period) return;
     const sync = function () {
         customFields.forEach(function (field) { field.hidden = period.value !== 'custom'; });
+        if (activity && direction) {
+            const disabled = activity.value === 'all';
+            direction.disabled = disabled;
+            direction.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+            direction.title = disabled ? 'Pilih “Memiliki mutasi” untuk menyaring arah mutasi.' : '';
+        }
     };
     period.addEventListener('change', sync);
+    if (activity) activity.addEventListener('change', sync);
     sync();
 }());
 </script>

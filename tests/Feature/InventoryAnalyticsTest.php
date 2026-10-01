@@ -72,6 +72,46 @@ class InventoryAnalyticsTest extends TestCase
         $this->assertSame('Rata-rata stok bernilai nol.', $report['turnover']['reason']);
     }
 
+    public function test_custom_trend_uses_daily_through_31_days_and_weekly_at_32_days(): void
+    {
+        $barang = $this->barang('TREND-DAY-WEEK', 10);
+        $this->transaction($barang, 'masuk', 2, '2026-08-29 17:00:00');
+        $this->transaction($barang, 'keluar', 1, '2026-08-30 17:00:00');
+        $service = app(StockMutationReportService::class);
+
+        $daily = $service->report(['period' => 'custom', 'start_date' => '2026-08-31', 'end_date' => '2026-09-30']);
+        $this->assertSame('day', $daily['daily_trend']['granularity']);
+        $this->assertCount(31, $daily['daily_trend']['dates']);
+        $this->assertSame(1, array_sum($daily['daily_trend']['keluar']));
+
+        $weekly = $service->report(['period' => 'custom', 'start_date' => '2026-08-30', 'end_date' => '2026-09-30']);
+        $this->assertSame('week', $weekly['daily_trend']['granularity']);
+        $this->assertSame('2026-08-24', $weekly['daily_trend']['dates'][0]);
+        $this->assertSame('30 Aug–30 Aug', $weekly['daily_trend']['labels'][0]);
+        $this->assertSame(2, array_sum($weekly['daily_trend']['masuk']));
+        $this->assertSame(1, array_sum($weekly['daily_trend']['keluar']));
+        $this->assertContains(0, $weekly['daily_trend']['masuk']);
+    }
+
+    public function test_custom_trend_uses_weekly_through_180_days_and_monthly_at_181_days(): void
+    {
+        $barang = $this->barang('TREND-WEEK-MONTH', 10);
+        $this->transaction($barang, 'masuk', 4, '2026-04-02 17:00:00');
+        $this->transaction($barang, 'keluar', 2, '2026-09-30 04:00:00');
+        $service = app(StockMutationReportService::class);
+
+        $weekly = $service->report(['period' => 'custom', 'start_date' => '2026-04-04', 'end_date' => '2026-09-30']);
+        $this->assertSame('week', $weekly['daily_trend']['granularity']);
+        $this->assertSame(2, array_sum($weekly['daily_trend']['keluar']));
+
+        $monthly = $service->report(['period' => 'custom', 'start_date' => '2026-04-03', 'end_date' => '2026-09-30']);
+        $this->assertSame('month', $monthly['daily_trend']['granularity']);
+        $this->assertSame(['2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01'], $monthly['daily_trend']['dates']);
+        $this->assertSame(4, array_sum($monthly['daily_trend']['masuk']));
+        $this->assertSame(2, array_sum($monthly['daily_trend']['keluar']));
+        $this->assertSame([4, 0, 0, 0, 0, 0], $monthly['daily_trend']['masuk']);
+    }
+
     public function test_fast_moving_returns_deterministic_top_five_with_required_metrics(): void
     {
         $quantities = [
@@ -118,7 +158,7 @@ class InventoryAnalyticsTest extends TestCase
 
     public function test_slow_and_dead_stock_respect_out_threshold_positive_stock_and_ignore_incoming(): void
     {
-        $deadNever = $this->barang('DEAD-NEVER', 5);
+        $deadNever = $this->barang('DEAD-NEVER', 5, ['harga_beli' => '100.25']);
         $this->transaction($deadNever, 'masuk', 1000, '2026-09-20 02:00:00');
 
         $deadOld = $this->barang('DEAD-OLD', 4);
@@ -148,6 +188,15 @@ class InventoryAnalyticsTest extends TestCase
         $this->assertSame([1, 2, 2], $analysis['composition']['item_counts']);
         $this->assertSame([3, 6, 9], $analysis['composition']['stock_units']);
         $this->assertTrue($analysis['composition']['has_items']);
+        $this->assertSame('501.25', $analysis['dead_stock_valuation']['calculated_value']);
+        $this->assertSame(5, $analysis['dead_stock_valuation']['priced_stock_units']);
+        $this->assertSame(4, $analysis['dead_stock_valuation']['unpriced_stock_units']);
+        $this->assertFalse($analysis['dead_stock_valuation']['is_complete']);
+        $this->assertSame('501.25', $analysis['dead_stock']->first()['stock_value']);
+        $this->assertNull($analysis['dead_stock']->last()['stock_value']);
+
+        $summary = app(InventoryAnalyticsService::class)->movementSummary();
+        $this->assertSame($analysis['dead_stock_valuation'], $summary['dead_stock_valuation']);
     }
 
     public function test_transaction_without_warehouse_counts_only_for_consolidated_and_limits_warehouse_analysis(): void

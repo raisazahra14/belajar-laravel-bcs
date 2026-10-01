@@ -9,8 +9,6 @@ use App\Services\AnalyticsCsv;
 use App\Services\InventoryAnalyticsService;
 use App\Services\StockMutationReportService;
 use Illuminate\Contracts\View\View;
-use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Collection;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AnalyticsController extends Controller
@@ -20,12 +18,22 @@ class AnalyticsController extends Controller
         StockMutationReportService $mutations,
         InventoryAnalyticsService $analytics,
     ): View {
-        $data = $this->analyticsData($request, $mutations, $analytics);
-        $data['mutationRows'] = $this->paginate($data['mutation']['rows'], $request, 10, 'mutation_page');
-        $data['slowMovingRows'] = $this->paginate($data['movement']['slow_moving'], $request, 5, 'slow_page');
-        $data['deadStockRows'] = $this->paginate($data['movement']['dead_stock'], $request, 5, 'dead_page');
-        $data['valuationCategoryRows'] = $this->paginate($data['valuation']['categories'], $request, 5, 'category_page');
-        $data['valuationWarehouseRows'] = $this->paginate($data['valuation']['warehouses'], $request, 5, 'warehouse_page');
+        $filters = $this->filters($request);
+        $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
+        $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
+        $data = [
+            'filters' => $filters,
+            'mutation' => $mutations->summary($filters),
+            'movement' => $analytics->movementSummary($warehouseId, $supplierId),
+            'valuation' => $analytics->valuationSummary($warehouseId, $supplierId),
+            'mutationRows' => $mutations->paginatedRows($filters, 10, 'mutation_page'),
+            'slowMovingRows' => $analytics->paginatedMovement('slow', $warehouseId, $supplierId, 5, 'slow_page'),
+            'deadStockRows' => $analytics->paginatedMovement('dead', $warehouseId, $supplierId, 5, 'dead_page'),
+            'valuationCategoryRows' => $analytics->paginatedValuationCategories($warehouseId, $supplierId, 5, 'category_page'),
+            'valuationWarehouseRows' => $analytics->paginatedValuationWarehouses($warehouseId, $supplierId, 5, 'warehouse_page'),
+            'selectedWarehouse' => $warehouseId === null ? null : Warehouse::withTrashed()->find($warehouseId),
+            'selectedSupplier' => $supplierId === null ? null : Supplier::withTrashed()->find($supplierId),
+        ];
         $data['suppliers'] = Supplier::withTrashed()
             ->orderBy('nama_supplier')
             ->get(['id', 'nama_supplier', 'deleted_at']);
@@ -34,27 +42,6 @@ class AnalyticsController extends Controller
             ->get(['id', 'kode_gudang', 'nama_gudang', 'deleted_at']);
 
         return view('analytics.index', $data);
-    }
-
-    private function paginate(
-        Collection $rows,
-        StockMutationReportRequest $request,
-        int $perPage,
-        string $pageName,
-    ): LengthAwarePaginator {
-        $page = max(1, $request->integer($pageName, 1));
-
-        return new LengthAwarePaginator(
-            $rows->forPage($page, $perPage)->values(),
-            $rows->count(),
-            $perPage,
-            $page,
-            [
-                'path' => $request->url(),
-                'query' => $request->query(),
-                'pageName' => $pageName,
-            ],
-        );
     }
 
     public function csv(
@@ -72,9 +59,7 @@ class AnalyticsController extends Controller
         StockMutationReportService $mutations,
         InventoryAnalyticsService $analytics,
     ): array {
-        $filters = $request->safe()->only([
-            'period', 'start_date', 'end_date', 'supplier_id', 'warehouse_id',
-        ]);
+        $filters = $this->filters($request);
         $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
         $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
 
@@ -86,5 +71,12 @@ class AnalyticsController extends Controller
             'selectedWarehouse' => $warehouseId === null ? null : Warehouse::withTrashed()->find($warehouseId),
             'selectedSupplier' => $supplierId === null ? null : Supplier::withTrashed()->find($supplierId),
         ];
+    }
+
+    private function filters(StockMutationReportRequest $request): array
+    {
+        return $request->safe()->only([
+            'period', 'start_date', 'end_date', 'supplier_id', 'warehouse_id',
+        ]);
     }
 }

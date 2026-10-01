@@ -12,6 +12,8 @@ use App\Http\Controllers\DocumentVerificationNotificationController;
 use App\Http\Controllers\StockMutationReportController;
 use App\Http\Controllers\StockPredictionController;
 use App\Http\Controllers\StockPredictionNotificationController;
+use App\Http\Controllers\StockTransactionReversalController;
+use App\Http\Controllers\StockTransferController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseController;
@@ -53,9 +55,15 @@ Route::middleware('auth')->group(function () {
     Route::get('/barang/create', [BarangController::class, 'create'])->middleware('role:admin');
     Route::get('/barang/low-stock', [BarangController::class, 'lowStock']);
     Route::get('/barang/{id}', [BarangController::class, 'show']);
-    Route::get('/barang/{id}/riwayat-stok', [BarangController::class, 'riwayatStok']);
+    Route::get('/barang/{id}/riwayat-stok', [BarangController::class, 'riwayatStok'])->name('barang.stock-history');
     Route::get('/barang/{id}/stok', [BarangController::class, 'stok'])->name('barang.stok');
     Route::post('/barang/{id}/stok', [BarangController::class, 'updateStok']);
+    Route::get('/barang/{barang}/transfer-stok', [StockTransferController::class, 'create'])
+        ->middleware('can:update-stock')->name('stock-transfers.create');
+    Route::post('/barang/{barang}/transfer-stok', [StockTransferController::class, 'store'])
+        ->middleware('can:update-stock')->name('stock-transfers.store');
+    Route::post('/stok-transactions/{stokTransaction}/reverse', [StockTransactionReversalController::class, 'store'])
+        ->middleware('can:reverse-stock')->name('stock-transactions.reverse');
     Route::get('/prediksi-stok', [StockPredictionController::class, 'index'])->name('stock-predictions.index');
     Route::get('/prediksi-stok/processes', [StockPredictionController::class, 'processes'])->name('stock-predictions.processes');
     Route::post('/prediksi-stok/analyze-all', [StockPredictionController::class, 'analyzeAll'])->name('stock-predictions.analyze-all');
@@ -67,11 +75,18 @@ Route::middleware('auth')->group(function () {
     Route::get('/notifikasi-ocr/{notification}', [DocumentVerificationNotificationController::class, 'open'])->name('ocr-notifications.open');
     Route::patch('/notifikasi-ocr/{notification}/read', [DocumentVerificationNotificationController::class, 'read'])->name('ocr-notifications.read');
     Route::patch('/notifikasi-ocr/read-all', [DocumentVerificationNotificationController::class, 'readAll'])->name('ocr-notifications.read-all');
+    Route::get('/laporan-mutasi-stok', [StockMutationReportController::class, 'index'])
+        ->middleware('can:view-stock-reports')
+        ->name('stock-mutations.index');
+    Route::middleware('can:view-stock-reports')->group(function () {
+        Route::get('/laporan-mutasi-stok/csv', [StockMutationReportController::class, 'csv'])->name('stock-mutations.csv');
+        Route::get('/laporan-mutasi-stok/excel', [StockMutationReportController::class, 'excel'])->name('stock-mutations.excel');
+        Route::get('/laporan-mutasi-stok/pdf', [StockMutationReportController::class, 'pdf'])->name('stock-mutations.pdf');
+    });
 
     Route::middleware('role:admin')->group(function () {
         Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics.index');
         Route::get('/analytics/csv', [AnalyticsController::class, 'csv'])->name('analytics.csv');
-        Route::get('/laporan-mutasi-stok', [StockMutationReportController::class, 'index'])->name('stock-mutations.index');
         Route::get('/suppliers/{supplier}/edit', [SupplierController::class, 'edit'])->name('suppliers.edit');
         Route::match(['put', 'patch'], '/suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
         Route::delete('/suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('suppliers.destroy');

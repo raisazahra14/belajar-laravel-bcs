@@ -95,6 +95,47 @@ class DatabaseStockConstraintsTest extends TestCase
         $this->assertDatabaseRejects(fn () => DB::table('barang')->where('id', $barang->id)->update(['stok' => -1]));
     }
 
+    public function test_audit_field_migration_can_roll_back_and_reapply_without_losing_ledger_constraints(): void
+    {
+        $barang = $this->barang();
+        $this->insertTransaction($barang, 'masuk', 5, 10, 15);
+        $transactionId = (int) DB::table('stok_transactions')->where('barang_id', $barang->id)->value('id');
+        $migration = require database_path('migrations/2026_09_30_120000_add_audit_fields_to_stok_transactions.php');
+
+        DB::commit();
+        try {
+            $migration->down();
+
+            $this->assertFalse(Schema::hasColumn('stok_transactions', 'mutation_type'));
+            $this->assertDatabaseHas('stok_transactions', [
+                'id' => $transactionId,
+                'barang_id' => $barang->id,
+                'jumlah' => 5,
+            ]);
+            $this->assertDatabaseRejects(fn () => $this->insertTransaction($barang, 'masuk', 0, 10, 10));
+
+            $migration->up();
+
+            $this->assertTrue(Schema::hasColumn('stok_transactions', 'mutation_type'));
+            $this->assertDatabaseHas('stok_transactions', [
+                'id' => $transactionId,
+                'barang_id' => $barang->id,
+                'mutation_type' => 'operational',
+            ]);
+            $this->assertDatabaseRejects(fn () => $this->insertTransaction($barang, 'keluar', 5, 10, 6));
+            $indexNames = collect(Schema::getIndexes('stok_transactions'))->pluck('name');
+            $this->assertSame(1, $indexNames->filter(fn (string $name): bool => $name === 'idx_stok_supplier_created')->count());
+            $this->assertSame(1, $indexNames->filter(fn (string $name): bool => $name === 'stok_transactions_mutation_type_index')->count());
+        } finally {
+            if (! Schema::hasColumn('stok_transactions', 'mutation_type')) {
+                $migration->up();
+            }
+            DB::table('stok_transactions')->where('id', $transactionId)->delete();
+            DB::table('barang')->where('id', $barang->id)->delete();
+            DB::beginTransaction();
+        }
+    }
+
     private function barang(): Barang
     {
         return Barang::create([

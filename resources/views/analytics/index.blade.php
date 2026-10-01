@@ -13,6 +13,7 @@
         'composition' => $movement['composition'],
         'valuation' => $valuation['category_chart'],
     ];
+    $trendGranularityLabel = ['day' => 'Harian', 'week' => 'Mingguan', 'month' => 'Bulanan'][$mutation['daily_trend']['granularity']] ?? 'Harian';
 @endphp
 
 <x-ui.page-header title="Analitik Bisnis" description="Mutasi periodik, pergerakan barang, dan valuasi aset inventaris aktif.">
@@ -45,8 +46,8 @@
 <script type="application/json" id="analytics-chart-data">@json($chartData)</script>
 <div class="analytics-chart-grid">
     <x-ui.card class="analytics-chart-card">
-        <div class="dashboard-panel-heading"><div><h2>Tren Mutasi Harian</h2><p>{{ $mutation['period']['start_date'] }}–{{ $mutation['period']['end_date'] }} · mengikuti seluruh filter mutasi.</p></div></div>
-        <div class="analytics-chart-wrap" @if(! $mutation['daily_trend']['has_activity']) hidden @endif><canvas id="analytics-mutation-chart" role="img" aria-label="Grafik mutasi stok masuk dan keluar per hari"></canvas></div>
+        <div class="dashboard-panel-heading"><div><h2>Tren Mutasi {{ $trendGranularityLabel }}</h2><p>{{ $mutation['period']['start_date'] }}–{{ $mutation['period']['end_date'] }} · mengikuti seluruh filter mutasi.</p></div></div>
+        <div class="analytics-chart-wrap" @if(! $mutation['daily_trend']['has_activity']) hidden @endif><canvas id="analytics-mutation-chart" role="img" aria-label="Grafik mutasi stok masuk dan keluar dengan granularitas {{ strtolower($trendGranularityLabel) }}"></canvas></div>
         @if(! $mutation['daily_trend']['has_activity'])<x-ui.empty-state compact icon="ti-bar-chart" title="Belum ada mutasi" description="Tidak ada transaksi masuk atau keluar pada periode dan filter ini." />@endif
         <details class="activity-data-alternative"><summary>Lihat data tren</summary><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Tanggal</th><th class="text-end">Masuk</th><th class="text-end">Keluar</th></tr></thead><tbody>@foreach($mutation['daily_trend']['dates'] as $index => $date)<tr><td>{{ $date }}</td><td class="text-end">{{ number_format($mutation['daily_trend']['masuk'][$index], 0, ',', '.') }}</td><td class="text-end">{{ number_format($mutation['daily_trend']['keluar'][$index], 0, ',', '.') }}</td></tr>@endforeach</tbody></table></div></details>
     </x-ui.card>
@@ -78,7 +79,17 @@
 
 <div class="row">
     <div class="col-xl-6 mb-4"><x-ui.card class="h-100"><div class="table-heading"><div><h2>Slow-Moving</h2><p>Stok positif dengan OUT 1–2 unit selama {{ $movement['periods']['start_60'] }}–{{ $movement['periods']['end'] }}.</p></div></div><div class="table-responsive"><table class="table"><thead><tr><th>Barang</th><th class="text-end">OUT</th><th class="text-end">Stok</th></tr></thead><tbody>@forelse($slowMovingRows as $row)<tr><td>{{ $row['nama_barang'] }}<small class="d-block text-muted">{{ $row['kode_barang'] }}</small></td><td class="text-end">{{ $row['total_unit_keluar'] }}</td><td class="text-end">{{ $row['stok_saat_ini'] }}</td></tr>@empty<tr><td colspan="3"><x-ui.empty-state compact icon="ti-timer" title="Tidak ada Slow-Moving" description="Belum ada barang yang memenuhi definisi slow-moving." /></td></tr>@endforelse</tbody></table></div>@if($slowMovingRows->hasPages())<div class="pagination-wrap"><small class="text-muted">Menampilkan {{ $slowMovingRows->firstItem() }}–{{ $slowMovingRows->lastItem() }} dari {{ $slowMovingRows->total() }} barang</small>{{ $slowMovingRows->onEachSide(1)->links() }}</div>@endif</x-ui.card></div>
-    <div class="col-xl-6 mb-4"><x-ui.card class="h-100"><div class="table-heading"><div><h2>Dead Stock</h2><p>Stok positif tanpa OUT selama {{ $movement['periods']['start_60'] }}–{{ $movement['periods']['end'] }}.</p></div></div><div class="table-responsive"><table class="table"><thead><tr><th>Barang</th><th>OUT terakhir 60 hari</th><th class="text-end">Stok</th></tr></thead><tbody>@forelse($deadStockRows as $row)<tr><td>{{ $row['nama_barang'] }}<small class="d-block text-muted">{{ $row['kode_barang'] }}</small></td><td>Tidak ada</td><td class="text-end">{{ $row['stok_saat_ini'] }}</td></tr>@empty<tr><td colspan="3"><x-ui.empty-state compact icon="ti-check" title="Tidak ada Dead Stock" description="Semua barang berstok mempunyai OUT dalam 60 hari atau tidak cocok dengan filter." /></td></tr>@endforelse</tbody></table></div>@if($deadStockRows->hasPages())<div class="pagination-wrap"><small class="text-muted">Menampilkan {{ $deadStockRows->firstItem() }}–{{ $deadStockRows->lastItem() }} dari {{ $deadStockRows->total() }} barang</small>{{ $deadStockRows->onEachSide(1)->links() }}</div>@endif</x-ui.card></div>
+    <div class="col-xl-6 mb-4">
+        <x-ui.card class="h-100">
+            <div class="table-heading"><div><h2>Dead Stock</h2><p>Stok positif tanpa OUT selama {{ $movement['periods']['start_60'] }}–{{ $movement['periods']['end'] }}. Nilai terhitung: <strong>{{ $formatMoney($movement['dead_stock_valuation']['calculated_value']) }}</strong>
+                @if(! $movement['dead_stock_valuation']['is_complete'])
+                    · {{ number_format($movement['dead_stock_valuation']['unpriced_stock_units'], 0, ',', '.') }} unit belum memiliki harga
+                @endif
+                .</p></div></div>
+            <div class="table-responsive"><table class="table"><thead><tr><th>Barang</th><th>OUT terakhir 60 hari</th><th class="text-end">Stok</th><th class="text-end">Nilai stok mati</th></tr></thead><tbody>@forelse($deadStockRows as $row)<tr><td>{{ $row['nama_barang'] }}<small class="d-block text-muted">{{ $row['kode_barang'] }}</small></td><td>Tidak ada</td><td class="text-end">{{ $row['stok_saat_ini'] }}</td><td class="text-end">{{ $row['stock_value'] === null ? 'Harga belum diisi' : $formatMoney($row['stock_value']) }}</td></tr>@empty<tr><td colspan="4"><x-ui.empty-state compact icon="ti-check" title="Tidak ada Dead Stock" description="Semua barang berstok mempunyai OUT dalam 60 hari atau tidak cocok dengan filter." /></td></tr>@endforelse</tbody></table></div>
+            @if($deadStockRows->hasPages())<div class="pagination-wrap"><small class="text-muted">Menampilkan {{ $deadStockRows->firstItem() }}–{{ $deadStockRows->lastItem() }} dari {{ $deadStockRows->total() }} barang</small>{{ $deadStockRows->onEachSide(1)->links() }}</div>@endif
+        </x-ui.card>
+    </div>
 </div>
 
 <div class="row">

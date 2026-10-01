@@ -6,6 +6,7 @@ use App\Models\Barang;
 use App\Models\StockPrediction;
 use App\Models\StokTransaction;
 use App\Models\User;
+use App\Services\StockPredictionService;
 use Database\Seeders\StockPredictionDemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -16,6 +17,25 @@ class StockPredictionDemoSeederTest extends TestCase
 
     public function test_demo_seeder_is_idempotent_and_stock_snapshots_stay_consistent(): void
     {
+        $this->app->instance(StockPredictionService::class, new class extends StockPredictionService
+        {
+            protected function runPython(array $payload): array
+            {
+                return [
+                    'predicted_30_day_need' => 90,
+                    'predicted_minimum_date' => today()->addDays(20)->toDateString(),
+                    'predicted_depletion_date' => today()->addDays(30)->toDateString(),
+                    'safety_stock' => 21,
+                    'recommended_restock' => 25,
+                    'status' => 'Perlu Restock',
+                    'method' => 'machine_learning',
+                    'analysis_status' => 'completed',
+                    'metrics' => ['fixture' => 'deterministic'],
+                    'prediction_available' => true,
+                ];
+            }
+        });
+
         (new StockPredictionDemoSeeder)->run();
         $firstCount = StokTransaction::where('keterangan', 'like', '[DEMO-PREDIKSI]%')->count();
         $this->assertGreaterThanOrEqual(364, $firstCount);

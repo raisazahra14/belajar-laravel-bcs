@@ -281,7 +281,7 @@ class BarangController extends Controller
         $barang = Barang::findOrFail($id);
         $validTime = now();
         $transactionQuery = $barang->stokTransactions()
-            ->with(['supplier', 'warehouseStock.warehouse', 'actor.user'])
+            ->with(['supplier', 'warehouseStock.warehouse', 'actor.user', 'reversedBy', 'originalTransaction'])
             ->where('created_at', '<=', $validTime)
             ->when($validated['supplier_id'] ?? null, fn ($query, $supplierId) => $query->where('supplier_id', $supplierId))
             ->when($validated['warehouse_id'] ?? null, fn ($query, $warehouseId) => $query->whereHas(
@@ -291,7 +291,9 @@ class BarangController extends Controller
         $transactions = (clone $transactionQuery)->latest('created_at')->latest('id')
             ->paginate(20)
             ->withQueryString();
-        $chartTransactions = (clone $transactionQuery)->latest('created_at')
+        $chartTransactions = (clone $transactionQuery)
+            ->where('mutation_type', '<>', 'transfer')
+            ->latest('created_at')
             ->latest('id')
             ->limit(100)
             ->get()

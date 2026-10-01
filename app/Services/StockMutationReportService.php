@@ -7,15 +7,25 @@ use App\Models\StokTransaction;
 use App\Models\WarehouseStock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class StockMutationReportService
 {
+    /** @return array<string,mixed> */
+    public function filteredReport(array $filters): array
+    {
+        $ids = $this->scopedBarangQuery($filters)->pluck('barang.id');
+
+        return $this->report($filters, $ids);
+    }
+
     /**
      * @param  array{period:string,start_date?:string|null,end_date?:string|null,supplier_id?:int|null,warehouse_id?:int|null}  $filters
      * @return array<string,mixed>
      */
-    public function report(array $filters): array
+    public function report(array $filters, ?Collection $onlyBarangIds = null): array
     {
         $timezone = config('app.display_timezone', 'Asia/Jakarta');
         $asOf = CarbonImmutable::now($timezone)->utc();
@@ -27,11 +37,15 @@ class StockMutationReportService
             ->with('supplier')
             ->orderBy('nama_barang')
             ->orderBy('id');
+        if ($onlyBarangIds !== null) {
+            $barangQuery->whereIn('id', $onlyBarangIds);
+        }
 
         $warehouseStocks = collect();
         if ($warehouseId !== null) {
             $warehouseStocks = WarehouseStock::query()
                 ->where('warehouse_id', $warehouseId)
+                ->when($onlyBarangIds !== null, fn ($query) => $query->whereIn('barang_id', $onlyBarangIds))
                 ->get(['id', 'barang_id', 'stok'])
                 ->keyBy('barang_id');
             $barangQuery->whereIn('id', $warehouseStocks->keys());
@@ -104,6 +118,8 @@ class StockMutationReportService
             $movement = $periodMovements->get($item->id);
             $masuk = (int) ($movement?->total_masuk ?? 0);
             $keluar = (int) ($movement?->total_keluar ?? 0);
+            $nilaiMasuk = (float) ($movement?->nilai_masuk ?? 0);
+            $nilaiKeluar = (float) ($movement?->nilai_keluar ?? 0);
             $currentStock = $warehouseId === null
                 ? (int) $item->stok
                 : (int) $warehouseStocks->get($item->id)->stok;
@@ -141,6 +157,8 @@ class StockMutationReportService
                 'saldo_awal' => $opening,
                 'total_masuk' => $masuk,
                 'total_keluar' => $keluar,
+                'nilai_masuk' => $nilaiMasuk,
+                'nilai_keluar' => $nilaiKeluar,
                 'saldo_akhir' => $closing,
                 'history_available' => $historyAvailable,
                 'unavailable_reason' => $unavailableReason,
@@ -164,6 +182,8 @@ class StockMutationReportService
                 'saldo_awal' => $openingTotal,
                 'total_masuk' => $rows->sum('total_masuk'),
                 'total_keluar' => $outTotal,
+                'nilai_masuk' => $rows->sum('nilai_masuk'),
+                'nilai_keluar' => $rows->sum('nilai_keluar'),
                 'saldo_akhir' => $closingTotal,
                 'history_available' => $allBalancesAvailable,
                 'unavailable_count' => $rows->where('history_available', false)->count(),
@@ -187,6 +207,150 @@ class StockMutationReportService
                 'end_date' => $endExclusive->setTimezone($timezone)->subDay()->toDateString(),
             ],
         ];
+    }
+
+    public function paginatedRows(array $filters, int $perPage, string $pageName): LengthAwarePaginator
+    {
+        $query = $this->scopedBarangQuery($filters)->orderBy('barang.nama_barang')->orderBy('barang.id');
+        $paginator = $query->paginate($perPage, ['barang.id'], $pageName)->withQueryString();
+        $ids = $paginator->getCollection()->pluck('id');
+        $rows = $ids->isEmpty() ? collect() : $this->report($filters, $ids)['rows'];
+        $paginator->setCollection($rows);
+
+        return $paginator;
+    }
+
+    /** KPI lintas seluruh halaman, dihitung dengan agregasi database terpisah. */
+    public function summary(array $filters): array
+    {
+        $timezone = config('app.display_timezone', 'Asia/Jakarta');
+        $asOf = CarbonImmutable::now($timezone)->utc();
+        [$start, $endExclusive, $label] = $this->period($filters, $timezone);
+        $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
+        $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
+        $scope = $this->scopedBarangQuery($filters);
+        $ids = (clone $scope)->pluck('barang.id');
+        $stockIds = $warehouseId === null ? null : WarehouseStock::where('warehouse_id', $warehouseId)
+            ->whereIn('barang_id', $ids)->pluck('id');
+
+        $movement = $ids->isEmpty() ? null : $this->datedTransactions($ids, $stockIds, $supplierId)
+            ->where('created_at', '>=', $start)->where('created_at', '<', $endExclusive)->where('created_at', '<=', $asOf)
+            ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah ELSE 0 END), 0) AS masuk")
+            ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'keluar' THEN jumlah ELSE 0 END), 0) AS keluar")
+            ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah * unit_cost ELSE 0 END), 0) AS nilai_masuk")
+            ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'keluar' THEN jumlah * unit_cost ELSE 0 END), 0) AS nilai_keluar")->first();
+        $masuk = (int) ($movement?->masuk ?? 0);
+        $keluar = (int) ($movement?->keluar ?? 0);
+        $nilaiMasuk = (float) ($movement?->nilai_masuk ?? 0);
+        $nilaiKeluar = (float) ($movement?->nilai_keluar ?? 0);
+        $current = $warehouseId === null
+            ? (int) (clone $scope)->sum('barang.stok')
+            : (int) WarehouseStock::where('warehouse_id', $warehouseId)->whereIn('barang_id', $ids)->sum('stok');
+        $net = $ids->isEmpty() ? 0 : (int) $this->datedTransactions($ids, $stockIds)
+            ->where('created_at', '>=', $start)->where('created_at', '<=', $asOf)
+            ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah ELSE -jumlah END), 0) AS net")->value('net');
+        $unavailable = $supplierId !== null
+            ? $ids->count()
+            : $this->unavailableCount($ids, $warehouseId, $stockIds, $asOf);
+        $available = $unavailable === 0;
+        $opening = $available ? $current - $net : null;
+        $closing = $available ? $opening + $masuk - $keluar : null;
+        $denominator = $opening === null || $closing === null ? null : $opening + $closing;
+        $turnover = $denominator === null || $denominator === 0 ? null : (2 * $keluar) / $denominator;
+
+        return [
+            'rows' => collect(),
+            'totals' => ['saldo_awal' => $opening, 'total_masuk' => $masuk, 'total_keluar' => $keluar, 'nilai_masuk' => $nilaiMasuk, 'nilai_keluar' => $nilaiKeluar, 'saldo_akhir' => $closing, 'history_available' => $available, 'unavailable_count' => $unavailable],
+            'turnover' => [
+                'value' => $turnover, 'formatted' => $turnover === null ? null : number_format($turnover, 2, '.', ''), 'available' => $turnover !== null,
+                'reason' => match (true) {
+                    ! $available => 'Saldo awal atau akhir tidak dapat dibuktikan.', $denominator === 0 => 'Rata-rata stok bernilai nol.', default => null
+                },
+                'definition' => 'Total unit OUT ÷ ((saldo awal + saldo akhir) / 2).',
+            ],
+            'daily_trend' => $this->dailyTrend($ids, $start, $endExclusive, $asOf, $stockIds, $timezone, $supplierId),
+            'period' => ['key' => $filters['period'], 'label' => $label, 'start_date' => $start->setTimezone($timezone)->toDateString(), 'end_date' => $endExclusive->setTimezone($timezone)->subDay()->toDateString()],
+        ];
+    }
+
+    private function scopedBarangQuery(array $filters): Builder
+    {
+        $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
+        $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
+        [$start, $endExclusive] = $this->period($filters, config('app.display_timezone', 'Asia/Jakarta'));
+        $asOf = CarbonImmutable::now(config('app.display_timezone', 'Asia/Jakarta'))->utc();
+
+        $query = Barang::query()
+            ->when($filters['q'] ?? null, function (Builder $query, string $search): void {
+                $query->where(fn (Builder $nested) => $nested
+                    ->where('nama_barang', 'like', '%'.$search.'%')
+                    ->orWhere('kode_barang', 'like', '%'.$search.'%'));
+            })
+            ->when($filters['category'] ?? null, fn (Builder $query, string $category) => $query->where('kategori', $category))
+            ->when($warehouseId !== null, fn (Builder $query) => $query->whereHas('warehouseStocks', fn (Builder $stock) => $stock->where('warehouse_id', $warehouseId)))
+            ->when($supplierId !== null, function (Builder $query) use ($supplierId, $start, $endExclusive, $asOf, $warehouseId): void {
+                $query->whereHas('stokTransactions', function (Builder $transactions) use ($supplierId, $start, $endExclusive, $asOf, $warehouseId): void {
+                    $transactions->where('supplier_id', $supplierId)->whereNotNull('created_at')
+                        ->where('created_at', '>=', $start)->where('created_at', '<', $endExclusive)->where('created_at', '<=', $asOf);
+                    if ($warehouseId !== null) {
+                        $this->applyWarehouseTransactionScope($transactions, $warehouseId);
+                    }
+                });
+            });
+
+        if (($filters['activity'] ?? null) === 'mutated') {
+            $direction = ($filters['direction'] ?? 'all') === 'all' ? null : $filters['direction'];
+            $query->whereHas('stokTransactions', function (Builder $transactions) use ($start, $endExclusive, $asOf, $warehouseId, $supplierId, $direction): void {
+                $transactions->whereNotNull('created_at')->where('created_at', '>=', $start)
+                    ->where('created_at', '<', $endExclusive)->where('created_at', '<=', $asOf)
+                    ->when($supplierId !== null, fn (Builder $query) => $query->where('supplier_id', $supplierId))
+                    ->when($direction !== null, fn (Builder $query) => $query->where('jenis', $direction))
+                    ->when($warehouseId === null, fn (Builder $query) => $query->whereNotIn('mutation_type', ['transfer']));
+                if ($warehouseId !== null) {
+                    $this->applyWarehouseTransactionScope($transactions, $warehouseId);
+                }
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * Batasi transaksi valid ke gudang terpilih, tetapi jangan menyembunyikan
+     * transaksi dengan relasi gudang hilang atau menunjuk barang yang salah.
+     * Transaksi tersebut harus tetap masuk scope agar laporan menandainya
+     * sebagai histori yang tidak dapat dibuktikan.
+     */
+    private function applyWarehouseTransactionScope(Builder $transactions, int $warehouseId): void
+    {
+        $transactions->where(function (Builder $location) use ($warehouseId): void {
+            $location->whereHas('warehouseStock', fn (Builder $stock) => $stock
+                ->where('warehouse_id', $warehouseId)
+                ->whereColumn('warehouse_stocks.barang_id', 'stok_transactions.barang_id'))
+                ->orWhereDoesntHave('warehouseStock')
+                ->orWhereHas('warehouseStock', fn (Builder $stock) => $stock
+                    ->whereColumn('warehouse_stocks.barang_id', '<>', 'stok_transactions.barang_id'));
+        });
+    }
+
+    private function unavailableCount(Collection $ids, ?int $warehouseId, ?Collection $stockIds, CarbonImmutable $asOf): int
+    {
+        if ($ids->isEmpty()) {
+            return 0;
+        }
+        $unavailable = StokTransaction::whereIn('barang_id', $ids)->whereNull('created_at')->distinct()->pluck('barang_id');
+        if ($warehouseId === null) {
+            return $unavailable->count();
+        }
+        $invalid = StokTransaction::query()->leftJoin('warehouse_stocks as linked_stock', 'linked_stock.id', '=', 'stok_transactions.warehouse_stock_id')
+            ->whereIn('stok_transactions.barang_id', $ids)->where(fn ($query) => $query->whereNull('stok_transactions.warehouse_stock_id')->orWhereNull('linked_stock.id')->orWhereColumn('linked_stock.barang_id', '<>', 'stok_transactions.barang_id'))
+            ->distinct()->pluck('stok_transactions.barang_id');
+        $ledger = StokTransaction::whereIn('warehouse_stock_id', $stockIds ?? collect())->whereNotNull('created_at')->where('created_at', '<=', $asOf)
+            ->selectRaw("warehouse_stock_id, COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah ELSE -jumlah END), 0) AS net")->groupBy('warehouse_stock_id')->pluck('net', 'warehouse_stock_id');
+        $mismatch = WarehouseStock::where('warehouse_id', $warehouseId)->whereIn('barang_id', $ids)->get(['id', 'barang_id', 'stok'])
+            ->filter(fn (WarehouseStock $stock): bool => (int) $stock->stok !== (int) ($ledger[$stock->id] ?? 0))->pluck('barang_id');
+
+        return $unavailable->merge($invalid)->merge($mismatch)->unique()->count();
     }
 
     /** @return array{CarbonImmutable,CarbonImmutable,string} */
@@ -229,6 +393,8 @@ class StockMutationReportService
             ->where('created_at', '<=', $asOf)
             ->selectRaw("barang_id, COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah ELSE 0 END), 0) AS total_masuk")
             ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'keluar' THEN jumlah ELSE 0 END), 0) AS total_keluar")
+            ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah * unit_cost ELSE 0 END), 0) AS nilai_masuk")
+            ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'keluar' THEN jumlah * unit_cost ELSE 0 END), 0) AS nilai_keluar")
             ->groupBy('barang_id')
             ->get()
             ->keyBy('barang_id');
@@ -244,43 +410,103 @@ class StockMutationReportService
         string $timezone,
         ?int $supplierId,
     ): array {
-        $totals = [];
-        if ($barangIds->isNotEmpty()) {
-            $transactions = $this->datedTransactions($barangIds, $warehouseStockIds, $supplierId)
-                ->where('created_at', '>=', $start)
-                ->where('created_at', '<', $endExclusive)
-                ->where('created_at', '<=', $asOf)
-                ->get(['jenis', 'jumlah', 'created_at']);
-
-            foreach ($transactions as $transaction) {
-                $date = CarbonImmutable::parse($transaction->created_at, config('app.timezone', 'UTC'))
-                    ->setTimezone($timezone)
-                    ->toDateString();
-                $totals[$date] ??= ['masuk' => 0, 'keluar' => 0];
-                $totals[$date][$transaction->jenis] += (int) $transaction->jumlah;
-            }
-        }
+        $localStart = $start->setTimezone($timezone)->startOfDay();
+        $localEnd = $endExclusive->setTimezone($timezone)->subDay()->startOfDay();
+        $days = $localStart->diffInDays($localEnd) + 1;
+        $granularity = match (true) {
+            $days <= 31 => 'day',
+            $days <= 180 => 'week',
+            default => 'month',
+        };
+        $totals = $this->trendTotals(
+            $barangIds,
+            $warehouseStockIds,
+            $start,
+            $endExclusive,
+            $asOf,
+            $granularity,
+            $supplierId,
+        );
 
         $dates = [];
         $labels = [];
         $incoming = [];
         $outgoing = [];
-        $lastDate = $endExclusive->setTimezone($timezone)->subDay()->startOfDay();
-        for ($date = $start->setTimezone($timezone)->startOfDay(); $date->lte($lastDate); $date = $date->addDay()) {
-            $key = $date->toDateString();
+        $cursor = match ($granularity) {
+            'week' => $localStart->startOfWeek(),
+            'month' => $localStart->startOfMonth(),
+            default => $localStart,
+        };
+        while ($cursor->lte($localEnd)) {
+            $key = $cursor->toDateString();
+            $bucketEnd = match ($granularity) {
+                'week' => $cursor->endOfWeek()->startOfDay(),
+                'month' => $cursor->endOfMonth()->startOfDay(),
+                default => $cursor,
+            };
+            $visibleStart = $cursor->max($localStart);
+            $visibleEnd = $bucketEnd->min($localEnd);
             $dates[] = $key;
-            $labels[] = $date->translatedFormat('d M');
-            $incoming[] = $totals[$key]['masuk'] ?? 0;
-            $outgoing[] = $totals[$key]['keluar'] ?? 0;
+            $labels[] = match ($granularity) {
+                'week' => $visibleStart->translatedFormat('d M').'–'.$visibleEnd->translatedFormat('d M'),
+                'month' => $cursor->translatedFormat('M Y'),
+                default => $cursor->translatedFormat('d M'),
+            };
+            $incoming[] = (int) ($totals->get($key)?->total_masuk ?? 0);
+            $outgoing[] = (int) ($totals->get($key)?->total_keluar ?? 0);
+            $cursor = match ($granularity) {
+                'week' => $cursor->addWeek(),
+                'month' => $cursor->addMonth(),
+                default => $cursor->addDay(),
+            };
         }
 
         return [
+            'granularity' => $granularity,
             'dates' => $dates,
             'labels' => $labels,
             'masuk' => $incoming,
             'keluar' => $outgoing,
             'has_activity' => array_sum($incoming) + array_sum($outgoing) > 0,
         ];
+    }
+
+    private function trendTotals(
+        Collection $barangIds,
+        ?Collection $warehouseStockIds,
+        CarbonImmutable $start,
+        CarbonImmutable $endExclusive,
+        CarbonImmutable $asOf,
+        string $granularity,
+        ?int $supplierId,
+    ): Collection {
+        if ($barangIds->isEmpty()) {
+            return collect();
+        }
+
+        $driver = DB::connection()->getDriverName();
+        $localDate = $driver === 'sqlite'
+            ? "datetime(created_at, '+7 hours')"
+            : 'DATE_ADD(created_at, INTERVAL 7 HOUR)';
+        $bucket = match ("{$driver}:{$granularity}") {
+            'sqlite:week' => "date({$localDate}, '-' || ((CAST(strftime('%w', {$localDate}) AS INTEGER) + 6) % 7) || ' days')",
+            'sqlite:month' => "strftime('%Y-%m-01', {$localDate})",
+            'sqlite:day' => "date({$localDate})",
+            'mysql:week', 'mariadb:week' => "DATE_SUB(DATE({$localDate}), INTERVAL WEEKDAY({$localDate}) DAY)",
+            'mysql:month', 'mariadb:month' => "DATE_FORMAT({$localDate}, '%Y-%m-01')",
+            default => "DATE({$localDate})",
+        };
+
+        return $this->datedTransactions($barangIds, $warehouseStockIds, $supplierId)
+            ->where('created_at', '>=', $start)
+            ->where('created_at', '<', $endExclusive)
+            ->where('created_at', '<=', $asOf)
+            ->selectRaw("{$bucket} AS bucket_key")
+            ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah ELSE 0 END), 0) AS total_masuk")
+            ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'keluar' THEN jumlah ELSE 0 END), 0) AS total_keluar")
+            ->groupByRaw($bucket)
+            ->get()
+            ->keyBy('bucket_key');
     }
 
     private function netMovements(
@@ -311,6 +537,10 @@ class StockMutationReportService
             ->whereIn('barang_id', $barangIds)
             ->whereNotNull('created_at')
             ->when($supplierId !== null, fn (Builder $query) => $query->where('supplier_id', $supplierId));
+
+        if ($warehouseStockIds === null) {
+            $query->where('mutation_type', '<>', 'transfer');
+        }
 
         if ($warehouseStockIds !== null) {
             $query->whereIn('warehouse_stock_id', $warehouseStockIds);

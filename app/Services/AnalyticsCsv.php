@@ -64,6 +64,8 @@ class AnalyticsCsv
         yield ['Barang tanpa harga', $valuation['total']['unpriced_item_count']];
         yield ['Unit tanpa harga', $valuation['total']['unpriced_stock_units']];
         yield ['Cakupan harga unit', $valuation['total']['coverage_percentage'].'%'];
+        yield ['Nilai dead stock terhitung', $movement['dead_stock_valuation']['calculated_value']];
+        yield ['Unit dead stock tanpa harga', $movement['dead_stock_valuation']['unpriced_stock_units']];
         yield [];
 
         yield ['REKAP MUTASI'];
@@ -85,7 +87,7 @@ class AnalyticsCsv
 
         yield from $this->movementSection('FAST-MOVING — 30 HARI', $movement['periods']['start_30'].' s.d. '.$movement['periods']['end'], $movement['fast_moving']);
         yield from $this->movementSection('SLOW-MOVING — 60 HARI', $movement['periods']['start_60'].' s.d. '.$movement['periods']['end'], $movement['slow_moving']);
-        yield from $this->movementSection('DEAD STOCK — 60 HARI', $movement['periods']['start_60'].' s.d. '.$movement['periods']['end'], $movement['dead_stock']);
+        yield from $this->movementSection('DEAD STOCK — 60 HARI', $movement['periods']['start_60'].' s.d. '.$movement['periods']['end'], $movement['dead_stock'], true);
 
         yield ['VALUASI PER KATEGORI', 'Acuan '.$this->dateTime($valuation['scope']['as_of'])];
         yield ['Kategori', 'Nilai terhitung', 'Barang dinilai', 'Unit dinilai', 'Barang tanpa harga', 'Unit tanpa harga', 'Status'];
@@ -112,13 +114,23 @@ class AnalyticsCsv
         yield ['Kelengkapan histori gudang 60 hari', $movement['warehouse_history']['complete_60'] ? 'Lengkap' : 'Tidak lengkap'];
     }
 
-    private function movementSection(string $title, string $period, iterable $rows): iterable
+    private function movementSection(string $title, string $period, iterable $rows, bool $withStockValue = false): iterable
     {
         yield [$title];
         yield ['Periode', $period];
-        yield ['Kode', 'Barang', 'Total OUT', 'Jumlah transaksi', 'OUT terakhir', 'Stok saat ini'];
+        $header = ['Kode', 'Barang', 'Total OUT', 'Jumlah transaksi', 'OUT terakhir', 'Stok saat ini'];
+        if ($withStockValue) {
+            $header[] = 'Nilai stok mati';
+            $header[] = 'Status harga';
+        }
+        yield $header;
         foreach ($rows as $row) {
-            yield [$row['kode_barang'], $row['nama_barang'], $row['total_unit_keluar'], $row['jumlah_transaksi'], $this->dateTime($row['out_terakhir']), $row['stok_saat_ini']];
+            $values = [$row['kode_barang'], $row['nama_barang'], $row['total_unit_keluar'], $row['jumlah_transaksi'], $this->dateTime($row['out_terakhir']), $row['stok_saat_ini']];
+            if ($withStockValue) {
+                $values[] = $row['stock_value'] ?? 'Tidak tersedia';
+                $values[] = $row['stock_value'] === null ? 'Harga belum diisi' : 'Terhitung';
+            }
+            yield $values;
         }
         yield [];
     }

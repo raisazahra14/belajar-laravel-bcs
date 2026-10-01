@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Barang;
 use App\Models\Supplier;
 use App\Models\Warehouse;
 use Illuminate\Foundation\Http\FormRequest;
@@ -11,13 +12,16 @@ class StockMutationReportRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('manage-barang') === true;
+        return $this->user()?->can('view-stock-reports') === true;
     }
 
     protected function prepareForValidation(): void
     {
         if (! $this->has('period')) {
             $this->merge(['period' => '7']);
+        }
+        if (! $this->has('activity')) {
+            $this->merge(['activity' => 'mutated']);
         }
     }
 
@@ -37,6 +41,12 @@ class StockMutationReportRequest extends FormRequest
             ],
             'supplier_id' => ['nullable', 'integer', Rule::exists(Supplier::class, 'id')],
             'warehouse_id' => ['nullable', 'integer', Rule::exists(Warehouse::class, 'id')],
+            'q' => ['nullable', 'string', 'max:100'],
+            'category' => ['nullable', Rule::in(Barang::KATEGORI)],
+            'activity' => ['required', Rule::in(['mutated', 'all'])],
+            'direction' => ['nullable', Rule::in(['all', 'masuk', 'keluar'])],
+            'per_page' => ['nullable', 'integer', Rule::in([10, 25, 50])],
+            'page' => ['nullable', 'integer', 'min:1'],
         ];
     }
 
@@ -52,6 +62,9 @@ class StockMutationReportRequest extends FormRequest
             'end_date.before_or_equal' => 'Tanggal akhir tidak boleh melewati hari ini.',
             'supplier_id.exists' => 'Filter supplier tidak valid.',
             'warehouse_id.exists' => 'Filter gudang tidak valid.',
+            'category.in' => 'Kategori tidak valid.',
+            'activity.in' => 'Filter aktivitas tidak valid.',
+            'direction.in' => 'Jenis mutasi tidak valid.',
         ];
     }
 }

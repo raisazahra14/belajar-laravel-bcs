@@ -28,6 +28,8 @@ class AppServiceProvider extends ServiceProvider
 
         Gate::define('manage-barang', fn (User $user): bool => $user->role === 'admin');
         Gate::define('update-stock', fn (User $user): bool => in_array($user->role, ['admin', 'manager', 'staff'], true));
+        Gate::define('view-stock-reports', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
+        Gate::define('reverse-stock', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
         Gate::define('run-stock-prediction', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
         Gate::define('approve-restock', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
 

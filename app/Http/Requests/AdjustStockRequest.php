@@ -35,6 +35,11 @@ class AdjustStockRequest extends FormRequest
                 Rule::prohibitedIf(fn (): bool => $this->input('jenis') === 'keluar'),
             ],
             'keterangan' => ['nullable', 'string', 'max:1000'],
+            'unit_cost' => ['nullable', 'numeric', 'min:0', 'max:9999999999999999.99'],
+            'reference_type' => ['nullable', Rule::in(['PO', 'DO', 'Surat Jalan', 'Invoice', 'Internal', 'Lainnya'])],
+            'reference_number' => ['nullable', 'string', 'max:120'],
+            'document_date' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'document_attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
         ];
     }
 
@@ -51,6 +56,13 @@ class AdjustStockRequest extends FormRequest
             'supplier_id.exists' => 'Supplier yang dipilih tidak aktif atau tidak tersedia.',
             'supplier_id.prohibited' => 'Supplier hanya dapat dicatat pada transaksi stok masuk.',
             'keterangan.max' => 'Keterangan maksimal 1.000 karakter.',
+            'unit_cost.numeric' => 'Harga satuan harus berupa angka.',
+            'unit_cost.min' => 'Harga satuan tidak boleh negatif.',
+            'reference_type.in' => 'Jenis referensi dokumen tidak valid.',
+            'reference_number.max' => 'Nomor referensi maksimal 120 karakter.',
+            'document_date.before_or_equal' => 'Tanggal dokumen tidak boleh melewati hari ini.',
+            'document_attachment.mimes' => 'Lampiran harus berupa PDF, JPG, JPEG, atau PNG.',
+            'document_attachment.max' => 'Ukuran lampiran maksimal 5 MB.',
         ];
     }
 }
