@@ -30,6 +30,27 @@ class StockMutationReportTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_default_report_uses_thirty_days_shows_available_mutations_and_groups_exports(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $barang = $this->barang('MUT-DEFAULT', 'Mutasi Tersedia pada Default', 4);
+        $this->transaction($barang, 'masuk', 4, '2026-08-22 02:00:00');
+
+        $response = $this->actingAs($admin)->get(route('stock-mutations.index'));
+
+        $response->assertOk()
+            ->assertSee('30 hari terakhir')
+            ->assertSee('Mutasi Tersedia pada Default')
+            ->assertSee('Unduh Laporan')
+            ->assertSee('Filter lanjutan')
+            ->assertSee(route('stock-mutations.csv', ['period' => '30', 'activity' => 'mutated']))
+            ->assertSee(route('stock-mutations.excel', ['period' => '30', 'activity' => 'mutated']))
+            ->assertSee(route('stock-mutations.pdf', ['period' => '30', 'activity' => 'mutated']));
+        $this->assertSame('30', $response->viewData('filters')['period']);
+        $this->assertSame(4, $response->viewData('report')['totals']['total_masuk']);
+        $this->assertSame(1, $response->viewData('mutationRows')->total());
+    }
+
     public function test_seven_day_period_uses_jakarta_day_boundary_and_balances_formula(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

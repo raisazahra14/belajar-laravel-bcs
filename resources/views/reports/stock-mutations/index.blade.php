@@ -2,16 +2,15 @@
 
 @section('content')
 <x-ui.page-header title="Laporan Mutasi Stok" description="Rekap saldo awal, barang masuk, barang keluar, dan saldo akhir per periode.">
-    <div class="page-actions">
-        <x-ui.button :href="route('stock-mutations.csv', $filters)" variant="outline-secondary" icon="ti-file">CSV</x-ui.button>
-        <x-ui.button :href="route('stock-mutations.excel', $filters)" variant="outline-success" icon="ti-layout-grid2">Excel</x-ui.button>
-        <x-ui.button :href="route('stock-mutations.pdf', $filters)" variant="outline-danger" icon="ti-printer">PDF</x-ui.button>
-    </div>
+    <div class="page-actions"><div class="dropdown"><button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="ti-download" aria-hidden="true"></i> Unduh Laporan</button><ul class="dropdown-menu dropdown-menu-end mutation-export-menu"><li><a class="dropdown-item" href="{{ route('stock-mutations.csv', $filters) }}"><i class="ti-file" aria-hidden="true"></i> CSV</a></li><li><a class="dropdown-item" href="{{ route('stock-mutations.excel', $filters) }}"><i class="ti-layout-grid2" aria-hidden="true"></i> Excel</a></li><li><a class="dropdown-item" href="{{ route('stock-mutations.pdf', $filters) }}"><i class="ti-printer" aria-hidden="true"></i> PDF</a></li></ul></div></div>
 </x-ui.page-header>
 
-<x-ui.card class="filter-card mb-4">
+<x-ui.card class="filter-card mutation-filter-card mb-4">
+    @php
+        $advancedOpen = ! empty($filters['category']) || ! empty($filters['warehouse_id']) || ! empty($filters['supplier_id']) || (($filters['activity'] ?? 'mutated') !== 'mutated') || ! in_array(($filters['direction'] ?? 'all'), ['', 'all'], true) || (int) ($filters['per_page'] ?? 25) !== 25;
+    @endphp
     <form method="GET" action="{{ route('stock-mutations.index') }}" data-stock-mutation-filter>
-        <div class="row">
+        <div class="mutation-filter-head">
             <div class="col-lg-4 col-md-6 form-group">
                 <label for="q" class="form-label">Cari barang</label>
                 <div class="input-icon">
@@ -20,7 +19,18 @@
                 </div>
                 @error('q')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
             </div>
-            <div class="col-lg-2 col-md-6 form-group">
+            <div class="mutation-period-filter">
+                <label for="period" class="form-label">Periode</label>
+                <select id="period" name="period" class="form-select" data-period-select>
+                    <option value="7" @selected(($filters['period'] ?? '') === '7')>7 hari terakhir</option>
+                    <option value="30" @selected(($filters['period'] ?? '30') === '30')>30 hari terakhir</option>
+                    <option value="custom" @selected(($filters['period'] ?? '') === 'custom')>Tanggal custom</option>
+                </select>
+            </div>
+            <details class="mutation-advanced-filter" @if($advancedOpen) open @endif>
+                <summary><i class="ti-settings" aria-hidden="true"></i> Filter lanjutan</summary>
+                <div class="mutation-advanced-grid">
+            <div class="form-group">
                 <label for="category" class="form-label">Kategori</label>
                 <select id="category" name="category" class="form-select @error('category') is-invalid @enderror">
                     <option value="">Semua kategori</option>
@@ -30,7 +40,7 @@
                 </select>
                 @error('category')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
-            <div class="col-lg-2 col-md-4 form-group">
+            <div class="form-group">
                 <label for="activity" class="form-label">Aktivitas</label>
                 <select id="activity" name="activity" class="form-select @error('activity') is-invalid @enderror" data-activity-select>
                     <option value="mutated" @selected(($filters['activity'] ?? 'mutated') === 'mutated')>Memiliki mutasi</option>
@@ -38,7 +48,7 @@
                 </select>
                 @error('activity')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
-            <div class="col-lg-2 col-md-4 form-group">
+            <div class="form-group">
                 <label for="direction" class="form-label">Arah mutasi</label>
                 <select id="direction" name="direction" class="form-select @error('direction') is-invalid @enderror" data-direction-select>
                     <option value="all" @selected(($filters['direction'] ?? 'all') === 'all')>Masuk &amp; keluar</option>
@@ -47,36 +57,7 @@
                 </select>
                 @error('direction')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
-            <div class="col-lg-2 col-md-4 form-group">
-                <label for="per_page" class="form-label">Baris per halaman</label>
-                <select id="per_page" name="per_page" class="form-select @error('per_page') is-invalid @enderror">
-                    @foreach([10, 25, 50] as $size)
-                        <option value="{{ $size }}" @selected((int) ($filters['per_page'] ?? 25) === $size)>{{ $size }} baris</option>
-                    @endforeach
-                </select>
-                @error('per_page')<div class="invalid-feedback">{{ $message }}</div>@enderror
-            </div>
-        </div>
-        <div class="row">
-            <div class="col-md-3 form-group">
-                <label for="period" class="form-label">Periode</label>
-                <select id="period" name="period" class="form-select" data-period-select>
-                    <option value="7" @selected(($filters['period'] ?? '7') === '7')>7 hari terakhir</option>
-                    <option value="30" @selected(($filters['period'] ?? '') === '30')>30 hari terakhir</option>
-                    <option value="custom" @selected(($filters['period'] ?? '') === 'custom')>Tanggal custom</option>
-                </select>
-            </div>
-            <div class="col-md-3 form-group" data-custom-date>
-                <label for="start_date" class="form-label">Tanggal awal</label>
-                <input id="start_date" name="start_date" type="date" class="form-control @error('start_date') is-invalid @enderror" value="{{ $filters['start_date'] ?? $report['period']['start_date'] }}">
-                @error('start_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
-            </div>
-            <div class="col-md-3 form-group" data-custom-date>
-                <label for="end_date" class="form-label">Tanggal akhir</label>
-                <input id="end_date" name="end_date" type="date" class="form-control @error('end_date') is-invalid @enderror" value="{{ $filters['end_date'] ?? $report['period']['end_date'] }}">
-                @error('end_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
-            </div>
-            <div class="col-md-3 form-group">
+            <div class="form-group">
                 <label for="warehouse_id" class="form-label">Gudang</label>
                 <select id="warehouse_id" name="warehouse_id" class="form-select @error('warehouse_id') is-invalid @enderror">
                     <option value="">Semua gudang (konsolidasi)</option>
@@ -86,8 +67,8 @@
                 </select>
                 @error('warehouse_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
-            <div class="col-md-6 form-group">
-                <label for="supplier_id" class="form-label">Supplier transaksi (historis)</label>
+            <div class="form-group mutation-supplier-filter">
+                <label for="supplier_id" class="form-label">Supplier transaksi</label>
                 <select id="supplier_id" name="supplier_id" class="form-select @error('supplier_id') is-invalid @enderror">
                     <option value="">Semua supplier</option>
                     @foreach($suppliers as $supplier)
@@ -97,9 +78,29 @@
                 <div class="form-text">Memakai snapshot supplier yang tersimpan saat transaksi dibuat. Perubahan supplier master tidak mengubah laporan lama.</div>
                 @error('supplier_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
-            <div class="col-md-6 form-group d-flex align-items-end justify-content-end">
-                <x-ui.button :href="route('stock-mutations.index')" variant="light" class="me-2" icon="ti-reload">Reset Filter</x-ui.button>
-                <x-ui.button type="submit" icon="ti-filter">Terapkan Filter</x-ui.button>
+            <div class="form-group">
+                <label for="per_page" class="form-label">Baris per halaman</label>
+                <select id="per_page" name="per_page" class="form-select @error('per_page') is-invalid @enderror">
+                    @foreach([10, 25, 50] as $size)
+                        <option value="{{ $size }}" @selected((int) ($filters['per_page'] ?? 25) === $size)>{{ $size }} baris</option>
+                    @endforeach
+                </select>
+                @error('per_page')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            </div>
+                </div>
+            </details>
+            <div class="filter-actions mutation-filter-actions"><x-ui.button :href="route('stock-mutations.index')" variant="light" icon="ti-reload">Reset</x-ui.button><x-ui.button type="submit" icon="ti-filter">Terapkan</x-ui.button></div>
+        </div>
+        <div class="mutation-filter-main" data-custom-date-row>
+            <div class="col-md-3 form-group" data-custom-date>
+                <label for="start_date" class="form-label">Tanggal awal</label>
+                <input id="start_date" name="start_date" type="date" class="form-control @error('start_date') is-invalid @enderror" value="{{ $filters['start_date'] ?? $report['period']['start_date'] }}">
+                @error('start_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-md-3 form-group" data-custom-date>
+                <label for="end_date" class="form-label">Tanggal akhir</label>
+                <input id="end_date" name="end_date" type="date" class="form-control @error('end_date') is-invalid @enderror" value="{{ $filters['end_date'] ?? $report['period']['end_date'] }}">
+                @error('end_date')<div class="invalid-feedback">{{ $message }}</div>@enderror
             </div>
         </div>
     </form>
@@ -166,11 +167,14 @@
 (function () {
     const period = document.querySelector('[data-period-select]');
     const customFields = document.querySelectorAll('[data-custom-date]');
+    const customRow = document.querySelector('[data-custom-date-row]');
     const activity = document.querySelector('[data-activity-select]');
     const direction = document.querySelector('[data-direction-select]');
     if (!period) return;
     const sync = function () {
-        customFields.forEach(function (field) { field.hidden = period.value !== 'custom'; });
+        const custom = period.value === 'custom';
+        customFields.forEach(function (field) { field.hidden = !custom; });
+        if (customRow) customRow.hidden = !custom;
         if (activity && direction) {
             const disabled = activity.value === 'all';
             direction.disabled = disabled;

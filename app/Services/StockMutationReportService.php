@@ -190,14 +190,15 @@ class StockMutationReportService
             ],
             'turnover' => [
                 'value' => $turnover,
-                'formatted' => $turnover === null ? null : number_format($turnover, 2, '.', ''),
+                'formatted' => $this->formatTurnover($turnover),
+                'percentage_formatted' => $this->formatTurnoverPercentage($turnover),
                 'available' => $turnover !== null,
                 'reason' => match (true) {
                     ! $allBalancesAvailable => 'Saldo awal atau akhir tidak dapat dibuktikan.',
                     $averageStockDenominator === 0 => 'Rata-rata stok bernilai nol.',
                     default => null,
                 },
-                'definition' => 'Total unit OUT ÷ ((saldo awal + saldo akhir) / 2).',
+                'definition' => 'Total unit OUT ÷ ((saldo awal + saldo akhir) / 2), ditampilkan sebagai persentase.',
             ],
             'daily_trend' => $dailyTrend,
             'period' => [
@@ -237,12 +238,31 @@ class StockMutationReportService
             ->where('created_at', '>=', $start)->where('created_at', '<', $endExclusive)->where('created_at', '<=', $asOf)
             ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah ELSE 0 END), 0) AS masuk")
             ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'keluar' THEN jumlah ELSE 0 END), 0) AS keluar")
+            ->selectRaw("COUNT(DISTINCT CASE WHEN jenis = 'masuk' THEN barang_id END) AS barang_masuk")
+            ->selectRaw("COUNT(DISTINCT CASE WHEN jenis = 'keluar' THEN barang_id END) AS barang_keluar")
             ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah * unit_cost ELSE 0 END), 0) AS nilai_masuk")
             ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'keluar' THEN jumlah * unit_cost ELSE 0 END), 0) AS nilai_keluar")->first();
         $masuk = (int) ($movement?->masuk ?? 0);
         $keluar = (int) ($movement?->keluar ?? 0);
         $nilaiMasuk = (float) ($movement?->nilai_masuk ?? 0);
         $nilaiKeluar = (float) ($movement?->nilai_keluar ?? 0);
+        $topOutgoing = null;
+        if ($ids->isNotEmpty()) {
+            $outgoingTotals = $this->datedTransactions($ids, $stockIds, $supplierId)
+                ->where('jenis', 'keluar')
+                ->where('created_at', '>=', $start)
+                ->where('created_at', '<', $endExclusive)
+                ->where('created_at', '<=', $asOf)
+                ->groupBy('barang_id')
+                ->select('barang_id')
+                ->selectRaw('SUM(jumlah) AS total_unit_keluar');
+            $topOutgoing = DB::query()->fromSub($outgoingTotals, 'outgoing_totals')
+                ->join('barang', 'barang.id', '=', 'outgoing_totals.barang_id')
+                ->select(['outgoing_totals.barang_id', 'barang.kode_barang', 'barang.nama_barang', 'outgoing_totals.total_unit_keluar'])
+                ->orderByDesc('outgoing_totals.total_unit_keluar')
+                ->orderBy('barang.kode_barang')
+                ->first();
+        }
         $current = $warehouseId === null
             ? (int) (clone $scope)->sum('barang.stok')
             : (int) WarehouseStock::where('warehouse_id', $warehouseId)->whereIn('barang_id', $ids)->sum('stok');
@@ -260,13 +280,30 @@ class StockMutationReportService
 
         return [
             'rows' => collect(),
-            'totals' => ['saldo_awal' => $opening, 'total_masuk' => $masuk, 'total_keluar' => $keluar, 'nilai_masuk' => $nilaiMasuk, 'nilai_keluar' => $nilaiKeluar, 'saldo_akhir' => $closing, 'history_available' => $available, 'unavailable_count' => $unavailable],
+            'totals' => [
+                'saldo_awal' => $opening,
+                'total_masuk' => $masuk,
+                'total_keluar' => $keluar,
+                'barang_masuk' => (int) ($movement?->barang_masuk ?? 0),
+                'barang_keluar' => (int) ($movement?->barang_keluar ?? 0),
+                'nilai_masuk' => $nilaiMasuk,
+                'nilai_keluar' => $nilaiKeluar,
+                'saldo_akhir' => $closing,
+                'history_available' => $available,
+                'unavailable_count' => $unavailable,
+            ],
+            'top_outgoing' => $topOutgoing === null ? null : [
+                'barang_id' => (int) $topOutgoing->barang_id,
+                'kode_barang' => $topOutgoing->kode_barang,
+                'nama_barang' => $topOutgoing->nama_barang,
+                'total_unit_keluar' => (int) $topOutgoing->total_unit_keluar,
+            ],
             'turnover' => [
-                'value' => $turnover, 'formatted' => $turnover === null ? null : number_format($turnover, 2, '.', ''), 'available' => $turnover !== null,
+                'value' => $turnover, 'formatted' => $this->formatTurnover($turnover), 'percentage_formatted' => $this->formatTurnoverPercentage($turnover), 'available' => $turnover !== null,
                 'reason' => match (true) {
                     ! $available => 'Saldo awal atau akhir tidak dapat dibuktikan.', $denominator === 0 => 'Rata-rata stok bernilai nol.', default => null
                 },
-                'definition' => 'Total unit OUT ÷ ((saldo awal + saldo akhir) / 2).',
+                'definition' => 'Total unit OUT ÷ ((saldo awal + saldo akhir) / 2), ditampilkan sebagai persentase.',
             ],
             'daily_trend' => $this->dailyTrend($ids, $start, $endExclusive, $asOf, $stockIds, $timezone, $supplierId),
             'period' => ['key' => $filters['period'], 'label' => $label, 'start_date' => $start->setTimezone($timezone)->toDateString(), 'end_date' => $endExclusive->setTimezone($timezone)->subDay()->toDateString()],
@@ -313,6 +350,22 @@ class StockMutationReportService
         }
 
         return $query;
+    }
+
+    private function formatTurnover(?float $turnover): ?string
+    {
+        if ($turnover === null) {
+            return null;
+        }
+
+        $precision = $turnover > 0 && $turnover < 0.01 ? 3 : 2;
+
+        return number_format($turnover, $precision, '.', '');
+    }
+
+    private function formatTurnoverPercentage(?float $turnover): ?string
+    {
+        return $turnover === null ? null : number_format($turnover * 100, 2, ',', '.');
     }
 
     /**

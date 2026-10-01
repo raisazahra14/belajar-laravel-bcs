@@ -33,6 +33,11 @@ class InventoryAnalyticsService
             default => throw new \InvalidArgumentException('Klasifikasi pergerakan tidak valid.'),
         };
 
+        if ($classification === 'dead') {
+            $rows->orderByRaw('CASE WHEN harga_beli IS NULL THEN 1 ELSE 0 END')
+                ->orderByRaw('(harga_beli * stok_saat_ini) DESC');
+        }
+
         $paginator = $rows->orderBy('kode_barang')->orderBy('barang_id')
             ->paginate($perPage, ['*'], $pageName)
             ->withQueryString();
@@ -55,7 +60,7 @@ class InventoryAnalyticsService
         $invalid30 = $warehouseId === null ? collect() : $this->invalidWarehouseHistory($warehouseId, $start30, $asOf, $supplierId);
         $invalid60 = $warehouseId === null ? collect() : $this->invalidWarehouseHistory($warehouseId, $start60, $asOf, $supplierId);
         $base = $this->movementClassificationQuery($start60, $asOf, $warehouseId, $supplierId, $invalid60);
-        $composition = DB::query()->fromSub($base, 'movement_rows')->selectRaw(
+        $composition = DB::query()->fromSub(clone $base, 'movement_rows')->selectRaw(
             'SUM(CASE WHEN total_unit_keluar > 2 THEN 1 ELSE 0 END) AS active_items,
              SUM(CASE WHEN total_unit_keluar BETWEEN 1 AND 2 THEN 1 ELSE 0 END) AS slow_items,
              SUM(CASE WHEN total_unit_keluar = 0 THEN 1 ELSE 0 END) AS dead_items,
@@ -69,6 +74,13 @@ class InventoryAnalyticsService
              COALESCE(SUM(CASE WHEN total_unit_keluar = 0 AND harga_beli IS NULL THEN stok_saat_ini ELSE 0 END), 0) AS dead_unpriced_stock',
         )->first();
         $itemCounts = [(int) ($composition->active_items ?? 0), (int) ($composition->slow_items ?? 0), (int) ($composition->dead_items ?? 0)];
+        $topDeadStock = DB::query()->fromSub(clone $base, 'movement_rows')
+            ->where('total_unit_keluar', 0)
+            ->orderByRaw('CASE WHEN harga_beli IS NULL THEN 1 ELSE 0 END')
+            ->orderByRaw('(harga_beli * stok_saat_ini) DESC')
+            ->orderByDesc('stok_saat_ini')
+            ->orderBy('kode_barang')
+            ->first();
 
         return [
             'fast_moving' => $this->fastMoving($start30, $asOf, $warehouseId, $supplierId, $invalid30),
@@ -85,6 +97,7 @@ class InventoryAnalyticsService
                 'unpriced_item_count' => (int) ($composition->dead_unpriced_items ?? 0),
                 'unpriced_stock_units' => (int) ($composition->dead_unpriced_stock ?? 0),
             ]),
+            'top_dead_stock' => $topDeadStock === null ? null : $this->movementRow($topDeadStock),
             'periods' => ['start_30' => $start30->setTimezone($timezone)->toDateString(), 'start_60' => $start60->setTimezone($timezone)->toDateString(), 'end' => $nowLocal->toDateString()],
             'warehouse' => $warehouse,
             'supplier_id' => $supplierId,
@@ -94,6 +107,68 @@ class InventoryAnalyticsService
                 'message' => $warehouseId !== null && ($invalid30->isNotEmpty() || $invalid60->isNotEmpty())
                     ? 'Sebagian barang tidak dianalisis karena transaksi OUT tidak memiliki relasi gudang yang dapat dibuktikan.' : null,
             ],
+        ];
+    }
+
+    /**
+     * Agregasi perhatian stok saat ini. Supplier mengikuti master barang, sama
+     * seperti valuasi; saat gudang dipilih saldo dan batas minimum gudang dipakai.
+     *
+     * @return array<string,mixed>
+     */
+    public function currentAttentionSummary(?int $warehouseId = null, ?int $supplierId = null): array
+    {
+        $base = DB::table('barang')->whereNull('barang.deleted_at')
+            ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId));
+        $stock = 'barang.stok';
+        $minimum = (string) Barang::MINIMUM_STOCK;
+
+        if ($warehouseId !== null) {
+            $base->join('warehouse_stocks as selected_stock', function ($join) use ($warehouseId): void {
+                $join->on('selected_stock.barang_id', '=', 'barang.id')
+                    ->where('selected_stock.warehouse_id', $warehouseId);
+            });
+            $stock = 'selected_stock.stok';
+            $minimum = 'selected_stock.stok_minimum';
+        }
+
+        $aggregate = (clone $base)->selectRaw(
+            "SUM(CASE WHEN {$stock} <= {$minimum} THEN 1 ELSE 0 END) AS low_stock_items,
+             SUM(CASE WHEN barang.harga_beli IS NULL THEN 1 ELSE 0 END) AS unpriced_items,
+             COALESCE(SUM(CASE WHEN barang.harga_beli IS NULL THEN {$stock} ELSE 0 END), 0) AS unpriced_units",
+        )->first();
+
+        $columns = [
+            'barang.id as barang_id', 'barang.kode_barang', 'barang.nama_barang',
+        ];
+        $topLowStock = (clone $base)->whereColumn($stock, '<=', DB::raw($minimum))
+            ->select($columns)->selectRaw("{$stock} AS stok_saat_ini")
+            ->selectRaw("{$minimum} AS stok_minimum")
+            ->orderBy($stock)->orderBy('barang.kode_barang')->first();
+        $topUnpriced = (clone $base)->whereNull('barang.harga_beli')
+            ->select($columns)->selectRaw("{$stock} AS stok_saat_ini")
+            ->orderByDesc($stock)->orderBy('barang.kode_barang')->first();
+
+        return [
+            'low_stock_count' => (int) ($aggregate?->low_stock_items ?? 0),
+            'unpriced_item_count' => (int) ($aggregate?->unpriced_items ?? 0),
+            'unpriced_stock_units' => (int) ($aggregate?->unpriced_units ?? 0),
+            'top_low_stock' => $topLowStock === null ? null : [
+                'barang_id' => (int) $topLowStock->barang_id,
+                'kode_barang' => $topLowStock->kode_barang,
+                'nama_barang' => $topLowStock->nama_barang,
+                'stok_saat_ini' => (int) $topLowStock->stok_saat_ini,
+                'stok_minimum' => (int) $topLowStock->stok_minimum,
+            ],
+            'top_unpriced' => $topUnpriced === null ? null : [
+                'barang_id' => (int) $topUnpriced->barang_id,
+                'kode_barang' => $topUnpriced->kode_barang,
+                'nama_barang' => $topUnpriced->nama_barang,
+                'stok_saat_ini' => (int) $topUnpriced->stok_saat_ini,
+            ],
+            'minimum_stock_rule' => $warehouseId === null
+                ? 'barang.stok kurang dari atau sama dengan '.Barang::MINIMUM_STOCK
+                : 'saldo gudang kurang dari atau sama dengan warehouse_stocks.stok_minimum',
         ];
     }
 

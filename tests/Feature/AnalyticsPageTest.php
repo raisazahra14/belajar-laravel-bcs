@@ -134,6 +134,21 @@ class AnalyticsPageTest extends TestCase
         $this->assertStringNotContainsString(',=SUM(1+1)', $content);
     }
 
+    public function test_small_non_zero_turnover_is_not_displayed_as_zero(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $warehouse = Warehouse::create(['kode_gudang' => 'TURN-WH', 'nama_gudang' => 'Gudang Turnover']);
+        $barang = $this->barang('TURN-SMALL', 'Barang Rasio Kecil', 1000, '10.00');
+        $stock = $this->stock($barang, $warehouse, 1000);
+        $this->transaction($barang, $stock, 'keluar', 3, '2026-09-20 02:00:00');
+
+        $response = $this->actingAs($admin)->get(route('analytics.index', ['period' => '30']))->assertOk();
+
+        $this->assertGreaterThan(0, $response->viewData('mutation')['turnover']['value']);
+        $this->assertSame('0,30', $response->viewData('mutation')['turnover']['percentage_formatted']);
+        $response->assertSee('0,30%')->assertDontSee('0.00 kali');
+    }
+
     public function test_dead_stock_value_is_visible_and_exported_without_treating_missing_prices_as_zero(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -166,6 +181,8 @@ class AnalyticsPageTest extends TestCase
             ->assertSee('Belum ada mutasi')
             ->assertSee('Belum ada komposisi')
             ->assertSee('Valuasi belum tersedia')
+            ->assertSee('Tidak ada notifikasi prioritas')
+            ->assertSee('Tidak ada mutasi pada periode pilihan')
             ->assertSee('Tidak tersedia')
             ->assertSee('table-responsive', false);
     }
@@ -266,6 +283,84 @@ class AnalyticsPageTest extends TestCase
         $this->assertStringContainsString('warehouse_page=2', $firstPage->viewData('valuationWarehouseRows')->url(2));
     }
 
+    public function test_priority_center_orders_categories_deduplicates_items_and_preserves_null_price_semantics(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $supplier = Supplier::create(['kode_supplier' => 'PRI-SUP', 'nama_supplier' => 'Supplier Prioritas']);
+        $warehouse = Warehouse::create(['kode_gudang' => 'PRI-WH', 'nama_gudang' => 'Prioritas']);
+
+        $pricedDead = $this->barang('PRI-DEAD', 'Dead Bernilai Besar', 2, '1000.00', $supplier->id);
+        $pricedStock = $this->stock($pricedDead, $warehouse, 2, 3);
+        $this->transaction($pricedDead, $pricedStock, 'masuk', 1, '2026-09-01 02:00:00');
+        $this->transaction($pricedDead, $pricedStock, 'masuk', 1, '2026-09-02 02:00:00');
+
+        $unpricedDead = $this->barang('PRI-NULL', 'Dead Harga Null', 3, null, $supplier->id);
+        $unpricedStock = $this->stock($unpricedDead, $warehouse, 3, 1);
+        $this->transaction($unpricedDead, $unpricedStock, 'masuk', 3, '2026-09-01 02:00:00');
+
+        $zeroPriceDead = $this->barang('PRI-ZERO', 'Dead Harga Nol', 1, '0.00', $supplier->id);
+        $zeroPriceStock = $this->stock($zeroPriceDead, $warehouse, 1, 0);
+        $this->transaction($zeroPriceDead, $zeroPriceStock, 'masuk', 1, '2026-09-01 02:00:00');
+
+        $zeroStockUnpriced = $this->barang('PRI-EMPTY', 'Stok Nol Tanpa Harga', 0, null, $supplier->id);
+        $this->stock($zeroStockUnpriced, $warehouse, 0, 0);
+
+        $activeLow = $this->barang('PRI-OUT', 'Paling Banyak Keluar', 1, '50.00', $supplier->id);
+        $activeStock = $this->stock($activeLow, $warehouse, 1, 5);
+        $this->transaction($activeLow, $activeStock, 'keluar', 2, '2026-09-28 02:00:00');
+        $this->transaction($activeLow, $activeStock, 'keluar', 3, '2026-09-29 02:00:00');
+
+        $response = $this->actingAs($admin)->get(route('analytics.index', [
+            'period' => '7', 'supplier_id' => $supplier->id, 'warehouse_id' => $warehouse->id,
+        ]))->assertOk()
+            ->assertSee('Perlu Ditindaklanjuti')
+            ->assertSee('Ringkasan Analitik Otomatis')
+            ->assertSee('Harga 0 tetap dianggap sudah diisi')
+            ->assertSee('Barang paling banyak keluar pada periode pilihan adalah Paling Banyak Keluar (PRI-OUT) sebanyak 5 unit.');
+
+        $notifications = $response->viewData('priorityNotifications');
+        $this->assertSame(['Stok menipis', 'Dead stock', 'Harga beli belum diisi'], $notifications->pluck('category')->all());
+        $this->assertSame(['Tinggi', 'Sedang', 'Rendah'], $notifications->pluck('priority')->all());
+        $this->assertSame([3, 3, 2], $notifications->pluck('affected_count')->all());
+        $this->assertSame('PRI-DEAD', $response->viewData('movement')['top_dead_stock']['kode_barang']);
+        $this->assertSame('2000.00', $response->viewData('movement')['dead_stock_valuation']['calculated_value']);
+        $this->assertSame(1, $response->viewData('movement')['dead_stock_valuation']['unpriced_item_count']);
+        $this->assertSame('PRI-DEAD', $response->viewData('deadStockRows')->getCollection()->first()['kode_barang']);
+        $this->assertSame(3, $response->viewData('deadStockRows')->total());
+    }
+
+    public function test_priority_current_stock_uses_selected_warehouse_balance_threshold_and_master_supplier_scope(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $supplier = Supplier::create(['kode_supplier' => 'SCOPE-SUP', 'nama_supplier' => 'Supplier Cakupan']);
+        $otherSupplier = Supplier::create(['kode_supplier' => 'SCOPE-OTHER', 'nama_supplier' => 'Supplier Dikecualikan']);
+        $selected = Warehouse::create(['kode_gudang' => 'SCOPE-A', 'nama_gudang' => 'Terpilih']);
+        $other = Warehouse::create(['kode_gudang' => 'SCOPE-B', 'nama_gudang' => 'Lain']);
+
+        $warehouseLow = $this->barang('SCOPE-LOW', 'Menipis Hanya di Gudang', 100, null, $supplier->id);
+        $this->stock($warehouseLow, $selected, 2, 3);
+        $this->stock($warehouseLow, $other, 98, 0);
+
+        $globallyLowOnly = $this->barang('SCOPE-GLOBAL', 'Aman di Gudang', 2, '10.00', $supplier->id);
+        $this->stock($globallyLowOnly, $selected, 10, 0);
+
+        $excluded = $this->barang('SCOPE-EXCLUDED', 'Supplier Lain', 1, null, $otherSupplier->id);
+        $this->stock($excluded, $selected, 1, 5);
+
+        $response = $this->actingAs($admin)->get(route('analytics.index', [
+            'warehouse_id' => $selected->id, 'supplier_id' => $supplier->id,
+        ]))->assertOk();
+
+        $attention = $response->viewData('attention');
+        $this->assertSame(1, $attention['low_stock_count']);
+        $this->assertSame(1, $attention['unpriced_item_count']);
+        $this->assertSame(2, $attention['unpriced_stock_units']);
+        $this->assertSame('SCOPE-LOW', $attention['top_low_stock']['kode_barang']);
+        $this->assertSame('SCOPE-LOW', $attention['top_unpriced']['kode_barang']);
+        $this->assertSame('100.00', $response->viewData('valuation')['total']['calculated_value']);
+        $response->assertSee('saldo gudang kurang dari atau sama dengan warehouse_stocks.stok_minimum');
+    }
+
     private function barang(
         string $code,
         string $name,
@@ -285,13 +380,13 @@ class AnalyticsPageTest extends TestCase
         ]);
     }
 
-    private function stock(Barang $barang, Warehouse $warehouse, int $quantity): WarehouseStock
+    private function stock(Barang $barang, Warehouse $warehouse, int $quantity, int $minimum = 0): WarehouseStock
     {
         return WarehouseStock::create([
             'barang_id' => $barang->id,
             'warehouse_id' => $warehouse->id,
             'stok' => $quantity,
-            'stok_minimum' => 0,
+            'stok_minimum' => $minimum,
         ]);
     }
 

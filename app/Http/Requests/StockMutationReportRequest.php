@@ -18,7 +18,7 @@ class StockMutationReportRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (! $this->has('period')) {
-            $this->merge(['period' => '7']);
+            $this->merge(['period' => $this->routeIs('stock-mutations.*') ? '30' : '7']);
         }
         if (! $this->has('activity')) {
             $this->merge(['activity' => 'mutated']);

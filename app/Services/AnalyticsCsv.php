@@ -59,7 +59,7 @@ class AnalyticsCsv
         yield ['Total mutasi masuk', $mutation['totals']['total_masuk']];
         yield ['Total mutasi keluar', $mutation['totals']['total_keluar']];
         yield [$valuation['total']['label'], $valuation['total']['calculated_value']];
-        yield ['Rasio perputaran', $mutation['turnover']['formatted'] ?? 'Tidak tersedia'];
+        yield ['Rasio perputaran', $mutation['turnover']['percentage_formatted'] === null ? 'Tidak tersedia' : $mutation['turnover']['percentage_formatted'].'%'];
         yield ['Status rasio', $mutation['turnover']['reason'] ?? 'Tersedia'];
         yield ['Barang tanpa harga', $valuation['total']['unpriced_item_count']];
         yield ['Unit tanpa harga', $valuation['total']['unpriced_stock_units']];

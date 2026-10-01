@@ -40,7 +40,7 @@
     <x-ui.card class="stat-card stat-success"><div class="stat-icon"><i class="ti-import"></i></div><p>Total Mutasi Masuk</p><strong>{{ number_format($mutation['totals']['total_masuk'], 0, ',', '.') }}</strong><small>{{ $mutation['period']['start_date'] }}–{{ $mutation['period']['end_date'] }}</small></x-ui.card>
     <x-ui.card class="stat-card stat-danger"><div class="stat-icon"><i class="ti-export"></i></div><p>Total Mutasi Keluar</p><strong>{{ number_format($mutation['totals']['total_keluar'], 0, ',', '.') }}</strong><small>{{ $mutation['period']['start_date'] }}–{{ $mutation['period']['end_date'] }}</small></x-ui.card>
     <x-ui.card class="stat-card stat-info"><div class="stat-icon"><i class="ti-money"></i></div><p>{{ $valuation['total']['label'] }}</p><strong>{{ $formatMoney($valuation['total']['calculated_value']) }}</strong><small>Acuan {{ $valuation['scope']['as_of']->format('d/m/Y H:i') }} WIB · {{ number_format((float) $valuation['total']['coverage_percentage'], 1, ',', '.') }}% unit memiliki harga</small></x-ui.card>
-    <x-ui.card class="stat-card"><div class="stat-icon"><i class="ti-reload"></i></div><p>Rasio Perputaran</p><strong>{{ $mutation['turnover']['formatted'] ?? 'Tidak tersedia' }}</strong><small>{{ $mutation['turnover']['available'] ? $mutation['turnover']['definition'] : $mutation['turnover']['reason'] }}</small></x-ui.card>
+    <x-ui.card class="stat-card"><div class="stat-icon"><i class="ti-reload"></i></div><p>Rasio Perputaran</p><strong>{{ $mutation['turnover']['percentage_formatted'] !== null ? $mutation['turnover']['percentage_formatted'].'%' : 'Tidak tersedia' }}</strong><small>{{ $mutation['turnover']['available'] ? $mutation['turnover']['definition'] : $mutation['turnover']['reason'] }}</small></x-ui.card>
 </div>
 
 <script type="application/json" id="analytics-chart-data">@json($chartData)</script>
@@ -66,6 +66,33 @@
 </div>
 <p class="chart-feedback is-error analytics-chart-feedback" role="alert" hidden>Grafik tidak dapat dimuat. Gunakan tabel data pada setiap kartu sebagai alternatif.</p>
 
+<section class="analytics-attention-section mb-4" aria-labelledby="attention-heading">
+    <div class="table-heading analytics-section-heading"><div><h2 id="attention-heading">Perlu Ditindaklanjuti</h2><p>Prioritas dihitung dari seluruh data yang cocok dengan filter, bukan dari halaman tabel aktif.</p></div></div>
+    @if($priorityNotifications->isEmpty())
+        <x-ui.card><x-ui.empty-state compact icon="ti-check" title="Tidak ada notifikasi prioritas" description="Tidak ada stok menipis, dead stock, atau harga beli yang belum diisi pada cakupan ini." /></x-ui.card>
+    @else
+        <div class="priority-notification-grid">
+            @foreach($priorityNotifications as $notification)
+                <x-ui.card class="priority-notification-card priority-{{ $notification['priority_key'] }}">
+                    <div class="priority-notification-heading"><div><span class="priority-category">{{ $notification['category'] }}</span><h3>{{ number_format($notification['affected_count'], 0, ',', '.') }} barang terdampak</h3></div><span class="priority-level">Prioritas {{ $notification['priority'] }}</span></div>
+                    <p>{{ $notification['reason'] }}</p>
+                    @if($notification['top_item'])<small>Fokus awal: <strong>{{ $notification['top_item']['nama_barang'] }}</strong> ({{ $notification['top_item']['kode_barang'] }})</small>@endif
+                    <x-ui.button :href="$notification['action_url']" variant="outline-primary" size="sm" icon="ti-arrow-right">{{ $notification['action_label'] }}</x-ui.button>
+                </x-ui.card>
+            @endforeach
+        </div>
+    @endif
+</section>
+
+<x-ui.card class="analytics-summary-card mb-4">
+    <div class="table-heading analytics-section-heading"><div><h2>Ringkasan Analitik Otomatis</h2><p>Disusun dengan aturan deterministik dari agregasi aktual; tanpa layanan AI eksternal.</p></div></div>
+    <div class="automatic-summary-grid">
+        <div><h3>Ikhtisar</h3><ul>@foreach($automaticSummary['statements'] as $statement)<li>{{ $statement }}</li>@endforeach</ul></div>
+        <div><h3>Saran tindakan</h3><ul>@foreach($automaticSummary['recommendations'] as $recommendation)<li>{{ $recommendation }}</li>@endforeach</ul></div>
+    </div>
+    @if($automaticSummary['limitations'] !== [])<div class="automatic-summary-limitations"><strong>Keterbatasan data</strong><ul>@foreach($automaticSummary['limitations'] as $limitation)<li>{{ $limitation }}</li>@endforeach</ul></div>@endif
+</x-ui.card>
+
 <x-ui.card class="mb-4">
     <div class="table-heading"><div><h2>Rekap Mutasi Stok</h2><p>Periode terpilih: {{ $mutation['period']['start_date'] }} sampai {{ $mutation['period']['end_date'] }}. Saldo konsolidasi memakai barang.stok; filter gudang memakai warehouse_stocks.stok.</p></div><x-ui.button :href="route('stock-mutations.index', $filterQuery)" variant="outline-primary" size="sm">Buka Laporan Mutasi</x-ui.button></div>
     <div class="table-responsive"><table class="table"><thead><tr><th>Barang</th><th>Kategori</th><th>Supplier saat ini</th><th class="text-end">Saldo awal</th><th class="text-end">Masuk</th><th class="text-end">Keluar</th><th class="text-end">Saldo akhir</th></tr></thead><tbody>@forelse($mutationRows as $row)<tr><td><strong>{{ $row['barang']->nama_barang }}</strong><small class="d-block text-muted">{{ $row['barang']->kode_barang }}</small></td><td>{{ $row['barang']->kategori }}</td><td>{{ $row['barang']->supplier?->nama_supplier ?? 'Tanpa Supplier' }}</td><td class="text-end">{{ $row['history_available'] ? number_format($row['saldo_awal'], 0, ',', '.') : 'Tidak tersedia' }}</td><td class="text-end text-success">{{ number_format($row['total_masuk'], 0, ',', '.') }}</td><td class="text-end text-danger">{{ number_format($row['total_keluar'], 0, ',', '.') }}</td><td class="text-end">{{ $row['history_available'] ? number_format($row['saldo_akhir'], 0, ',', '.') : 'Tidak tersedia' }}</td></tr>@empty<tr><td colspan="7"><x-ui.empty-state icon="ti-exchange-vertical" title="Belum ada data mutasi" description="Tidak ada barang yang cocok dengan filter analitik." /></td></tr>@endforelse</tbody></table></div>
@@ -79,7 +106,7 @@
 
 <div class="row">
     <div class="col-xl-6 mb-4"><x-ui.card class="h-100"><div class="table-heading"><div><h2>Slow-Moving</h2><p>Stok positif dengan OUT 1–2 unit selama {{ $movement['periods']['start_60'] }}–{{ $movement['periods']['end'] }}.</p></div></div><div class="table-responsive"><table class="table"><thead><tr><th>Barang</th><th class="text-end">OUT</th><th class="text-end">Stok</th></tr></thead><tbody>@forelse($slowMovingRows as $row)<tr><td>{{ $row['nama_barang'] }}<small class="d-block text-muted">{{ $row['kode_barang'] }}</small></td><td class="text-end">{{ $row['total_unit_keluar'] }}</td><td class="text-end">{{ $row['stok_saat_ini'] }}</td></tr>@empty<tr><td colspan="3"><x-ui.empty-state compact icon="ti-timer" title="Tidak ada Slow-Moving" description="Belum ada barang yang memenuhi definisi slow-moving." /></td></tr>@endforelse</tbody></table></div>@if($slowMovingRows->hasPages())<div class="pagination-wrap"><small class="text-muted">Menampilkan {{ $slowMovingRows->firstItem() }}–{{ $slowMovingRows->lastItem() }} dari {{ $slowMovingRows->total() }} barang</small>{{ $slowMovingRows->onEachSide(1)->links() }}</div>@endif</x-ui.card></div>
-    <div class="col-xl-6 mb-4">
+    <div class="col-xl-6 mb-4" id="dead-stock">
         <x-ui.card class="h-100">
             <div class="table-heading"><div><h2>Dead Stock</h2><p>Stok positif tanpa OUT selama {{ $movement['periods']['start_60'] }}–{{ $movement['periods']['end'] }}. Nilai terhitung: <strong>{{ $formatMoney($movement['dead_stock_valuation']['calculated_value']) }}</strong>
                 @if(! $movement['dead_stock_valuation']['is_complete'])

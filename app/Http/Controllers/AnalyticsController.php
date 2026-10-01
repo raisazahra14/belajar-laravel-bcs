@@ -6,6 +6,7 @@ use App\Http\Requests\StockMutationReportRequest;
 use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Services\AnalyticsCsv;
+use App\Services\AnalyticsInsightService;
 use App\Services\InventoryAnalyticsService;
 use App\Services\StockMutationReportService;
 use Illuminate\Contracts\View\View;
@@ -17,21 +18,31 @@ class AnalyticsController extends Controller
         StockMutationReportRequest $request,
         StockMutationReportService $mutations,
         InventoryAnalyticsService $analytics,
+        AnalyticsInsightService $insights,
     ): View {
         $filters = $this->filters($request);
         $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
         $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
+        $mutation = $mutations->summary($filters);
+        $movement = $analytics->movementSummary($warehouseId, $supplierId);
+        $valuation = $analytics->valuationSummary($warehouseId, $supplierId);
+        $attention = $analytics->currentAttentionSummary($warehouseId, $supplierId);
+        $selectedWarehouse = $warehouseId === null ? null : Warehouse::withTrashed()->find($warehouseId);
+        $insightData = $insights->build($mutation, $movement, $attention, $selectedWarehouse?->nama_gudang);
         $data = [
             'filters' => $filters,
-            'mutation' => $mutations->summary($filters),
-            'movement' => $analytics->movementSummary($warehouseId, $supplierId),
-            'valuation' => $analytics->valuationSummary($warehouseId, $supplierId),
+            'mutation' => $mutation,
+            'movement' => $movement,
+            'valuation' => $valuation,
+            'attention' => $attention,
+            'priorityNotifications' => $insightData['notifications'],
+            'automaticSummary' => $insightData['summary'],
             'mutationRows' => $mutations->paginatedRows($filters, 10, 'mutation_page'),
             'slowMovingRows' => $analytics->paginatedMovement('slow', $warehouseId, $supplierId, 5, 'slow_page'),
             'deadStockRows' => $analytics->paginatedMovement('dead', $warehouseId, $supplierId, 5, 'dead_page'),
             'valuationCategoryRows' => $analytics->paginatedValuationCategories($warehouseId, $supplierId, 5, 'category_page'),
             'valuationWarehouseRows' => $analytics->paginatedValuationWarehouses($warehouseId, $supplierId, 5, 'warehouse_page'),
-            'selectedWarehouse' => $warehouseId === null ? null : Warehouse::withTrashed()->find($warehouseId),
+            'selectedWarehouse' => $selectedWarehouse,
             'selectedSupplier' => $supplierId === null ? null : Supplier::withTrashed()->find($supplierId),
         ];
         $data['suppliers'] = Supplier::withTrashed()
