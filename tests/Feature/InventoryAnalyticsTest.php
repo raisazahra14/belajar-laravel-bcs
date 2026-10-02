@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Barang;
 use App\Models\StokTransaction;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
@@ -274,6 +275,84 @@ class InventoryAnalyticsTest extends TestCase
         $this->assertSame(['5999.97', '0.01'], $valuation['category_chart']['values']);
         $this->assertTrue($valuation['category_chart']['has_value']);
         $this->assertFalse($valuation['category_chart']['is_complete']);
+    }
+
+    public function test_aggregated_valuation_details_apply_filters_preserve_null_prices_and_do_not_duplicate_master_totals(): void
+    {
+        $supplierA = Supplier::create(['kode_supplier' => 'VAL-SUP-A', 'nama_supplier' => 'Supplier Valuasi A']);
+        $supplierB = Supplier::create(['kode_supplier' => 'VAL-SUP-B', 'nama_supplier' => 'Supplier Valuasi B']);
+        $warehouseA = Warehouse::create(['kode_gudang' => 'AGG-A', 'nama_gudang' => 'Gudang Agregat A']);
+        $warehouseB = Warehouse::create(['kode_gudang' => 'AGG-B', 'nama_gudang' => 'Gudang Agregat B']);
+
+        $split = $this->barang('AGG-SPLIT', 5, ['supplier_id' => $supplierA->id, 'kategori' => 'ATK', 'harga_beli' => '100.00']);
+        $zero = $this->barang('AGG-ZERO', 2, ['supplier_id' => $supplierA->id, 'kategori' => 'ATK', 'harga_beli' => '0.00']);
+        $unknown = $this->barang('AGG-NULL', 4, ['supplier_id' => $supplierA->id, 'kategori' => 'Elektronik', 'harga_beli' => null]);
+        $otherSupplier = $this->barang('AGG-OTHER', 10, ['supplier_id' => $supplierB->id, 'kategori' => 'ATK', 'harga_beli' => '1000.00']);
+
+        $this->warehouseStock($split, $warehouseA, 2);
+        $this->warehouseStock($split, $warehouseB, 3);
+        $this->warehouseStock($zero, $warehouseA, 2);
+        $this->warehouseStock($unknown, $warehouseB, 4);
+        $this->warehouseStock($otherSupplier, $warehouseA, 10);
+
+        $service = app(InventoryAnalyticsService::class);
+        $report = $service->valuationReport(null, $supplierA->id);
+
+        $this->assertSame(3, $report['total']['item_count']);
+        $this->assertSame(11, $report['total']['stock_units']);
+        $this->assertSame('500.00', $report['total']['calculated_value']);
+        $this->assertSame(1, $report['total']['unpriced_item_count']);
+        $this->assertSame(4, $report['total']['unpriced_stock_units']);
+        $this->assertSame('500.00', $report['warehouse_total']['calculated_value']);
+        $this->assertSame(11, $report['warehouse_total']['stock_units']);
+        $this->assertTrue($report['stock_consistency']['is_consistent']);
+
+        $atk = $report['categories']->firstWhere('kategori', 'ATK');
+        $this->assertSame(2, $atk['item_count']);
+        $this->assertSame(7, $atk['stock_units']);
+        $this->assertSame('500.00', $atk['calculated_value']);
+        $this->assertSame(0, $atk['unpriced_item_count']);
+
+        $warehouseFilter = $service->valuationReport($warehouseA->id, $supplierA->id, 'ATK');
+        $this->assertSame(2, $warehouseFilter['total']['item_count']);
+        $this->assertSame(4, $warehouseFilter['total']['stock_units']);
+        $this->assertSame('200.00', $warehouseFilter['total']['calculated_value']);
+        $this->assertSame('200.00', $warehouseFilter['warehouse_total']['calculated_value']);
+        $this->assertSame(1, $warehouseFilter['warehouses']->count());
+        $this->assertSame('AGG-A', $warehouseFilter['warehouses']->first()['kode_gudang']);
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $csv = $this->actingAs($admin)->get(route('analytics.csv', [
+            'supplier_id' => $supplierA->id,
+            'warehouse_id' => $warehouseA->id,
+            'category' => 'ATK',
+        ]))->assertOk()->streamedContent();
+        $this->assertStringContainsString('"Filter kategori",ATK', $csv);
+        $this->assertStringContainsString('Jumlah jenis barang', $csv);
+        $this->assertStringContainsString('AGG-A', $csv);
+        $this->assertStringNotContainsString('AGG-OTHER', $csv);
+    }
+
+    public function test_aggregated_valuation_exposes_master_and_warehouse_difference_without_mutation(): void
+    {
+        $warehouse = Warehouse::create(['kode_gudang' => 'AGG-DIFF', 'nama_gudang' => 'Gudang Agregat Selisih']);
+        $barang = $this->barang('AGG-DIFF', 8, ['harga_beli' => '250.00']);
+        $stock = $this->warehouseStock($barang, $warehouse, 5);
+
+        $valuation = app(InventoryAnalyticsService::class)->valuationSummary();
+
+        $this->assertSame('2000.00', $valuation['total']['calculated_value']);
+        $this->assertSame('1250.00', $valuation['warehouse_total']['calculated_value']);
+        $this->assertSame(8, $valuation['total']['stock_units']);
+        $this->assertSame(5, $valuation['warehouse_total']['stock_units']);
+        $this->assertSame(3, $valuation['stock_consistency']['difference_units']);
+        $this->assertFalse($valuation['stock_consistency']['is_consistent']);
+        $this->assertSame(1, $valuation['stock_consistency']['master_greater_item_count']);
+        $this->assertSame(3, $valuation['stock_consistency']['undistributed_units']);
+        $this->assertSame(0, $valuation['stock_consistency']['excess_warehouse_units']);
+        $this->assertStringContainsString('belum tercermin pada saldo gudang', $valuation['stock_consistency']['possible_causes'][0]);
+        $this->assertSame(8, $barang->fresh()->stok);
+        $this->assertSame(5, $stock->fresh()->stok);
     }
 
     public function test_valuation_reports_stock_mismatch_without_changing_balances(): void

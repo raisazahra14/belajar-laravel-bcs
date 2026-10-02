@@ -9,6 +9,7 @@ use App\Http\Controllers\BarangTrashController;
 use App\Http\Controllers\DocumentToolController;
 use App\Http\Controllers\DocumentVerificationController;
 use App\Http\Controllers\DocumentVerificationNotificationController;
+use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\StockMutationReportController;
 use App\Http\Controllers\StockPredictionController;
 use App\Http\Controllers\StockPredictionNotificationController;
@@ -69,6 +70,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/prediksi-stok/analyze-all', [StockPredictionController::class, 'analyzeAll'])->name('stock-predictions.analyze-all');
     Route::post('/prediksi-stok/barang/{barang}', [StockPredictionController::class, 'analyze'])->name('stock-predictions.analyze');
     Route::post('/prediksi-stok/{stockPrediction}/approve', [StockPredictionController::class, 'approve'])->name('stock-predictions.approve');
+    Route::get('/notifikasi', [NotificationCenterController::class, 'index'])->name('notifications.index');
+    Route::get('/notifikasi/feed', [NotificationCenterController::class, 'feed'])->name('notifications.feed');
+    Route::patch('/notifikasi/read-all', [NotificationCenterController::class, 'readAll'])->name('notifications.read-all');
+    Route::get('/notifikasi-prediksi/{notification}', [StockPredictionNotificationController::class, 'open'])->whereNumber('notification')->name('prediction-notifications.open');
     Route::patch('/notifikasi-prediksi/read-all', [StockPredictionNotificationController::class, 'readAll'])->name('prediction-notifications.read-all');
     Route::patch('/notifikasi-prediksi/{notification}/read', [StockPredictionNotificationController::class, 'read'])->whereNumber('notification')->name('prediction-notifications.read');
     Route::get('/notifikasi-ocr', [DocumentVerificationNotificationController::class, 'index'])->name('ocr-notifications.index');

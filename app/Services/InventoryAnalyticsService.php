@@ -18,13 +18,14 @@ class InventoryAnalyticsService
         ?int $supplierId,
         int $perPage,
         string $pageName,
+        ?string $category = null,
     ): LengthAwarePaginator {
         [$start, $asOf] = $this->movementWindow(60);
         $excluded = $warehouseId === null
             ? collect()
             : $this->invalidWarehouseHistory($warehouseId, $start, $asOf, $supplierId);
         $rows = DB::query()->fromSub(
-            $this->movementClassificationQuery($start, $asOf, $warehouseId, $supplierId, $excluded),
+            $this->movementClassificationQuery($start, $asOf, $warehouseId, $supplierId, $excluded, $category),
             'movement_rows',
         );
         match ($classification) {
@@ -49,7 +50,7 @@ class InventoryAnalyticsService
     }
 
     /** Ringkasan halaman tanpa memuat seluruh daftar slow/dead stock. */
-    public function movementSummary(?int $warehouseId = null, ?int $supplierId = null): array
+    public function movementSummary(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
     {
         $timezone = config('app.display_timezone', 'Asia/Jakarta');
         $nowLocal = CarbonImmutable::now($timezone);
@@ -59,7 +60,7 @@ class InventoryAnalyticsService
         $warehouse = $warehouseId === null ? null : Warehouse::withTrashed()->findOrFail($warehouseId);
         $invalid30 = $warehouseId === null ? collect() : $this->invalidWarehouseHistory($warehouseId, $start30, $asOf, $supplierId);
         $invalid60 = $warehouseId === null ? collect() : $this->invalidWarehouseHistory($warehouseId, $start60, $asOf, $supplierId);
-        $base = $this->movementClassificationQuery($start60, $asOf, $warehouseId, $supplierId, $invalid60);
+        $base = $this->movementClassificationQuery($start60, $asOf, $warehouseId, $supplierId, $invalid60, $category);
         $composition = DB::query()->fromSub(clone $base, 'movement_rows')->selectRaw(
             'SUM(CASE WHEN total_unit_keluar > 2 THEN 1 ELSE 0 END) AS active_items,
              SUM(CASE WHEN total_unit_keluar BETWEEN 1 AND 2 THEN 1 ELSE 0 END) AS slow_items,
@@ -83,7 +84,7 @@ class InventoryAnalyticsService
             ->first();
 
         return [
-            'fast_moving' => $this->fastMoving($start30, $asOf, $warehouseId, $supplierId, $invalid30),
+            'fast_moving' => $this->fastMoving($start30, $asOf, $warehouseId, $supplierId, $invalid30, $category),
             'composition' => [
                 'labels' => ['Aktif (>2 OUT)', 'Slow-Moving (1–2 OUT)', 'Dead Stock (0 OUT)'],
                 'item_counts' => $itemCounts,
@@ -116,10 +117,11 @@ class InventoryAnalyticsService
      *
      * @return array<string,mixed>
      */
-    public function currentAttentionSummary(?int $warehouseId = null, ?int $supplierId = null): array
+    public function currentAttentionSummary(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
     {
         $base = DB::table('barang')->whereNull('barang.deleted_at')
-            ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId));
+            ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId))
+            ->when($category !== null, fn (Builder $query) => $query->where('barang.kategori', $category));
         $stock = 'barang.stok';
         $minimum = (string) Barang::MINIMUM_STOCK;
 
@@ -181,13 +183,16 @@ class InventoryAnalyticsService
     }
 
     /** Ringkasan valuasi halaman; seluruh KPI dihitung oleh agregasi database. */
-    public function valuationSummary(?int $warehouseId = null, ?int $supplierId = null): array
+    public function valuationSummary(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
     {
         $total = $this->valuationBucketFromAggregate(
-            $this->valuationBaseQuery($warehouseId, $supplierId)->first(),
+            $this->valuationBaseQuery($warehouseId, $supplierId, $category)->first(),
         );
-        $categoryRows = $this->valuationCategoryQuery($warehouseId, $supplierId)->get()
+        $categoryRows = $this->valuationCategoryQuery($warehouseId, $supplierId, $category)->get()
             ->map(fn (object $row): array => ['kategori' => $row->kategori, ...$this->valuationBucketFromAggregate($row)]);
+        $warehouseTotal = $this->valuationBucketFromAggregate(
+            $this->valuationWarehouseBaseQuery($warehouseId, $supplierId, $category)->first(),
+        );
         $chartRows = $categoryRows->sortByDesc(fn (array $row): float => (float) $row['calculated_value'])->values();
         if ($chartRows->count() > 7) {
             $otherCents = $chartRows->skip(7)->sum(fn (array $row): int => (int) $row['calculated_value_cents']);
@@ -197,6 +202,7 @@ class InventoryAnalyticsService
         $consistencyItems = DB::table('barang')
             ->whereNull('barang.deleted_at')
             ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId))
+            ->when($category !== null, fn (Builder $query) => $query->where('barang.kategori', $category))
             ->leftJoinSub(
                 DB::table('warehouse_stocks')->selectRaw('barang_id, SUM(stok) AS warehouse_stock')->groupBy('barang_id'),
                 'distributed',
@@ -208,14 +214,49 @@ class InventoryAnalyticsService
         $consistency = DB::query()->fromSub($consistencyItems, 'balances')->selectRaw(
             'COALESCE(SUM(master_stock), 0) AS master_total,
              COALESCE(SUM(warehouse_stock), 0) AS warehouse_total,
-             SUM(CASE WHEN master_stock <> warehouse_stock THEN 1 ELSE 0 END) AS mismatches',
+             SUM(CASE WHEN master_stock <> warehouse_stock THEN 1 ELSE 0 END) AS mismatches,
+             SUM(CASE WHEN master_stock > warehouse_stock THEN 1 ELSE 0 END) AS master_greater_items,
+             SUM(CASE WHEN master_stock < warehouse_stock THEN 1 ELSE 0 END) AS warehouse_greater_items,
+             COALESCE(SUM(CASE WHEN master_stock > warehouse_stock THEN master_stock - warehouse_stock ELSE 0 END), 0) AS undistributed_units,
+             COALESCE(SUM(CASE WHEN master_stock < warehouse_stock THEN warehouse_stock - master_stock ELSE 0 END), 0) AS excess_warehouse_units',
         )->first();
         $masterTotal = (int) ($consistency->master_total ?? 0);
-        $warehouseTotal = (int) ($consistency->warehouse_total ?? 0);
+        $warehouseStockTotal = (int) ($consistency->warehouse_total ?? 0);
         $mismatches = (int) ($consistency->mismatches ?? 0);
+        $masterGreaterItems = (int) ($consistency->master_greater_items ?? 0);
+        $warehouseGreaterItems = (int) ($consistency->warehouse_greater_items ?? 0);
+        $undistributedUnits = (int) ($consistency->undistributed_units ?? 0);
+        $excessWarehouseUnits = (int) ($consistency->excess_warehouse_units ?? 0);
+        $linkEvidence = DB::table('stok_transactions as transactions')
+            ->join('barang', 'barang.id', '=', 'transactions.barang_id')
+            ->leftJoin('warehouse_stocks as linked_stock', 'linked_stock.id', '=', 'transactions.warehouse_stock_id')
+            ->whereNull('barang.deleted_at')
+            ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId))
+            ->when($category !== null, fn (Builder $query) => $query->where('barang.kategori', $category))
+            ->selectRaw('SUM(CASE WHEN transactions.warehouse_stock_id IS NULL OR linked_stock.id IS NULL THEN 1 ELSE 0 END) AS unlinked_transactions')
+            ->selectRaw('SUM(CASE WHEN linked_stock.id IS NOT NULL AND linked_stock.barang_id <> transactions.barang_id THEN 1 ELSE 0 END) AS wrong_item_links')
+            ->first();
+        $unlinkedTransactions = (int) ($linkEvidence->unlinked_transactions ?? 0);
+        $wrongItemLinks = (int) ($linkEvidence->wrong_item_links ?? 0);
+        $possibleCauses = [];
+        if ($mismatches > 0) {
+            if ($masterGreaterItems > 0) {
+                $possibleCauses[] = "{$masterGreaterItems} barang mempunyai {$undistributedUnits} unit saldo master yang belum tercermin pada saldo gudang.";
+            }
+            if ($warehouseGreaterItems > 0) {
+                $possibleCauses[] = "{$warehouseGreaterItems} barang mempunyai {$excessWarehouseUnits} unit saldo gudang di atas saldo master.";
+            }
+            if ($unlinkedTransactions > 0) {
+                $possibleCauses[] = "Ditemukan {$unlinkedTransactions} transaksi tanpa relasi saldo gudang yang valid.";
+            }
+            if ($wrongItemLinks > 0) {
+                $possibleCauses[] = "Ditemukan {$wrongItemLinks} transaksi yang menunjuk saldo gudang milik barang lain.";
+            }
+        }
 
         return [
             'total' => $total,
+            'warehouse_total' => $warehouseTotal,
             'category_chart' => [
                 'labels' => $chartRows->pluck('kategori')->all(),
                 'values' => $chartRows->pluck('calculated_value')->all(),
@@ -227,25 +268,33 @@ class InventoryAnalyticsService
             'stock_consistency' => [
                 'is_consistent' => $mismatches === 0,
                 'status' => $mismatches === 0 ? 'Sesuai' : 'Terdapat selisih',
-                'scope' => 'Seluruh gudang untuk barang aktif yang cocok dengan filter supplier.',
+                'scope' => 'Seluruh gudang untuk barang aktif yang cocok dengan filter supplier dan kategori.',
                 'barang_stock_units' => $masterTotal,
-                'warehouse_stock_units' => $warehouseTotal,
-                'difference_units' => $masterTotal - $warehouseTotal,
-                'absolute_difference_units' => abs($masterTotal - $warehouseTotal),
+                'warehouse_stock_units' => $warehouseStockTotal,
+                'difference_units' => $masterTotal - $warehouseStockTotal,
+                'absolute_difference_units' => abs($masterTotal - $warehouseStockTotal),
                 'mismatched_item_count' => $mismatches,
+                'master_greater_item_count' => $masterGreaterItems,
+                'warehouse_greater_item_count' => $warehouseGreaterItems,
+                'undistributed_units' => $undistributedUnits,
+                'excess_warehouse_units' => $excessWarehouseUnits,
+                'unlinked_transaction_count' => $unlinkedTransactions,
+                'wrong_item_link_count' => $wrongItemLinks,
+                'possible_causes' => $possibleCauses,
                 'items' => collect(),
             ],
             'scope' => [
                 'includes_soft_deleted_items' => false, 'warehouse_id' => $warehouseId, 'supplier_id' => $supplierId,
+                'category' => $category,
                 'as_of' => CarbonImmutable::now(config('app.display_timezone', 'Asia/Jakarta')),
                 'description' => 'Hanya barang aktif; barang di tong sampah tidak termasuk valuasi aset inventaris aktif.',
             ],
         ];
     }
 
-    public function paginatedValuationCategories(?int $warehouseId, ?int $supplierId, int $perPage, string $pageName): LengthAwarePaginator
+    public function paginatedValuationCategories(?int $warehouseId, ?int $supplierId, int $perPage, string $pageName, ?string $category = null): LengthAwarePaginator
     {
-        $paginator = $this->valuationCategoryQuery($warehouseId, $supplierId)
+        $paginator = $this->valuationCategoryQuery($warehouseId, $supplierId, $category)
             ->orderBy('kategori')->paginate($perPage, ['*'], $pageName)->withQueryString();
         $paginator->setCollection($paginator->getCollection()->map(
             fn (object $row): array => ['kategori' => $row->kategori, ...$this->valuationBucketFromAggregate($row)],
@@ -254,17 +303,11 @@ class InventoryAnalyticsService
         return $paginator;
     }
 
-    public function paginatedValuationWarehouses(?int $warehouseId, ?int $supplierId, int $perPage, string $pageName): LengthAwarePaginator
+    public function paginatedValuationWarehouses(?int $warehouseId, ?int $supplierId, int $perPage, string $pageName, ?string $category = null): LengthAwarePaginator
     {
-        $query = DB::table('warehouse_stocks')
-            ->join('warehouses', 'warehouses.id', '=', 'warehouse_stocks.warehouse_id')
-            ->join('barang', 'barang.id', '=', 'warehouse_stocks.barang_id')
-            ->whereNull('barang.deleted_at')
-            ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId))
-            ->when($warehouseId !== null, fn (Builder $query) => $query->where('warehouses.id', $warehouseId))
+        $query = $this->valuationWarehouseBaseQuery($warehouseId, $supplierId, $category)
             ->groupBy('warehouses.id', 'warehouses.kode_gudang', 'warehouses.nama_gudang', 'warehouses.deleted_at')
-            ->select(['warehouses.id as warehouse_id', 'warehouses.kode_gudang', 'warehouses.nama_gudang', 'warehouses.deleted_at'])
-            ->selectRaw($this->valuationAggregateSql('warehouse_stocks.stok'))
+            ->addSelect(['warehouses.id as warehouse_id', 'warehouses.kode_gudang', 'warehouses.nama_gudang', 'warehouses.deleted_at'])
             ->orderBy('warehouses.kode_gudang');
         $paginator = $query->paginate($perPage, ['*'], $pageName)->withQueryString();
         $paginator->setCollection($paginator->getCollection()->map(fn (object $row): array => [
@@ -278,10 +321,11 @@ class InventoryAnalyticsService
         return $paginator;
     }
 
-    private function valuationBaseQuery(?int $warehouseId, ?int $supplierId): Builder
+    private function valuationBaseQuery(?int $warehouseId, ?int $supplierId, ?string $category = null): Builder
     {
         $query = DB::table('barang')->whereNull('barang.deleted_at')
-            ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId));
+            ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId))
+            ->when($category !== null, fn (Builder $query) => $query->where('barang.kategori', $category));
         $stock = 'barang.stok';
         if ($warehouseId !== null) {
             $query->join('warehouse_stocks as selected_stock', function ($join) use ($warehouseId): void {
@@ -293,10 +337,45 @@ class InventoryAnalyticsService
         return $query->where($stock, '>', 0)->selectRaw($this->valuationAggregateSql($stock));
     }
 
-    private function valuationCategoryQuery(?int $warehouseId, ?int $supplierId): Builder
+    private function valuationCategoryQuery(?int $warehouseId, ?int $supplierId, ?string $category = null): Builder
     {
-        return $this->valuationBaseQuery($warehouseId, $supplierId)
+        return $this->valuationBaseQuery($warehouseId, $supplierId, $category)
             ->addSelect('barang.kategori')->groupBy('barang.kategori');
+    }
+
+    private function valuationWarehouseBaseQuery(?int $warehouseId, ?int $supplierId, ?string $category = null): Builder
+    {
+        return DB::table('warehouse_stocks')
+            ->join('warehouses', 'warehouses.id', '=', 'warehouse_stocks.warehouse_id')
+            ->join('barang', 'barang.id', '=', 'warehouse_stocks.barang_id')
+            ->whereNull('barang.deleted_at')
+            ->where('warehouse_stocks.stok', '>', 0)
+            ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId))
+            ->when($category !== null, fn (Builder $query) => $query->where('barang.kategori', $category))
+            ->when($warehouseId !== null, fn (Builder $query) => $query->where('warehouses.id', $warehouseId))
+            ->selectRaw($this->valuationAggregateSql('warehouse_stocks.stok'));
+    }
+
+    /** Valuasi lengkap untuk ekspor tanpa memuat dan menghitung ulang setiap barang di PHP. */
+    public function valuationReport(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
+    {
+        $summary = $this->valuationSummary($warehouseId, $supplierId, $category);
+        $categories = $this->valuationCategoryQuery($warehouseId, $supplierId, $category)
+            ->orderBy('barang.kategori')->get()
+            ->map(fn (object $row): array => ['kategori' => $row->kategori, ...$this->valuationBucketFromAggregate($row)]);
+        $warehouses = $this->valuationWarehouseBaseQuery($warehouseId, $supplierId, $category)
+            ->groupBy('warehouses.id', 'warehouses.kode_gudang', 'warehouses.nama_gudang', 'warehouses.deleted_at')
+            ->addSelect(['warehouses.id as warehouse_id', 'warehouses.kode_gudang', 'warehouses.nama_gudang', 'warehouses.deleted_at'])
+            ->orderBy('warehouses.kode_gudang')->get()
+            ->map(fn (object $row): array => [
+                'warehouse_id' => (int) $row->warehouse_id,
+                'kode_gudang' => $row->kode_gudang,
+                'nama_gudang' => $row->nama_gudang,
+                'is_deleted' => $row->deleted_at !== null,
+                ...$this->valuationBucketFromAggregate($row),
+            ]);
+
+        return [...$summary, 'categories' => $categories, 'warehouses' => $warehouses];
     }
 
     private function valuationAggregateSql(string $stock): string
@@ -474,7 +553,7 @@ class InventoryAnalyticsService
     }
 
     /** @return array<string,mixed> */
-    public function movementAnalysis(?int $warehouseId = null, ?int $supplierId = null): array
+    public function movementAnalysis(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
     {
         $timezone = config('app.display_timezone', 'Asia/Jakarta');
         $nowLocal = CarbonImmutable::now($timezone);
@@ -492,13 +571,14 @@ class InventoryAnalyticsService
             ? collect()
             : $this->invalidWarehouseHistory($warehouseId, $start60, $asOf, $supplierId);
 
-        $fastMoving = $this->fastMoving($start30, $asOf, $warehouseId, $supplierId, $invalid30);
+        $fastMoving = $this->fastMoving($start30, $asOf, $warehouseId, $supplierId, $invalid30, $category);
         [$slowMoving, $deadStock, $activeMoving] = $this->slowAndDeadStock(
             $start60,
             $asOf,
             $warehouseId,
             $supplierId,
             $invalid60,
+            $category,
         );
 
         return [
@@ -542,10 +622,12 @@ class InventoryAnalyticsService
         ?int $warehouseId,
         ?int $supplierId,
         Collection $excludedBarangIds,
+        ?string $category = null,
     ): Collection {
         $query = DB::table('stok_transactions as transactions')
             ->join('barang', 'barang.id', '=', 'transactions.barang_id')
             ->whereNull('barang.deleted_at')
+            ->when($category !== null, fn (Builder $query) => $query->where('barang.kategori', $category))
             ->where('transactions.jenis', 'keluar')
             ->whereNotNull('transactions.created_at')
             ->where('transactions.created_at', '>=', $start)
@@ -603,6 +685,7 @@ class InventoryAnalyticsService
         ?int $warehouseId,
         ?int $supplierId,
         Collection $excludedBarangIds,
+        ?string $category = null,
     ): array {
         $items = $this->movementClassificationQuery(
             $start,
@@ -610,6 +693,7 @@ class InventoryAnalyticsService
             $warehouseId,
             $supplierId,
             $excludedBarangIds,
+            $category,
         )->get()->map(fn (object $row): array => $this->movementRow($row));
 
         $slow = $items
@@ -631,6 +715,7 @@ class InventoryAnalyticsService
         ?int $warehouseId,
         ?int $supplierId,
         Collection $excludedBarangIds,
+        ?string $category = null,
     ): Builder {
         $movements = DB::table('stok_transactions as transactions')
             ->when($warehouseId !== null, function ($query) use ($warehouseId): void {
@@ -663,6 +748,7 @@ class InventoryAnalyticsService
                 $join->on('out_movements.barang_id', '=', 'barang.id');
             })
             ->whereNull('barang.deleted_at')
+            ->when($category !== null, fn (Builder $query) => $query->where('barang.kategori', $category))
             ->when($supplierId !== null, function ($query) use ($supplierId, $start, $asOf, $warehouseId): void {
                 $query->whereExists(function ($transactions) use ($supplierId, $start, $asOf, $warehouseId): void {
                     $transactions->selectRaw('1')
@@ -813,6 +899,7 @@ class InventoryAnalyticsService
         return [
             ...$bucket,
             'calculated_value' => $this->centsToMoney((string) $bucket['calculated_value_cents']),
+            'item_count' => $bucket['priced_item_count'] + $bucket['unpriced_item_count'],
             'stock_units' => $stockUnits,
             'coverage_percentage' => $coveragePercentage,
             'is_complete' => ! $hasUnpricedStock,

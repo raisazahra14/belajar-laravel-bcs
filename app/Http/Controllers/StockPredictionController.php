@@ -14,8 +14,13 @@ class StockPredictionController extends Controller
 {
     public function index(Request $request, StockPredictionPresenter $presenter)
     {
+        $focusPredictionId = $request->integer('focus');
         $ids = StockPrediction::query()->selectRaw('MAX(id)')->groupBy('barang_id');
-        $predictions = StockPrediction::with('barang')->whereIn('id', $ids)->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))->latest('analyzed_at')->paginate(15)->withQueryString();
+        $predictions = StockPrediction::with('barang')
+            ->when($focusPredictionId > 0, fn ($query) => $query->whereKey($focusPredictionId))
+            ->when($focusPredictionId === 0, fn ($query) => $query->whereIn('id', $ids))
+            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
+            ->latest('analyzed_at')->latest('id')->paginate(15)->withQueryString();
         $activeProcesses = $request->user()->can('run-stock-prediction')
             ? $this->activeProcesses()->get()
             : collect();

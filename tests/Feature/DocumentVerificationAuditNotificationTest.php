@@ -76,6 +76,7 @@ class DocumentVerificationAuditNotificationTest extends TestCase
     {
         $owner = User::factory()->create(['role' => 'staff']);
         $other = User::factory()->create(['role' => 'staff']);
+        $otherAdmin = User::factory()->create(['role' => 'admin']);
         $verification = DocumentVerification::create($this->verificationData($owner, 'private.pdf'));
         $notifier = app(DocumentVerificationNotificationService::class);
         $notifier->send($verification, true);
@@ -83,6 +84,8 @@ class DocumentVerificationAuditNotificationTest extends TestCase
 
         $this->actingAs($other)->get(route('ocr-notifications.open', $notification->id))->assertForbidden();
         $this->actingAs($other)->patch(route('ocr-notifications.read', $notification->id))->assertForbidden();
+        $this->actingAs($otherAdmin)->get(route('ocr-notifications.open', $notification->id))->assertForbidden();
+        $this->actingAs($otherAdmin)->patch(route('ocr-notifications.read', $notification->id))->assertForbidden();
         $this->actingAs($owner)->patch(route('ocr-notifications.read', $notification->id))->assertRedirect();
         $this->assertNotNull($notification->fresh()->read_at);
 

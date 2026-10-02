@@ -44,6 +44,7 @@ LogistikKu bertujuan untuk:
 | Stok masuk dan keluar | Admin, Manager, dan Staff dapat mencatat transaksi masuk/keluar. Perubahan saldo, saldo gudang utama, snapshot sebelum/sesudah, dan transaksi disimpan secara atomik. |
 | Riwayat transaksi | Timeline, tabel berhalaman, dan grafik saldo memakai `stok_transactions`; maksimal 100 transaksi terbaru dipakai untuk grafik. |
 | Pencarian dan daftar | Pencarian kode/nama/lokasi, filter kategori dan status stok, sorting nama/stok, serta pagination. Hasil dapat diperbarui tanpa memuat ulang seluruh halaman. |
+| Analitik bisnis | Admin dapat melihat mutasi periodik, Fast/Slow/Dead Stock, valuasi stok saat ini per kategori dan gudang, rekonsiliasi saldo master–gudang, notifikasi, ringkasan otomatis, dan ekspor CSV. Filter supplier, gudang, dan kategori diterapkan konsisten; filter tanggal hanya berlaku untuk mutasi. |
 | Stok menipis | Barang dengan stok `<= 5` ditampilkan pada dashboard dan halaman khusus. |
 | Soft delete | Barang masuk ke Tong Sampah, dapat dipulihkan, dan dapat dihapus permanen bila tidak terhalang dependensi bisnis. Admin juga mempunyai aksi massal. |
 | Role dan permission | Otorisasi memakai middleware `auth`, middleware role, Laravel Gate, validasi request, dan pemeriksaan kepemilikan dokumen. |
@@ -317,12 +318,12 @@ Pemeriksaan format PHP opsional: `php vendor/bin/pint --test`.
 
 ### Hasil terbaru
 
-Pengujian dijalankan ulang pada **18 September 2026** di Windows:
+Pengujian dijalankan ulang pada **2 Oktober 2026** di Windows:
 
 | Suite | Runtime | Hasil |
 |---|---|---|
-| PHPUnit 11.5.56 | PHP 8.2.12 | **Lulus — 248 test, 2.881 assertion** (2:32.805) |
-| Python `unittest` | Python 3.10.7 | **Lulus — 55 test** (16.941 detik) |
+| PHPUnit 11.5.56 | PHP 8.2.12 | **Lulus — 340 test, 4.186 assertion** (2:53.607) |
+| Python `unittest` | Python 3.10.7 | **Lulus — 55 test** (40.433 detik) |
 
 `php artisan test` tidak menjalankan suite karena working directory Windows dilaporkan tidak ada oleh proses anak Symfony. PHPUnit langsung berhasil menjalankan seluruh suite. Tesseract tidak tersedia pada `PATH` mesin validasi, sehingga unit test OCR lulus tetapi eksekusi OCR nyata belum divalidasi di lingkungan ini.
 

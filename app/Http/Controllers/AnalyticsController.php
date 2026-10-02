@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StockMutationReportRequest;
+use App\Models\Barang;
 use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Services\AnalyticsCsv;
@@ -23,10 +24,11 @@ class AnalyticsController extends Controller
         $filters = $this->filters($request);
         $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
         $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
+        $category = $filters['category'] ?? null;
         $mutation = $mutations->summary($filters);
-        $movement = $analytics->movementSummary($warehouseId, $supplierId);
-        $valuation = $analytics->valuationSummary($warehouseId, $supplierId);
-        $attention = $analytics->currentAttentionSummary($warehouseId, $supplierId);
+        $movement = $analytics->movementSummary($warehouseId, $supplierId, $category);
+        $valuation = $analytics->valuationSummary($warehouseId, $supplierId, $category);
+        $attention = $analytics->currentAttentionSummary($warehouseId, $supplierId, $category);
         $selectedWarehouse = $warehouseId === null ? null : Warehouse::withTrashed()->find($warehouseId);
         $insightData = $insights->build($mutation, $movement, $attention, $selectedWarehouse?->nama_gudang);
         $data = [
@@ -38,12 +40,13 @@ class AnalyticsController extends Controller
             'priorityNotifications' => $insightData['notifications'],
             'automaticSummary' => $insightData['summary'],
             'mutationRows' => $mutations->paginatedRows($filters, 10, 'mutation_page'),
-            'slowMovingRows' => $analytics->paginatedMovement('slow', $warehouseId, $supplierId, 5, 'slow_page'),
-            'deadStockRows' => $analytics->paginatedMovement('dead', $warehouseId, $supplierId, 5, 'dead_page'),
-            'valuationCategoryRows' => $analytics->paginatedValuationCategories($warehouseId, $supplierId, 5, 'category_page'),
-            'valuationWarehouseRows' => $analytics->paginatedValuationWarehouses($warehouseId, $supplierId, 5, 'warehouse_page'),
+            'slowMovingRows' => $analytics->paginatedMovement('slow', $warehouseId, $supplierId, 5, 'slow_page', $category),
+            'deadStockRows' => $analytics->paginatedMovement('dead', $warehouseId, $supplierId, 5, 'dead_page', $category),
+            'valuationCategoryRows' => $analytics->paginatedValuationCategories($warehouseId, $supplierId, 5, 'category_page', $category),
+            'valuationWarehouseRows' => $analytics->paginatedValuationWarehouses($warehouseId, $supplierId, 5, 'warehouse_page', $category),
             'selectedWarehouse' => $selectedWarehouse,
             'selectedSupplier' => $supplierId === null ? null : Supplier::withTrashed()->find($supplierId),
+            'categories' => Barang::KATEGORI,
         ];
         $data['suppliers'] = Supplier::withTrashed()
             ->orderBy('nama_supplier')
@@ -73,12 +76,13 @@ class AnalyticsController extends Controller
         $filters = $this->filters($request);
         $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
         $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
+        $category = $filters['category'] ?? null;
 
         return [
             'filters' => $filters,
-            'mutation' => $mutations->report($filters),
-            'movement' => $analytics->movementAnalysis($warehouseId, $supplierId),
-            'valuation' => $analytics->valuation($warehouseId, $supplierId),
+            'mutation' => $mutations->filteredReport($filters),
+            'movement' => $analytics->movementAnalysis($warehouseId, $supplierId, $category),
+            'valuation' => $analytics->valuationReport($warehouseId, $supplierId, $category),
             'selectedWarehouse' => $warehouseId === null ? null : Warehouse::withTrashed()->find($warehouseId),
             'selectedSupplier' => $supplierId === null ? null : Supplier::withTrashed()->find($supplierId),
         ];
@@ -87,7 +91,7 @@ class AnalyticsController extends Controller
     private function filters(StockMutationReportRequest $request): array
     {
         return $request->safe()->only([
-            'period', 'start_date', 'end_date', 'supplier_id', 'warehouse_id',
+            'period', 'start_date', 'end_date', 'supplier_id', 'warehouse_id', 'category',
         ]);
     }
 }

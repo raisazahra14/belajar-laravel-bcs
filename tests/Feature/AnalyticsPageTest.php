@@ -119,6 +119,38 @@ class AnalyticsPageTest extends TestCase
         $this->assertStringNotContainsString('Barang Harus Tersaring', $csv->streamedContent());
     }
 
+    public function test_category_filter_keeps_page_and_analytics_csv_mutation_scope_identical(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $supplier = Supplier::create(['kode_supplier' => 'ANA-CAT-SUP', 'nama_supplier' => 'Supplier Kategori']);
+        $warehouse = Warehouse::create(['kode_gudang' => 'ANA-CAT-WH', 'nama_gudang' => 'Gudang Kategori']);
+
+        $included = $this->barang('ANA-CAT-IN', 'Barang Kategori ATK', 5, '100.00', $supplier->id);
+        $includedStock = $this->stock($included, $warehouse, 5);
+        $this->transaction($included, $includedStock, 'masuk', 5, '2026-09-28 02:00:00');
+
+        $excluded = $this->barang('ANA-CAT-OUT', 'Barang Kategori Elektronik', 7, '200.00', $supplier->id);
+        $excluded->update(['kategori' => 'Elektronik']);
+        $excludedStock = $this->stock($excluded, $warehouse, 7);
+        $this->transaction($excluded, $excludedStock, 'masuk', 7, '2026-09-28 03:00:00');
+
+        $filters = [
+            'period' => '7',
+            'supplier_id' => $supplier->id,
+            'warehouse_id' => $warehouse->id,
+            'category' => 'ATK',
+        ];
+        $page = $this->actingAs($admin)->get(route('analytics.index', $filters))->assertOk();
+        $this->assertSame(5, $page->viewData('mutation')['totals']['total_masuk']);
+        $page->assertSee('Barang Kategori ATK')->assertDontSee('Barang Kategori Elektronik');
+
+        $csvContent = $this->get(route('analytics.csv', $filters))->assertOk()->streamedContent();
+        $rows = $this->csvRows($csvContent);
+        $this->assertSame('5', $this->valueAfterLabel($rows, 'Total mutasi masuk'));
+        $this->assertStringContainsString('ANA-CAT-IN', $csvContent);
+        $this->assertStringNotContainsString('ANA-CAT-OUT', $csvContent);
+    }
+
     public function test_csv_contains_definitions_unavailable_status_and_neutralizes_formula_text(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

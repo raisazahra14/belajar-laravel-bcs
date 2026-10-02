@@ -8,6 +8,16 @@ use Illuminate\Http\RedirectResponse;
 
 class StockPredictionNotificationController extends Controller
 {
+    public function open(StockPredictionNotification $notification): RedirectResponse
+    {
+        $receipt = $notification->receiptFor(request()->user());
+        abort_unless($receipt, 403);
+        $receipt->update(['read_at' => $receipt->read_at ?? now()]);
+
+        return redirect(route('stock-predictions.index', ['focus' => $notification->stock_prediction_id])
+            .'#prediction-detail-'.$notification->stock_prediction_id);
+    }
+
     public function read(StockPredictionNotification $notification): RedirectResponse
     {
         $receipt = $notification->receiptFor(request()->user());

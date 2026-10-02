@@ -53,7 +53,7 @@ class DocumentVerificationNotificationController extends Controller
         $notification = DatabaseNotification::findOrFail($id);
         abort_unless(
             $notification->notifiable_type === request()->user()->getMorphClass()
-            && ((int) $notification->notifiable_id === request()->user()->id || request()->user()->role === 'admin'),
+            && (int) $notification->notifiable_id === request()->user()->id,
             403,
         );
 

@@ -65,6 +65,18 @@ Lima PNG infografik lama dihapus setelah seluruh informasi pentingnya diverifika
 | 2.2 | Multi-Gudang dan Supplier | Sebagian: master/relasi/gudang utama tersedia; transaksi lintas gudang belum tersedia | [SRS](./srs.md#42-transaksi-dan-riwayat-stok), [ERD](./database/erd.md) |
 | 2.3 | Data Dictionary | Terverifikasi untuk 22 tabel/201 kolom hasil migration bersih | [Data Dictionary](./data_dictionary.md) |
 
+## Status Week 3 — Analitik Bisnis
+
+| Checklist | Cakupan aktual | Status |
+|---|---|---|
+| 3.1 | Mutasi stok dengan identitas saldo awal + IN − OUT = saldo akhir, batas hari Asia/Jakarta, serta filter supplier/gudang/kategori. | Terverifikasi dengan database test terisolasi; saldo supplier historis dinyatakan tidak tersedia karena stok tidak dipisahkan per supplier/lot. |
+| 3.2 | Fast-Moving 30 hari serta Slow/Dead Stock 60 hari, urutan deterministik, saldo gudang terpilih, dan filter aktif. | Terverifikasi; transaksi gudang yang relasinya tidak dapat dibuktikan dikecualikan dan dilaporkan. |
+| 3.3 | Valuasi stok saat ini × harga beli per kategori/gudang, pemisahan harga NULL dan nol, total seluruh hasil, serta rekonsiliasi master–gudang. | Terverifikasi; selisih dan bukti kemungkinan penyebab hanya dilaporkan, tidak dikoreksi otomatis. |
+| 3.4 | UI responsif, filter/reset/pagination, kondisi kosong, grafik, notifikasi, ringkasan deterministik, akses khusus Admin, serta ekspor CSV Analitik dan CSV/XLSX/PDF laporan mutasi. | Terverifikasi melalui feature test/render Blade dan test ekspor seluruh hasil terfilter; pemeriksaan visual browser tetap bergantung pada lingkungan UI. |
+| 3.5 | Automated Feature Tests untuk mutasi, klasifikasi pergerakan, valuasi, rekonsiliasi, filter, hak akses, pagination, dan ekspor. | Terverifikasi melalui seluruh suite PHPUnit pada database SQLite `:memory:` yang terisolasi. |
+
+Valuasi Week 3 adalah snapshot stok saat ini. Aplikasi tidak menyediakan atau merekonstruksi valuasi historis; pilihan tanggal hanya membatasi mutasi.
+
 ## Cara membuka preview Markdown
 
 ### Visual Studio Code

@@ -2,8 +2,8 @@
 
 namespace App\Providers;
 
-use App\Models\StockPredictionNotification;
 use App\Models\User;
+use App\Services\NotificationCenterService;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
@@ -34,26 +34,11 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('approve-restock', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
 
         View::composer('layouts.skydash', function ($view): void {
-            $predictionQuery = auth()->check()
-                ? StockPredictionNotification::unreadFor(auth()->user())
-                : null;
-            $predictionNotifications = $predictionQuery
-                ? (clone $predictionQuery)->with('barang')->latest()->limit(5)->get()
-                : collect();
-            $unreadPredictionCount = $predictionQuery ? (clone $predictionQuery)->count() : 0;
-            $ocrNotifications = auth()->check()
-                ? auth()->user()->notifications()->where('type', 'document-verification')->latest()->limit(5)->get()
-                : collect();
-            $unreadOcrCount = auth()->check()
-                ? auth()->user()->unreadNotifications()->where('type', 'document-verification')->count()
-                : 0;
+            $dropdown = auth()->check()
+                ? app(NotificationCenterService::class)->dropdown(auth()->user())
+                : ['unread_count' => 0, 'notifications' => collect()];
 
-            $view->with([
-                'unreadPredictions' => $predictionNotifications,
-                'unreadPredictionCount' => $unreadPredictionCount,
-                'ocrNotifications' => $ocrNotifications,
-                'unreadOcrCount' => $unreadOcrCount,
-            ]);
+            $view->with('notificationDropdown', $dropdown);
         });
     }
 }
