@@ -1,4 +1,4 @@
 @extends('layouts.skydash')
 @section('content')
-<div class="page-header"><div><h3 class="font-weight-bold">Tambah User</h3><p>Buat akun baru untuk admin atau staff.</p></div><a href="/users" class="btn btn-light">Kembali</a></div><div class="card"><div class="card-body">@if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif<form action="/users" method="POST">@csrf @include('users.partials.form', ['submitLabel' => 'Simpan User'])</form></div></div>
+<x-ui.page-header title="Tambah User" description="Buat akun baru untuk admin atau staff."><x-ui.button href="/users" variant="light">Kembali</x-ui.button></x-ui.page-header><x-ui.card>@if($errors->any())<x-ui.alert type="danger">{{ $errors->first() }}</x-ui.alert>@endif<form action="/users" method="POST">@csrf @include('users.partials.form', ['submitLabel' => 'Simpan User'])</form></x-ui.card>
 @endsection
