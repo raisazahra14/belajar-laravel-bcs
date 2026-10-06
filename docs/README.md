@@ -1,109 +1,114 @@
 # Indeks Dokumentasi LogistikKu
 
-Halaman ini adalah pintu masuk dokumentasi Tugas Bulan ke-2 Laravel LogistikKu. Gunakan urutan sumber berikut: **SRS final → ERD/Data Dictionary → Peta Konsep → aset render**. Isi unik dokumen kerja Tugas 1.1 dan 1.2 telah digabungkan ke SRS final sehingga tidak ada sumber kebutuhan yang bersaing. Perilaku aplikasi tetap mengikuti implementasi dan source migration; kondisi database deployment harus diverifikasi tersendiri.
+Folder ini berisi dokumentasi teknis dan fungsional LogistikKu. Seluruh dokumen aktif telah diselaraskan dengan kode dan seluruh migration hingga **5 Oktober 2026**.
 
-## Gambaran sistem
+Urutan membaca yang disarankan:
 
-LogistikKu adalah aplikasi Laravel untuk inventaris, transaksi stok, import/export, OCR verifikasi dokumen, prediksi restock berbasis Python, notifikasi, dan administrasi pengguna. Fondasi data terbaru juga mencakup Supplier dan Multi-Gudang:
+1. [README utama](../README.md) untuk instalasi dan cara menjalankan aplikasi.
+2. [SRS](./srs.md) untuk kebutuhan, aktor, fitur, aturan bisnis, dan kriteria penerimaan.
+3. [Peta Konsep](./PETA_KONSEP_LOGISTIKKU.md) untuk memahami aliran antarmodul.
+4. [ERD](./database/erd.md) dan [Data Dictionary](./data_dictionary.md) untuk struktur database.
 
-- `suppliers` menyimpan master pemasok; supplier utama barang dan supplier asal transaksi bersifat opsional;
-- `warehouses` dan `warehouse_stocks` menyimpan saldo per pasangan barang–gudang;
-- pasangan (`barang_id`, `warehouse_id`) pada `warehouse_stocks` unik;
-- workflow stok saat ini memakai `GDG-UTAMA` dan menjaga `warehouse_stocks.stok` tetap sinkron dengan `barang.stok` sebagai stok total/legacy;
-- UI daftar/detail dan CRUD master supplier/gudang tersedia (mutasi hanya Admin); pemilihan supplier pada barang/transaksi, pemilihan gudang transaksi, dan transfer antargudang belum tersedia.
+## Gambaran aplikasi
 
-## Dokumen utama
+LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python untuk OCR dan prediksi stok. Aplikasi menyediakan:
 
-| Dokumen | Fungsi | Status/cakupan |
+- login session, pembatasan percobaan login, logout, dan role Admin/Manager/Staff;
+- master barang, supplier, gudang, pengguna, foto, harga beli, dan parameter prediksi;
+- saldo per gudang serta total stok barang;
+- stok masuk/keluar, supplier transaksi, referensi dokumen, biaya unit, pelaku transaksi, dan histori;
+- transfer stok antargudang dan reversal transaksi dengan jejak audit;
+- pencarian, filter, dashboard, stok menipis, analitik, valuasi, dan rekonsiliasi;
+- laporan mutasi dan export CSV/XLSX/PDF;
+- import barang XLSX/XLS/CSV secara atomik;
+- soft delete, restore, hapus permanen aman, dan aksi massal;
+- verifikasi Surat Jalan, Invoice, serta Bukti Fisik melalui OCR Python/Tesseract;
+- prediksi restock melalui queue dengan metode cold-start, rata-rata, atau machine learning;
+- pusat notifikasi terpadu untuk aktivitas yang memerlukan perhatian.
+
+## Dokumen aktif
+
+| Dokumen | Kegunaan | Status |
 |---|---|---|
-| [SRS final (`srs.md`)](./srs.md) | **Sumber SRS final** dan acuan kebutuhan *as-built* terkini. | Versi 1.3; diaudit ulang terhadap repository dan migration bersih pada 21 September 2026. |
-| [Publikasi SRS resmi (PDF)](./SRS_Sistem_Inventaris_LogistikKu.pdf) | **Publikasi resmi** SRS yang mudah dibaca/dikirim tanpa renderer Markdown. | Versi 1.3, 25 halaman, disinkronkan dari `srs.md` dan diperiksa pada 21 September 2026. |
-| [Arsip PDF versi 1.1](./archive/SRS_Sistem_Inventaris_LogistikKu_v1.1.pdf) | Rekaman publikasi sebelum Supplier/Multi-Gudang. | Arsip 17 halaman bertanggal 15 September 2026; bukan spesifikasi aktif. |
+| [SRS Markdown](./srs.md) | Spesifikasi fitur, hak akses, aturan bisnis, NFR, diagram, dan pengujian penerimaan. | Versi 1.4, baseline aktif. |
+| [SRS PDF](./SRS_Sistem_Inventaris_LogistikKu.pdf) | Versi SRS yang siap dibaca atau dibagikan. | Dibangkitkan dari SRS versi 1.4. |
+| [Peta Konsep](./PETA_KONSEP_LOGISTIKKU.md) | Ringkasan cara kerja setiap modul dan hubungan Laravel, database, queue, storage, dan Python. | Aktif. |
+| [ERD](./database/erd.md) | Diagram relasi tabel bisnis, fungsi tabel, FK, dan integritas data. | 15 tabel bisnis/aplikasi. |
+| [Data Dictionary](./data_dictionary.md) | Definisi seluruh tabel, kolom, kunci, indeks, dan aturan data. | 23 tabel, 218 kolom, 24 FK. |
 
-Sumber normatif aktif adalah `srs.md` versi 1.3 dan PDF resmi versi 1.3. PDF versi 1.1 dipindahkan ke folder `archive/` agar riwayat publikasi tetap dapat ditelusuri dan tidak disalahartikan sebagai versi aktif.
+## Peta fitur dan dokumentasinya
 
-## Dokumen ringkasan visual
-
-| Dokumen | Fungsi | Kedudukan |
+| Area | Fitur yang tersedia | Dokumen utama |
 |---|---|---|
-| [Peta Konsep LogistikKu](./PETA_KONSEP_LOGISTIKKU.md) | Empat visual ringkas yang tidak diduplikasi SRS: arsitektur umum, alur stok ringkas, sequence OCR Laravel–Python, dan alur prediksi. | Dokumen orientasi cepat, bukan sumber kebutuhan normatif; telah diselaraskan dengan Supplier/Multi-Gudang. |
+| Akses | Login, remember-me, rate limit, session, logout, tiga role | [SRS 4.1](./srs.md#41-autentikasi-dan-pengguna) |
+| Barang | CRUD, foto, kode otomatis, filter, stok menipis, trash | [SRS 4.2](./srs.md#42-master-dan-inventaris) |
+| Supplier | Daftar/detail semua role, CRUD Admin, supplier utama dan snapshot transaksi | [Peta Konsep 3](./PETA_KONSEP_LOGISTIKKU.md#3-master-barang-supplier-dan-gudang) |
+| Gudang | Gudang Utama/A/B/C, saldo per gudang, CRUD Admin | [ERD](./database/erd.md) |
+| Stok | Masuk/keluar, transfer, reversal, histori, audit pelaku dan referensi | [SRS 4.3](./srs.md#43-transaksi-transfer-reversal-dan-riwayat-stok) |
+| Import/export | Import atomik XLSX/XLS/CSV dan export inventaris CSV/XLSX/PDF | [SRS 4.4](./srs.md#44-import-dan-export) |
+| Laporan | Mutasi terfilter dan export CSV/XLSX/PDF | [SRS 4.5](./srs.md#45-dashboard-analitik-laporan-dan-notifikasi) |
+| Analitik | Fast/Slow/Dead Stock, valuasi, tren, rekonsiliasi, ringkasan otomatis | [SRS 4.5](./srs.md#45-dashboard-analitik-laporan-dan-notifikasi) |
+| OCR | Upload privat, queue, OCR, metadata, skor, audit, retry/reprocess | [SRS 4.6](./srs.md#46-verifikasi-dokumen-ocr) |
+| Prediksi | Analisis satu/semua barang, fallback, proses, rekomendasi, notifikasi | [SRS 4.7](./srs.md#47-prediksi-stok) |
 
-Source Mermaid formal Use Case, Activity stok, dan Activity OCR kini berada langsung di [bagian diagram SRS](./srs.md#10-use-case-dan-activity-diagram). Bukti benchmark, kontrak upload, kompatibilitas status OCR, aturan bisnis, kriteria penerimaan, dan ketertelusuran Tugas 1.1 juga telah dikonsolidasikan ke SRS.
+## Hak akses ringkas
+
+| Kemampuan | Admin | Manager | Staff |
+|---|:---:|:---:|:---:|
+| Melihat inventaris, supplier, gudang, histori, prediksi tersimpan | Ya | Ya | Ya |
+| Stok masuk/keluar dan transfer gudang | Ya | Ya | Ya |
+| Reversal dan laporan mutasi | Ya | Ya | Tidak |
+| Menjalankan prediksi dan menerapkan rekomendasi | Ya | Ya | Tidak |
+| Upload dan melihat dokumen sendiri | Ya | Ya | Ya |
+| Melihat seluruh dokumen | Ya | Tidak | Tidak |
+| CRUD master, import/export, analitik, trash, pengguna | Ya | Tidak | Tidak |
 
 ## Dokumentasi database
 
-| Dokumen | Fungsi | Cakupan |
-|---|---|---|
-| [ERD Database](./database/erd.md) | **Visual relasi** dan kardinalitas database, fungsi tabel, aturan FK, serta audit migration/model. | Menampilkan **14 tabel bisnis/aplikasi** agar diagram tetap terbaca. Delapan tabel framework/internal tetap diinventarisasi, tetapi tidak digambar. |
-| [Data Dictionary](./data_dictionary.md) | **Detail struktur 22 tabel aktual**, termasuk semua kolom, tipe, nullable, default, PK, FK, unique/index, referential action, AI, soft delete, dan aturan bisnis. | **14 tabel bisnis/aplikasi + 8 tabel framework/internal = 22 tabel dan 201 kolom**. |
+Migration bersih membentuk:
 
-Kedua dokumen database konsisten pada **20 FK hasil migration bersih**: 9 `ON DELETE CASCADE`, 7 `SET NULL`, 4 `RESTRICT`, dan seluruhnya `ON UPDATE RESTRICT`. Keduanya juga membedakan FK database dari referensi logis seperti `stock_prediction_processes.source_transaction_id`.
+- **23 tabel dan 218 kolom**;
+- **15 tabel bisnis/aplikasi** dengan 176 kolom;
+- **8 tabel framework/internal** dengan 42 kolom;
+- **24 foreign key**: 10 `CASCADE`, 10 `SET NULL`, dan 4 `RESTRICT` pada penghapusan;
+- saldo unik per pasangan barang-gudang;
+- satu record pelaku per transaksi melalui `stok_transaction_actors`;
+- relasi reversal transaksi, pengelompok transfer, snapshot biaya, dan referensi dokumen.
 
-Migration bersih membentuk unique receipt prediksi/pengguna dan index yang dideklarasikan source. Kardinalitas process prediksi serta referensi logis tetap dicatat sebagai temuan. Database deployment MySQL/MariaDB tidak dapat dihubungi saat audit, sehingga drift, engine/collation, representasi JSON/TIMESTAMP, dan isi backfill berstatus **Perlu Uji Produksi**.
+Skema tersebut diverifikasi dengan menjalankan seluruh migration pada SQLite kosong. Perbedaan engine, collation, perilaku `CHECK`, JSON, dan timestamp pada database MySQL/MariaDB produksi tetap harus diuji di lingkungan target.
 
-## Aset diagram/gambar
+## Diagram aktif
 
-### Aset yang dirujuk aktif
-
-| Aset | Digunakan oleh |
+| Aset | Isi |
 |---|---|
-| [Use Case (SVG)](./images/tugas-1-2-use-case.svg) | Fallback render untuk source Mermaid di `srs.md`. |
-| [Activity stok (SVG)](./images/tugas-1-2-activity-stok.svg) | Fallback render baseline untuk source Mermaid stok di `srs.md`. |
-| [Activity verifikasi (SVG)](./images/tugas-1-2-activity-verifikasi.svg) | Fallback render untuk source Mermaid OCR di `srs.md`. |
-| [ERD Database (SVG)](./images/database-erd.svg) | Render resmi source Mermaid di `database/erd.md`. |
+| [Use Case](./images/tugas-1-2-use-case.svg) | Aktor dan fitur utama berdasarkan role. |
+| [Activity Stok](./images/tugas-1-2-activity-stok.svg) | Stok masuk/keluar, transfer, reversal, dan pencatatan audit. |
+| [Activity Verifikasi](./images/tugas-1-2-activity-verifikasi.svg) | Upload, queue, Python/Tesseract, hasil, dan notifikasi. |
+| [ERD Database](./images/database-erd.svg) | Relasi inti seluruh tabel bisnis. |
 
-Lima PNG infografik lama dihapus setelah seluruh informasi pentingnya diverifikasi tersedia pada SRS, Peta Konsep, atau tiga SVG di atas. Folder `docs/diagrams/` juga dihapus karena kosong dan tidak direferensikan.
+Source diagram formal berada dalam blok Mermaid pada [SRS](./srs.md) dan [ERD](./database/erd.md). SVG disediakan sebagai fallback untuk renderer yang tidak mendukung Mermaid.
 
-## Status Tugas 1.1–2.3
+## Cara melihat dokumentasi
 
-| Tugas | Hasil | Status | Bukti utama |
-|---|---|---|---|
-| 1.1 | Kebutuhan sistem | Terverifikasi lokal; NFR produksi tetap dibatasi | [Kebutuhan SRS](./srs.md#4-kebutuhan-fungsional), [NFR](./srs.md#5-kebutuhan-nonfungsional) |
-| 1.2 | Diagram proses | Terverifikasi lokal setelah source Mermaid dan render diperiksa | [Diagram SRS](./srs.md#10-use-case-dan-activity-diagram) |
-| 1.3 | Publikasi SRS | Terverifikasi lokal: Markdown dan PDF resmi sama-sama versi 1.3; PDF diperiksa secara programatik dan visual | [SRS final](./srs.md), [PDF resmi](./SRS_Sistem_Inventaris_LogistikKu.pdf) |
-| 2.1 | ERD | Terverifikasi terhadap source migration dan migration bersih; deployment perlu uji | [ERD](./database/erd.md) |
-| 2.2 | Multi-Gudang dan Supplier | Sebagian: master/relasi/gudang utama tersedia; transaksi lintas gudang belum tersedia | [SRS](./srs.md#42-transaksi-dan-riwayat-stok), [ERD](./database/erd.md) |
-| 2.3 | Data Dictionary | Terverifikasi untuk 22 tabel/201 kolom hasil migration bersih | [Data Dictionary](./data_dictionary.md) |
+Pada Visual Studio Code, buka file Markdown lalu tekan `Ctrl+Shift+V`. Pada GitHub, tabel, tautan relatif, gambar, dan Mermaid dapat ditampilkan langsung. Gunakan PDF jika dokumentasi perlu dibaca tanpa renderer Markdown.
 
-## Status Week 3 — Analitik Bisnis
+## Memperbarui PDF SRS
 
-| Checklist | Cakupan aktual | Status |
-|---|---|---|
-| 3.1 | Mutasi stok dengan identitas saldo awal + IN − OUT = saldo akhir, batas hari Asia/Jakarta, serta filter supplier/gudang/kategori. | Terverifikasi dengan database test terisolasi; saldo supplier historis dinyatakan tidak tersedia karena stok tidak dipisahkan per supplier/lot. |
-| 3.2 | Fast-Moving 30 hari serta Slow/Dead Stock 60 hari, urutan deterministik, saldo gudang terpilih, dan filter aktif. | Terverifikasi; transaksi gudang yang relasinya tidak dapat dibuktikan dikecualikan dan dilaporkan. |
-| 3.3 | Valuasi stok saat ini × harga beli per kategori/gudang, pemisahan harga NULL dan nol, total seluruh hasil, serta rekonsiliasi master–gudang. | Terverifikasi; selisih dan bukti kemungkinan penyebab hanya dilaporkan, tidak dikoreksi otomatis. |
-| 3.4 | UI responsif, filter/reset/pagination, kondisi kosong, grafik, notifikasi, ringkasan deterministik, akses khusus Admin, serta ekspor CSV Analitik dan CSV/XLSX/PDF laporan mutasi. | Terverifikasi melalui feature test/render Blade dan test ekspor seluruh hasil terfilter; pemeriksaan visual browser tetap bergantung pada lingkungan UI. |
-| 3.5 | Automated Feature Tests untuk mutasi, klasifikasi pergerakan, valuasi, rekonsiliasi, filter, hak akses, pagination, dan ekspor. | Terverifikasi melalui seluruh suite PHPUnit pada database SQLite `:memory:` yang terisolasi. |
-
-Valuasi Week 3 adalah snapshot stok saat ini. Aplikasi tidak menyediakan atau merekonstruksi valuasi historis; pilihan tanggal hanya membatasi mutasi.
-
-## Cara membuka preview Markdown
-
-### Visual Studio Code
-
-1. Buka file `.md` yang diinginkan.
-2. Tekan `Ctrl+Shift+V` untuk membuka Markdown Preview, atau `Ctrl+K` lalu `V` untuk preview di sisi editor.
-3. Gunakan versi VS Code yang mendukung Mermaid untuk merender blok `mermaid`. Jika Mermaid tidak dirender, gunakan lampiran SVG pada dokumen Tugas 1.2.
-
-### GitHub atau renderer lain
-
-- Buka folder `docs/` pada GitHub; tautan relatif, gambar, tabel, dan Mermaid dapat dirender langsung oleh antarmuka yang mendukungnya.
-- Jangan membuka Markdown hanya sebagai file HTML mentah karena tautan relatif dan Mermaid dapat tidak diproses.
-- Buka [PDF resmi](./SRS_Sistem_Inventaris_LogistikKu.pdf) dengan pembaca PDF biasa; PDF tidak memerlukan preview Markdown.
-
-## Regenerasi PDF SRS tanpa instalasi dependency
-
-Builder [`tools/build_srs_pdf.py`](./tools/build_srs_pdf.py) memakai Mistune, PyMuPDF, dan browser Chromium yang **sudah tersedia** pada mesin audit. Builder menolak menimpa output yang sudah ada agar PDF resmi tidak terganti sebelum kandidat diperiksa, lalu menanam SHA-256 source Markdown pada metadata kandidat.
+Builder berada di [`docs/tools/build_srs_pdf.py`](./tools/build_srs_pdf.py). Builder membutuhkan Python, Mistune, PyMuPDF, dan Chrome/Edge headless yang sudah tersedia pada mesin.
 
 ```powershell
-python docs/tools/build_srs_pdf.py --output storage/SRS_Sistem_Inventaris_LogistikKu_v1.3.candidate.pdf
+python docs/tools/build_srs_pdf.py --output storage/SRS_LogistikKu_v1.4.candidate.pdf
 ```
 
-Jangan memasang dependency hanya untuk menjalankan builder. Jika Mistune atau browser headless tidak tersedia, hentikan proses dan pertahankan PDF resmi terakhir. Kandidat harus diperiksa untuk versi/tanggal, kelengkapan bagian, halaman kosong, diagram, tabel, tautan, dan keterbacaan sebelum dipromosikan ke `docs/SRS_Sistem_Inventaris_LogistikKu.pdf`; versi lama harus diarsipkan lebih dahulu.
+Periksa versi, jumlah halaman, tabel, diagram, tautan, dan keterbacaan kandidat sebelum mengganti PDF aktif. Builder tidak menimpa file output yang sudah ada.
 
-## Hasil audit navigasi
+## Arsip
 
-- Seluruh tautan relatif yang sudah ada sebelum indeks dibuat berhasil di-resolve.
-- Tidak ditemukan lompatan level heading, fence Mermaid yang tidak tertutup, conflict marker, atau trailing whitespace.
-- `node_modules/` tercantum di `.gitignore` dan tidak dilacak Git; folder lokal tidak dihapus.
-- Dokumen kerja yang berulang dan aset yang tidak direferensikan telah dibersihkan setelah isi uniknya dikonsolidasikan; tidak ada file yang dipindahkan atau diganti nama.
+[`archive/SRS_Sistem_Inventaris_LogistikKu_v1.1.pdf`](./archive/SRS_Sistem_Inventaris_LogistikKu_v1.1.pdf) adalah rekaman historis sebelum supplier, multi-gudang, analitik, transfer, dan audit transaksi diselesaikan. File arsip tidak menggambarkan aplikasi saat ini dan sengaja tidak diperbarui.
+
+## Prinsip pemeliharaan dokumentasi
+
+- Kode, migration, dan test adalah bukti perilaku aktual.
+- Perubahan fitur harus memperbarui SRS, Peta Konsep, ERD/Data Dictionary bila relevan, serta README utama.
+- Jangan menyatakan fitur tersedia jika route, otorisasi, proses, dan penyimpanannya belum dapat dibuktikan.
+- Jangan memasukkan `.env`, password produksi, dokumen pengguna, database, atau log ke dokumentasi.

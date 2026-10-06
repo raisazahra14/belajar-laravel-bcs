@@ -122,6 +122,55 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .ocr-processing-card[data-process-status="selesai"] .result-success,.ocr-processing-card[data-process-status="gagal"] .result-failed { display: block; }
 .ocr-processing-card[data-process-status="selesai"] .ocr-indeterminate,.ocr-processing-card[data-process-status="gagal"] .ocr-indeterminate,.ocr-processing-card[data-process-status="selesai"] .ocr-wait-note,.ocr-processing-card[data-process-status="gagal"] .ocr-wait-note { display: none; }
 
+/* Login */
+.login-page { background: #f5f7ff; color: #20263d; min-height: 100vh; }
+.login-shell { display: grid; grid-template-columns: minmax(360px, .9fr) minmax(480px, 1.1fr); min-height: 100vh; }
+.login-intro { background: linear-gradient(145deg, #2d2f87 0%, #4747a1 55%, #315ca8 100%); color: #fff; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; padding: clamp(2.5rem, 6vw, 6rem); position: relative; }
+.login-intro::before,.login-intro::after { border: 1px solid rgba(255,255,255,.12); border-radius: 50%; content: ''; position: absolute; }
+.login-intro::before { height: 420px; right: -210px; top: -160px; width: 420px; }
+.login-intro::after { bottom: -260px; height: 520px; left: -240px; width: 520px; }
+.login-brand { align-items: center; color: #fff; display: inline-flex; font-size: 1.45rem; font-weight: 800; gap: .75rem; letter-spacing: -.02em; margin-bottom: clamp(4rem, 12vh, 8rem); position: relative; z-index: 1; }
+.login-brand:hover { color: #fff; text-decoration: none; }
+.login-brand-icon { align-items: center; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.24); border-radius: 12px; display: inline-flex; height: 46px; justify-content: center; width: 46px; }
+.login-eyebrow { font-size: .75rem; font-weight: 800; letter-spacing: .12em; margin: 0 0 .9rem; text-transform: uppercase; }
+.login-intro .login-eyebrow { color: #bfc8ff; }
+.login-intro h1 { color: #fff; font-size: clamp(2.25rem, 4vw, 4rem); font-weight: 800; letter-spacing: -.045em; line-height: 1.05; margin: 0; max-width: 680px; position: relative; z-index: 1; }
+.login-intro-copy { color: rgba(255,255,255,.78); font-size: 1.05rem; line-height: 1.75; margin: 1.5rem 0 0; max-width: 570px; position: relative; z-index: 1; }
+.login-benefits { display: grid; gap: .9rem; list-style: none; margin: 3rem 0 0; padding: 0; position: relative; z-index: 1; }
+.login-benefits li { align-items: center; display: flex; font-size: .9rem; gap: .75rem; }
+.login-benefits i { align-items: center; background: rgba(255,255,255,.16); border-radius: 50%; display: inline-flex; flex: 0 0 28px; height: 28px; justify-content: center; }
+.login-form-panel { align-items: center; display: flex; flex-direction: column; justify-content: center; padding: 2.5rem clamp(1.5rem, 7vw, 7rem); }
+.login-form-card { max-width: 460px; width: 100%; }
+.login-form-card > .login-eyebrow { color: #4747a1; }
+.login-form-card h2 { color: #20263d; font-size: clamp(1.75rem, 3vw, 2.35rem); font-weight: 800; letter-spacing: -.035em; margin: 0; }
+.login-form-help { color: #71768a; font-size: .9rem; margin: .65rem 0 1.8rem; }
+.login-mobile-brand { color: #4747a1; display: none; font-size: 1.3rem; font-weight: 800; margin-bottom: 2.5rem; }
+.login-mobile-brand i { margin-right: .45rem; }
+.login-alert { align-items: flex-start; display: flex; font-size: .82rem; gap: .65rem; line-height: 1.45; margin-bottom: 1.25rem; }
+.login-alert i { margin-top: .15rem; }
+.login-form .form-group { margin-bottom: 1.2rem; }
+.login-form label:not(.login-remember) { color: #353a50; display: block; font-size: .8rem; font-weight: 750; margin-bottom: .45rem; }
+.login-input-wrap { position: relative; }
+.login-input-wrap > i { color: #898da1; font-size: 1rem; left: 1rem; position: absolute; top: 50%; transform: translateY(-50%); z-index: 1; }
+.login-input-wrap .form-control { background: #fff; border: 1px solid #d9ddeb; border-radius: 10px; color: #20263d; font-size: .9rem; height: 50px; padding: .75rem 1rem .75rem 2.8rem; }
+.login-input-wrap .form-control:focus { border-color: #6667ab; box-shadow: 0 0 0 3px rgba(71,71,161,.12); }
+.login-input-wrap .form-control.is-invalid { background-image: none; border-color: #dc3545; }
+.login-form .form-group small { color: #8a8ea0; display: block; font-size: .7rem; margin-top: .4rem; }
+.login-password-wrap .form-control { padding-right: 7.2rem; }
+.login-password-toggle { background: transparent; border: 0; color: #4747a1; font-size: .72rem; font-weight: 750; padding: .5rem; position: absolute; right: .55rem; top: 50%; transform: translateY(-50%); }
+.login-password-toggle i { margin-right: .3rem; }
+.login-remember { align-items: center; color: #64697d; cursor: pointer; display: inline-flex; font-size: .78rem; gap: .55rem; margin: .1rem 0 1.25rem; }
+.login-remember input { accent-color: #4747a1; height: 16px; width: 16px; }
+.login-submit { align-items: center; background: #4747a1; border-color: #4747a1; border-radius: 10px; display: flex; font-size: .88rem; font-weight: 750; height: 50px; justify-content: center; width: 100%; }
+.login-submit i { margin-left: .7rem; transition: transform .15s ease; }
+.login-submit:hover { background: #353687; border-color: #353687; }
+.login-submit:hover i { transform: translateX(3px); }
+.login-submit[aria-busy="true"] { cursor: wait; opacity: .75; }
+.login-footer { color: #999dae; font-size: .68rem; margin: 2.25rem 0 0; text-align: center; }
+@media (max-width: 900px) { .login-shell { display: block; }.login-intro { display: none; }.login-form-panel { min-height: 100vh; }.login-mobile-brand { display: block; } }
+@media (max-width: 480px) { .login-form-panel { justify-content: flex-start; padding: 2rem 1.25rem; }.login-mobile-brand { margin-bottom: 3.5rem; } }
+@media (prefers-reduced-motion: reduce) { .login-submit i { transition: none; } }
+
 /* Supplier and warehouse master data */
 .master-filter-grid { grid-template-columns: minmax(260px, 1fr) minmax(170px, .35fr) auto; }
 .master-filter-grid-search { grid-template-columns: minmax(260px, 1fr) auto; }

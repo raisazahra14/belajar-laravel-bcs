@@ -1,122 +1,123 @@
 # LogistikKu
 
-LogistikKu adalah aplikasi web pengelolaan persediaan berbasis Laravel 12. Aplikasi ini memusatkan data barang, pergerakan stok, peringatan stok menipis, verifikasi dokumen berbantuan OCR, dan prediksi kebutuhan stok dalam satu alur kerja dengan hak akses berbasis peran.
+LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transaksi stok, laporan, verifikasi dokumen, dan prediksi kebutuhan stok. Aplikasi dibangun dengan Laravel 12 dan menggunakan Python untuk pemrosesan OCR serta prediksi.
 
-> **Status:** aplikasi dapat dijalankan untuk pengembangan dan evaluasi lokal. Fondasi data supplier dan multi-gudang sudah tersedia, tetapi belum seluruhnya mempunyai antarmuka pengguna. REST API publik juga belum tersedia.
+> Proyek ini ditujukan untuk pengembangan dan evaluasi lokal. Sebelum dipakai di produksi, ganti seluruh akun demo, nonaktifkan mode debug, dan sesuaikan konfigurasi database, queue, storage, serta web server.
 
-## Navigasi
+## Daftar isi
 
-- [Latar belakang dan tujuan](#latar-belakang-dan-tujuan)
 - [Fitur utama](#fitur-utama)
 - [Teknologi](#teknologi)
-- [Arsitektur Laravel-Python](#arsitektur-laravel-python)
-- [Persyaratan sistem](#persyaratan-sistem)
-- [Instalasi](#instalasi)
-- [Konfigurasi](#konfigurasi)
+- [Persyaratan](#persyaratan)
+- [Instalasi cepat](#instalasi-cepat)
+- [Login dan akun demo](#login-dan-akun-demo)
 - [Menjalankan aplikasi](#menjalankan-aplikasi)
-- [Pengujian](#pengujian)
+- [Konfigurasi penting](#konfigurasi-penting)
 - [Role dan hak akses](#role-dan-hak-akses)
-- [Import dan export](#import-dan-export)
-- [Endpoint JSON internal](#endpoint-json-internal)
-- [Struktur folder](#struktur-folder)
-- [Dokumentasi dan visual](#dokumentasi-dan-visual)
+- [Cara kerja modul utama](#cara-kerja-modul-utama)
+- [Pengujian](#pengujian)
+- [Struktur proyek](#struktur-proyek)
 - [Troubleshooting](#troubleshooting)
-- [Batasan dan rencana pengembangan](#batasan-dan-rencana-pengembangan)
-
-## Latar belakang dan tujuan
-
-Pencatatan persediaan yang tersebar atau manual menyulitkan petugas mengetahui saldo terkini, menelusuri perubahan stok, dan mengenali barang yang perlu segera diisi ulang. Pemeriksaan dokumen pendukung dan perencanaan restock juga memerlukan waktu bila dilakukan tanpa bantuan sistem.
-
-LogistikKu bertujuan untuk:
-
-- menyediakan satu sumber data barang dan transaksi stok;
-- menjaga perubahan stok tetap tercatat dan dapat ditelusuri;
-- membantu pengguna menemukan stok menipis dan kebutuhan restock;
-- mempercepat pemeriksaan awal Surat Jalan, Invoice, dan Bukti Fisik;
-- membatasi tindakan berisiko sesuai tanggung jawab Admin, Manager, dan Staff Gudang.
+- [Dokumentasi lanjutan](#dokumentasi-lanjutan)
+- [Keamanan dan batasan](#keamanan-dan-batasan)
 
 ## Fitur utama
 
-| Area | Implementasi yang tersedia |
-|---|---|
-| Login | Autentikasi berbasis session dengan regenerasi session setelah login dan rate limit 5 percobaan per kombinasi email/IP selama 60 detik. |
-| Manajemen barang | Admin dapat menambah, melihat, mengubah, dan menghapus barang. Kode dibuat otomatis, foto bersifat opsional, dan perubahan kode dicegah oleh model. |
-| Stok masuk dan keluar | Admin, Manager, dan Staff dapat mencatat transaksi masuk/keluar. Perubahan saldo, saldo gudang utama, snapshot sebelum/sesudah, dan transaksi disimpan secara atomik. |
-| Riwayat transaksi | Timeline, tabel berhalaman, dan grafik saldo memakai `stok_transactions`; maksimal 100 transaksi terbaru dipakai untuk grafik. |
-| Pencarian dan daftar | Pencarian kode/nama/lokasi, filter kategori dan status stok, sorting nama/stok, serta pagination. Hasil dapat diperbarui tanpa memuat ulang seluruh halaman. |
-| Analitik bisnis | Admin dapat melihat mutasi periodik, Fast/Slow/Dead Stock, valuasi stok saat ini per kategori dan gudang, rekonsiliasi saldo master–gudang, notifikasi, ringkasan otomatis, dan ekspor CSV. Filter supplier, gudang, dan kategori diterapkan konsisten; filter tanggal hanya berlaku untuk mutasi. |
-| Stok menipis | Barang dengan stok `<= 5` ditampilkan pada dashboard dan halaman khusus. |
-| Soft delete | Barang masuk ke Tong Sampah, dapat dipulihkan, dan dapat dihapus permanen bila tidak terhalang dependensi bisnis. Admin juga mempunyai aksi massal. |
-| Role dan permission | Otorisasi memakai middleware `auth`, middleware role, Laravel Gate, validasi request, dan pemeriksaan kepemilikan dokumen. |
-| Import dan export | Admin dapat mengimpor XLSX/XLS/CSV secara atomik serta mengekspor persediaan aktif ke XLSX, CSV, dan PDF. |
-| Verifikasi dokumen | Laravel menyimpan file secara privat dan menjadwalkan job; Python menjalankan OCR Tesseract, ekstraksi metadata, pemeriksaan visual/manipulasi, lalu mengembalikan JSON. |
-| Prediksi kebutuhan stok | Histori transaksi keluar dianalisis dengan metode `cold_start`, `simple_average`, atau regresi linear (`machine_learning`). Laravel menyediakan fallback lokal bila Python gagal. |
-| Queue dan notifikasi | Verifikasi memakai queue `default`; prediksi memakai `stock-predictions`. Status proses, retry yang relevan, dan notifikasi hasil tersedia. |
-| REST API | **Belum tersedia.** Tidak ada `routes/api.php`, autentikasi token/Sanctum, atau kontrak REST publik. Route JSON yang ada dipakai UI internal dan tetap memakai autentikasi sesi. |
+### Autentikasi dan pengguna
 
-Dashboard juga menyediakan ringkasan jumlah barang/stok/kategori, grafik aktivitas 7 atau 30 hari, Pusat Perhatian, dan status prediksi terbaru.
+- Login berbasis session menggunakan email dan password.
+- Opsi **Ingat saya**, normalisasi email, regenerasi session, dan pembatasan lima percobaan login gagal per email/IP selama 60 detik.
+- Logout aman dengan invalidasi session dan regenerasi token CSRF.
+- Tiga role: `admin`, `manager`, dan `staff`.
+- Admin dapat mengelola akun pengguna.
+
+### Inventaris
+
+- Daftar, pencarian, filter, pengurutan, dan pagination barang.
+- CRUD barang, foto barang, kode barang otomatis, dan soft delete.
+- Halaman stok menipis untuk barang dengan stok `<= 5`.
+- Import XLSX, XLS, atau CSV secara atomik.
+- Export persediaan ke XLSX, CSV, dan PDF.
+- Tong Sampah dengan pemulihan, penghapusan permanen, dan aksi massal.
+
+### Supplier dan gudang
+
+- Daftar dan detail supplier serta gudang dapat dilihat pengguna yang sudah login.
+- Admin dapat menambah, mengubah, dan menghapus master supplier serta gudang.
+- Saldo barang dicatat per gudang melalui `warehouse_stocks`.
+- Transfer stok antargudang dan rekonsiliasi saldo tersedia.
+
+### Transaksi dan laporan stok
+
+- Pencatatan stok masuk dan keluar dengan validasi saldo.
+- Riwayat transaksi dan grafik perubahan saldo.
+- Snapshot pelaku, supplier, saldo sebelum/sesudah, dan informasi audit transaksi.
+- Transfer stok antargudang.
+- Pembalikan transaksi untuk Admin dan Manager.
+- Laporan mutasi stok dengan filter tanggal, supplier, gudang, dan kategori.
+- Export laporan mutasi ke CSV, XLSX, dan PDF.
+
+### Analitik dan notifikasi
+
+- Ringkasan jumlah barang, total stok, kategori, aktivitas 7/30 hari, dan stok menipis.
+- Klasifikasi Fast, Slow, dan Dead Stock.
+- Valuasi stok berdasarkan harga beli.
+- Analitik mutasi dan rekonsiliasi saldo master dengan saldo gudang.
+- Pusat notifikasi untuk hasil prediksi, verifikasi dokumen, dan perhatian operasional.
+
+### Verifikasi dokumen
+
+- Upload PDF, JPG, JPEG, atau PNG sampai 10 MiB.
+- Mendukung Surat Jalan, Invoice, dan Bukti Fisik.
+- File disimpan secara privat.
+- Job Laravel menjalankan Python dan Tesseract OCR untuk mengekstrak metadata serta melakukan pemeriksaan awal.
+- Status proses, hasil pemeriksaan, retry, edit metadata, audit, dan notifikasi tersedia.
+
+Verifikasi ini adalah alat bantu pemeriksaan awal, bukan penetapan keaslian hukum.
+
+### Prediksi stok
+
+- Analisis histori transaksi keluar untuk membantu menentukan kebutuhan restock.
+- Metode `cold_start`, rata-rata sederhana, atau regresi linear dipilih berdasarkan data yang tersedia.
+- Analisis satu barang atau semua barang berjalan melalui queue `stock-predictions`.
+- Laravel menyediakan fallback lokal jika proses Python gagal.
+- Admin dan Manager dapat menjalankan analisis serta menerapkan rekomendasi restock.
 
 ## Teknologi
 
-| Lapisan | Teknologi yang digunakan |
+| Bagian | Teknologi |
 |---|---|
-| Backend | PHP 8.2+, Laravel 12, Eloquent ORM, Blade, Laravel Queue |
-| Database | SQLite sebagai default `.env.example`; Laravel juga dikonfigurasi untuk MySQL/MariaDB. Dokumentasi database proyek diaudit terhadap MariaDB/MySQL. |
-| Frontend | Template SkyDash/Bootstrap dan Chart.js dari aset lokal; Vite 6, Tailwind CSS 4, Axios, dan JavaScript sebagai toolchain npm |
-| Import/export | Maatwebsite Excel, PhpSpreadsheet, generator CSV dan PDF internal |
-| Integrasi proses | Symfony Process untuk menjalankan script Python dari Laravel |
-| Analisis Python | Python 3.10+, PyMuPDF, Pillow, pytesseract, OpenCV, dan scikit-learn |
-| OCR | Tesseract OCR dengan data bahasa Inggris dan/atau Indonesia |
-| Pengujian | PHPUnit 11 dan Python `unittest` |
+| Backend | PHP 8.2+, Laravel 12, Eloquent ORM, Blade |
+| Database | SQLite atau MySQL/MariaDB |
+| Frontend | Bootstrap/SkyDash, JavaScript, Chart.js, Vite 6 |
+| Queue | Laravel Queue dengan driver database |
+| Import/export | Maatwebsite Excel, PhpSpreadsheet, generator CSV/PDF internal |
+| Integrasi Python | Symfony Process |
+| OCR | Python, Tesseract, Pillow, OpenCV, PyMuPDF, pytesseract |
+| Prediksi | Python, NumPy, pandas, scikit-learn |
+| Test | PHPUnit 11 dan Python `unittest` |
 
-Versi dependency yang dikunci tersedia pada [`composer.lock`](composer.lock), [`package-lock.json`](package-lock.json), dan [`python/requirements.txt`](python/requirements.txt).
+## Persyaratan
 
-## Arsitektur Laravel-Python
+Pastikan perangkat memiliki:
 
-```mermaid
-flowchart LR
-    U[Pengguna] --> W[Route web dan middleware]
-    W --> C[Controller dan Form Request]
-    C --> S[Service Laravel]
-    S --> DB[(Database)]
-    S --> FS[(Storage)]
-    C --> Q[(Database queue)]
-    Q --> JW[Worker Laravel]
-    JW --> P1[document_checker.py]
-    JW --> P2[stock_predictor.py]
-    P1 --> T[Tesseract OCR]
-    P1 --> J[JSON hasil]
-    P2 --> J
-    J --> JW
-    JW --> DB
-    DB --> V[Blade/JSON internal]
-    V --> U
+- PHP 8.2 atau lebih baru;
+- Composer;
+- Node.js 18/20 atau 22+ dan npm;
+- SQLite, atau MySQL/MariaDB;
+- Python 3.10 atau lebih baru;
+- Tesseract OCR beserta bahasa `eng`, `ind`, atau keduanya;
+- Git.
+
+Ekstensi PHP yang umum diperlukan: `ctype`, `dom`, `fileinfo`, `gd`, `iconv`, `libxml`, `mbstring`, `openssl`, `pdo`, `simplexml`, `xml`, `xmlreader`, `xmlwriter`, dan `zip`. Periksa kebutuhan aktual dengan:
+
+```bash
+composer check-platform-reqs
 ```
 
-1. Laravel menangani autentikasi, otorisasi, validasi, transaksi database, penyimpanan file, dan tampilan.
-2. Job queue memanggil Python melalui Symfony Process. Python bukan server HTTP terpisah.
-3. `document_checker.py` menerima path file dan jenis dokumen; `stock_predictor.py` menerima JSON melalui `stdin`.
-4. Python menulis JSON ke `stdout`, lalu Laravel memvalidasi kontraknya sebelum menyimpan hasil.
-5. Jika prediksi Python gagal, Laravel memakai fallback yang lebih sederhana. Kegagalan analisis tidak membatalkan transaksi stok yang sudah valid.
+## Instalasi cepat
 
-## Persyaratan sistem
-
-- Git.
-- PHP `^8.2` dan Composer.
-- Ekstensi PHP yang dibutuhkan Laravel/PhpSpreadsheet, antara lain `ctype`, `dom`, `fileinfo`, `filter`, `gd`, `iconv`, `libxml`, `mbstring`, `openssl`, `pdo`, `simplexml`, `xml`, `xmlreader`, `xmlwriter`, dan `zip`.
-- SQLite dengan PDO SQLite, atau MySQL/MariaDB dengan driver PDO yang sesuai.
-- Node.js `^18`, `^20`, atau `>=22` dan npm untuk aset Vite.
-- Python 3.10+ beserta dependency pada [`python/requirements.txt`](python/requirements.txt).
-- Tesseract OCR melalui `PATH`; instalasi Windows standar di `C:\Program Files\Tesseract-OCR\tesseract.exe` juga dideteksi script.
-- Data bahasa Tesseract `eng`, `ind`, atau keduanya. Bila keduanya tersedia, OCR memakai `ind+eng`.
-
-Setelah dependency terpasang, periksa runtime PHP dengan `composer check-platform-reqs`.
-
-## Instalasi
-
-### 1. Clone dan dependency
-
-Ganti `<URL_REPOSITORY>` dengan URL Git repository yang sah.
+### 1. Ambil kode dan pasang dependency
 
 ```bash
 git clone <URL_REPOSITORY> LogistikKu
@@ -125,7 +126,7 @@ composer install
 npm ci
 ```
 
-### 2. Environment Laravel
+### 2. Siapkan environment
 
 Linux/macOS:
 
@@ -141,11 +142,9 @@ Copy-Item .env.example .env
 php artisan key:generate
 ```
 
-Jangan commit `.env` atau menaruh password, token, dan API key di dokumentasi.
+### 3. Siapkan database
 
-### 3. Database
-
-Default proyek adalah SQLite. Buat file database bila belum ada.
+Konfigurasi bawaan memakai SQLite.
 
 Linux/macOS:
 
@@ -158,25 +157,40 @@ Windows PowerShell:
 
 ```powershell
 if (-not (Test-Path database/database.sqlite)) {
-    New-Item -ItemType File -Path database/database.sqlite
+    New-Item -ItemType File database/database.sqlite
 }
 php artisan migrate --seed
 ```
 
-Seeder membuat akun lokal untuk tiga role sesuai `database/seeders/DatabaseSeeder.php`. Tinjau dan ganti kredensial seed sebelum lingkungan dibagikan atau digunakan di luar development; kredensial tidak dicantumkan di sini.
+Untuk MySQL/MariaDB, buat database kosong lalu ubah bagian berikut di `.env`:
 
-Untuk MySQL/MariaDB, buat database kosong, isi variabel `DB_*` di `.env`, lalu jalankan `php artisan migrate --seed`. Migration juga menyiapkan gudang utama untuk alur transaksi aktif.
+```dotenv
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=logistikku
+DB_USERNAME=root
+DB_PASSWORD=
+```
 
-### 4. Storage dan frontend
+Setelah itu jalankan:
+
+```bash
+php artisan migrate --seed
+```
+
+### 4. Siapkan storage dan aset
 
 ```bash
 php artisan storage:link
 npm run build
 ```
 
-`storage:link` diperlukan untuk foto barang pada disk `public`. Dokumen verifikasi tetap berada pada disk `local` privat. Untuk hot reload gunakan `npm run dev`.
+`storage:link` diperlukan agar foto barang pada disk publik dapat ditampilkan. Dokumen verifikasi tetap disimpan pada storage privat.
 
-### 5. Python
+### 5. Siapkan Python
+
+Buat virtual environment:
 
 ```bash
 python -m venv python/.venv
@@ -194,22 +208,102 @@ Linux/macOS:
 python/.venv/bin/python -m pip install -r python/requirements.txt
 ```
 
-Isi `PYTHON_EXECUTABLE` dengan interpreter virtual environment. Gunakan path lokal mesin dan jangan commit path pribadi.
+Ubah `PYTHON_EXECUTABLE` di `.env` agar menunjuk ke interpreter tersebut. Contoh Windows:
 
-### 6. Tesseract OCR
+```dotenv
+PYTHON_EXECUTABLE=python/.venv/Scripts/python.exe
+```
 
-Pasang Tesseract beserta data bahasa `eng` dan/atau `ind`, lalu periksa dari terminal yang akan menjalankan worker:
+### 6. Pasang Tesseract
+
+Pastikan perintah berikut berhasil dari terminal yang juga akan menjalankan queue worker:
 
 ```bash
 tesseract --version
 tesseract --list-langs
 ```
 
-PDF dibaca melalui PyMuPDF; implementasi saat ini tidak memanggil Poppler.
+Script juga mendeteksi lokasi instalasi Windows standar `C:\Program Files\Tesseract-OCR\tesseract.exe`. Bila `eng` dan `ind` tersedia, OCR menggunakan keduanya.
 
-## Konfigurasi
+## Login dan akun demo
 
-Salin `.env.example`, lalu ubah nilai sesuai lingkungan. Contoh aman:
+Jalankan seeder untuk membuat akun lokal:
+
+```bash
+php artisan db:seed
+```
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | `admin@logistikku.test` | `password` |
+| Manager | `manager@logistikku.test` | `password` |
+| Staff | `staff@logistikku.test` | `password` |
+
+Buka [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login), lalu gunakan salah satu akun di atas. Kredensial demo sengaja tidak ditampilkan pada halaman login; gunakan tabel dokumentasi ini hanya untuk pengembangan lokal.
+
+> Akun ini hanya untuk pengembangan. Ganti password atau hapus akun demo sebelum aplikasi dapat diakses dari jaringan publik.
+
+Jika login tidak muncul:
+
+1. pastikan server Laravel aktif;
+2. buka `/login` secara langsung;
+3. jalankan `php artisan migrate --seed` agar tabel dan akun tersedia;
+4. jalankan `php artisan optimize:clear` setelah mengubah `.env`;
+5. hapus cookie situs atau logout jika browser masih menyimpan session lama.
+
+## Menjalankan aplikasi
+
+### Cara paling ringkas
+
+Perintah berikut menjalankan server Laravel, queue listener, dan Vite sekaligus:
+
+```bash
+composer run dev
+```
+
+Lalu buka [http://127.0.0.1:8000](http://127.0.0.1:8000). Pengguna yang belum login otomatis diarahkan ke halaman login.
+
+### Menjalankan proses secara terpisah
+
+Terminal 1 - server Laravel:
+
+```bash
+php artisan serve
+```
+
+Terminal 2 - Vite:
+
+```bash
+npm run dev
+```
+
+Terminal 3 - queue prediksi:
+
+```bash
+php artisan queue:work database --queue=stock-predictions --sleep=1 --tries=3 --timeout=60
+```
+
+Terminal 4 - queue verifikasi dokumen:
+
+```bash
+php artisan queue:work database --queue=default --sleep=1 --tries=1 --timeout=300
+```
+
+Untuk pengembangan, kedua queue dapat ditangani satu worker:
+
+```bash
+php artisan queue:work database --queue=stock-predictions,default --sleep=1 --tries=3 --timeout=300
+```
+
+Setelah kode job atau konfigurasi berubah, jalankan:
+
+```bash
+php artisan queue:restart
+```
+
+## Konfigurasi penting
+
+Contoh konfigurasi lokal pada `.env`:
 
 ```dotenv
 APP_NAME=LogistikKu
@@ -220,9 +314,9 @@ APP_TIMEZONE=UTC
 APP_DISPLAY_TIMEZONE=Asia/Jakarta
 
 DB_CONNECTION=sqlite
-QUEUE_CONNECTION=database
 SESSION_DRIVER=database
 CACHE_STORE=database
+QUEUE_CONNECTION=database
 
 PYTHON_EXECUTABLE=python
 DOCUMENT_CHECKER_TIMEOUT=120
@@ -234,64 +328,93 @@ STOCK_PREDICTION_HORIZON_DAYS=30
 DB_QUEUE_RETRY_AFTER=360
 ```
 
-- Buat `APP_KEY` dengan `php artisan key:generate`.
-- Untuk MySQL/MariaDB, tambahkan `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, dan `DB_PASSWORD` hanya ke `.env` lokal.
-- Service menjaga timeout OCR efektif minimal 240 detik; job OCR memiliki timeout 300 detik dan database `retry_after` default 360 detik.
-- Setelah mengubah `.env`, jalankan `php artisan optimize:clear` dan restart worker.
+Catatan:
 
-## Menjalankan aplikasi
+- jangan commit file `.env`;
+- buat `APP_KEY` dengan `php artisan key:generate`;
+- setelah konfigurasi berubah, jalankan `php artisan optimize:clear` dan restart queue worker;
+- timeout job OCR adalah 300 detik, sehingga `retry_after` database sebaiknya lebih besar;
+- pada produksi gunakan `APP_DEBUG=false` dan kredensial database yang aman.
 
-### Cara ringkas
+## Role dan hak akses
 
-Script Composer menjalankan server Laravel, queue listener untuk kedua queue, dan Vite:
+| Kemampuan | Admin | Manager | Staff |
+|---|:---:|:---:|:---:|
+| Login, dashboard, barang, supplier, dan gudang | Ya | Ya | Ya |
+| Melihat detail dan riwayat stok | Ya | Ya | Ya |
+| Mencatat stok masuk/keluar | Ya | Ya | Ya |
+| Transfer stok antargudang | Ya | Ya | Ya |
+| Membalikkan transaksi stok | Ya | Ya | Tidak |
+| Melihat dan export laporan mutasi | Ya | Ya | Tidak |
+| Menjalankan prediksi dan menyetujui restock | Ya | Ya | Tidak |
+| Upload dan melihat verifikasi dokumen sendiri | Ya | Ya | Ya |
+| Melihat semua verifikasi dokumen | Ya | Tidak | Tidak |
+| CRUD barang, supplier, dan gudang | Ya | Tidak | Tidak |
+| Import/export inventaris dan Tong Sampah | Ya | Tidak | Tidak |
+| Analitik bisnis | Ya | Tidak | Tidak |
+| Kelola pengguna | Ya | Tidak | Tidak |
 
-```bash
-composer run dev
+Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, validasi request, dan pemeriksaan kepemilikan data.
+
+## Cara kerja modul utama
+
+### Alur autentikasi
+
+1. Pengguna membuka `/login`.
+2. Laravel memvalidasi email dan password.
+3. Login gagal dihitung oleh rate limiter berdasarkan email dan alamat IP.
+4. Jika berhasil, session diregenerasi dan pengguna diarahkan ke halaman yang sebelumnya diminta atau `/barang`.
+5. Logout menghapus session dan kembali ke `/login`.
+
+### Alur perubahan stok
+
+1. Pengguna memilih barang dan jenis transaksi.
+2. Request memvalidasi jumlah, gudang, supplier, catatan, dan kewenangan pengguna.
+3. Service mengunci data yang relevan dan menjalankan perubahan dalam transaksi database.
+4. Saldo barang, saldo gudang, serta snapshot sebelum/sesudah diperbarui secara konsisten.
+5. Transaksi tersimpan pada `stok_transactions` dan tampil pada riwayat/laporan.
+
+### Alur verifikasi dokumen
+
+```text
+Upload -> validasi -> storage privat -> queue default
+       -> Python/Tesseract -> JSON hasil -> database
+       -> status, metadata, audit, dan notifikasi
 ```
 
-### Proses terpisah
+Laravel menangani autentikasi, file, job, dan database. Python bukan server terpisah; script dijalankan oleh Laravel melalui Symfony Process.
 
-```bash
-# Terminal 1 — Laravel
-php artisan serve
+### Alur prediksi stok
 
-# Terminal 2 — Vite
-npm run dev
-
-# Terminal 3 — prediksi stok
-php artisan queue:work database --queue=stock-predictions --sleep=1 --tries=3 --timeout=60
-
-# Terminal 4 — verifikasi dokumen
-php artisan queue:work database --queue=default --sleep=1 --tries=1 --timeout=300
+```text
+Histori transaksi keluar -> queue stock-predictions -> Python
+                         -> metode prediksi -> rekomendasi
+                         -> database dan notifikasi
 ```
 
-Untuk development, kedua queue dapat ditangani satu worker:
+Jika Python gagal, service Laravel menghasilkan fallback sederhana agar proses tetap memberikan hasil yang aman untuk ditinjau.
 
-```bash
-php artisan queue:work database --queue=stock-predictions,default --sleep=1 --tries=3 --timeout=300
+### Import barang
+
+Import menerima tepat enam kolom berikut:
+
+| Kolom | Aturan ringkas |
+|---|---|
+| `kode_barang` | Wajib; format barang baru `BRG-` + 6 angka |
+| `nama_barang` | Wajib; maksimal 255 karakter |
+| `kategori` | Harus termasuk kategori yang diizinkan aplikasi |
+| `stok` | Bilangan bulat, minimal 0 |
+| `satuan` | Harus termasuk satuan yang diizinkan aplikasi |
+| `lokasi` | Wajib; maksimal 255 karakter |
+
+Contoh CSV:
+
+```csv
+kode_barang,nama_barang,kategori,stok,satuan,lokasi
+BRG-000001,Kabel LAN Cat6,Jaringan,20,Pcs,Gudang B
 ```
 
-Setelah deployment atau perubahan kode worker, jalankan `php artisan queue:restart`.
-
-### Script Python manual
-
-Jalankan dari folder `python/` agar import lokal dan working directory konsisten.
-
-```bash
-cd python
-python document_checker.py path/to/dokumen.pdf --document-type surat_jalan
-```
-
-Pilihan `--document-type` adalah `surat_jalan`, `invoice`, atau `bukti_fisik`. Aplikasi menerima PDF/JPG/JPEG/PNG sampai 10 MiB.
-
-Prediktor membaca JSON dari `stdin`:
-
-```bash
-cd python
-echo '{"item":{"id":1,"current_stock":10,"minimum_stock":5},"out_transactions":[]}' | python stock_predictor.py
-```
-
-Contoh tersebut tidak memuat data pribadi. Hasil `cold_start` membutuhkan estimasi pemakaian harian dan lead time yang valid.
+Seluruh batch dibatalkan jika ada baris tidak valid, duplikasi kode, atau konflik dengan barang di Tong Sampah.
 
 ## Pengujian
 
@@ -301,183 +424,134 @@ Suite Laravel:
 php artisan test --do-not-cache-result
 ```
 
-Jika perintah itu gagal di Windows karena Symfony Process tidak mengenali working directory, gunakan PHPUnit langsung:
+Pada sebagian lingkungan Windows, `php artisan test` dapat gagal karena Symfony Process tidak mengenali working directory. Gunakan PHPUnit langsung:
 
 ```bash
 php vendor/bin/phpunit --do-not-cache-result
 ```
 
-Suite Python harus dijalankan dari folder `python/`:
+Menjalankan tes login saja:
+
+```bash
+php vendor/bin/phpunit --filter="LoginPageTest|AuthRateLimitTest" --do-not-cache-result
+```
+
+Suite Python dijalankan dari folder `python`:
 
 ```bash
 cd python
 python -m unittest discover -s tests -v
 ```
 
-Pemeriksaan format PHP opsional: `php vendor/bin/pint --test`.
+Pemeriksaan gaya PHP opsional:
 
-### Hasil terbaru
-
-Pengujian dijalankan ulang pada **2 Oktober 2026** di Windows:
-
-| Suite | Runtime | Hasil |
-|---|---|---|
-| PHPUnit 11.5.56 | PHP 8.2.12 | **Lulus — 340 test, 4.186 assertion** (2:53.607) |
-| Python `unittest` | Python 3.10.7 | **Lulus — 55 test** (40.433 detik) |
-
-`php artisan test` tidak menjalankan suite karena working directory Windows dilaporkan tidak ada oleh proses anak Symfony. PHPUnit langsung berhasil menjalankan seluruh suite. Tesseract tidak tersedia pada `PATH` mesin validasi, sehingga unit test OCR lulus tetapi eksekusi OCR nyata belum divalidasi di lingkungan ini.
-
-PHPUnit memakai SQLite `:memory:` serta cache, session, mail, dan queue in-memory sesuai [`phpunit.xml`](phpunit.xml), bukan database development.
-
-## Role dan hak akses
-
-| Kemampuan | Admin | Manager | Staff |
-|---|:---:|:---:|:---:|
-| Melihat dashboard, daftar, detail, dan riwayat stok | Ya | Ya | Ya |
-| Mencatat stok masuk/keluar | Ya | Ya | Ya |
-| Menjalankan analisis prediksi | Ya | Ya | Tidak |
-| Menyetujui rekomendasi restock ke form stok masuk | Ya | Ya | Tidak |
-| Mengunggah dokumen dan melihat verifikasi sendiri | Ya | Ya | Ya |
-| Melihat seluruh riwayat verifikasi | Ya | Tidak | Tidak |
-| CRUD barang dan foto | Ya | Tidak | Tidak |
-| Import/export dan mengelola Tong Sampah | Ya | Tidak | Tidak |
-| Mengelola pengguna | Ya | Tidak | Tidak |
-
-Dokumen pengguna biasa hanya dapat dilihat pemiliknya; Admin dapat melihat seluruh verifikasi. Aplikasi memakai autentikasi sesi web, bukan permission berbasis token.
-
-## Import dan export
-
-Admin dapat mengunduh template XLSX atau CSV. Import menerima XLSX, XLS, atau CSV sampai 5 MiB dengan tepat enam kolom:
-
-| Kolom | Aturan | Contoh aman |
-|---|---|---|
-| `kode_barang` | Wajib. Barang baru memakai `BRG-` + enam angka; kode existing memperbarui barang aktif. | `BRG-000001` |
-| `nama_barang` | Wajib, maksimum 255 karakter. | `Kabel LAN Cat6` |
-| `kategori` | Elektronik, Jaringan, Peralatan, ATK, Bahan Baku, atau Furniture. | `Jaringan` |
-| `stok` | Bilangan bulat minimum 0. | `20` |
-| `satuan` | Unit, Pcs, Box, Meter, Pack, Set, atau Kg. | `Pcs` |
-| `lokasi` | Wajib, maksimum 255 karakter. | `Gudang B` |
-
-```csv
-kode_barang,nama_barang,kategori,stok,satuan,lokasi
-BRG-000001,Kabel LAN Cat6,Jaringan,20,Pcs,Gudang B
+```bash
+php vendor/bin/pint --test
 ```
 
-Aturan proses:
+PHPUnit menggunakan SQLite in-memory dan driver cache, session, mail, serta queue in-memory sesuai [`phpunit.xml`](phpunit.xml), sehingga tidak mengubah database development.
 
-- Header harus memuat tepat keenam kolom; urutannya boleh berbeda.
-- CSV harus UTF-8 dengan pemisah koma.
-- Kode existing memperbarui data dan menyesuaikan stok melalui service transaksi; kode baru menambah barang.
-- Duplikasi kode, kode dalam Tong Sampah, atau baris tidak valid membatalkan seluruh batch.
-- Maksimal 100 alasan validasi ditampilkan agar response tetap terkendali.
-
-Export Admin memuat seluruh barang aktif, diurutkan berdasarkan nama, dalam XLSX, CSV, atau PDF. Barang di Tong Sampah tidak ikut diekspor.
-
-## Endpoint JSON internal
-
-LogistikKu belum menyediakan REST API publik. Contoh aman berikut memanggil endpoint JSON internal yang terverifikasi dari halaman yang sudah login dengan session yang sama:
-
-```javascript
-const response = await fetch('/barang/dashboard/activity?period=7', {
-  headers: { Accept: 'application/json' },
-  credentials: 'same-origin',
-});
-
-if (!response.ok) throw new Error(`HTTP ${response.status}`);
-const activity = await response.json();
-```
-
-Endpoint berada dalam middleware `auth`; periode dibatasi menjadi 7 atau 30 hari oleh `DashboardActivityRequest`. Jangan memublikasikan password, token, atau cookie. Endpoint JSON untuk status prediksi dan verifikasi juga merupakan bagian UI internal, bukan kontrak API eksternal.
-
-## Struktur folder
+## Struktur proyek
 
 ```text
 app/
-├── Http/Controllers/        handler route dan orkestrasi request
-├── Http/Requests/           validasi dan authorization input
-├── Jobs/                    job verifikasi dan prediksi
-├── Models/                  model Eloquent
-└── Services/                stok, report, dashboard, dan bridge Python
-config/                      konfigurasi Laravel, queue, dan Python
+|-- Http/Controllers/       controller halaman dan endpoint internal
+|-- Http/Middleware/        middleware role
+|-- Http/Requests/          validasi dan otorisasi request
+|-- Jobs/                   job OCR dan prediksi stok
+|-- Models/                 model Eloquent
+`-- Services/               logika stok, laporan, analitik, dan Python bridge
+config/                      konfigurasi Laravel dan service
 database/
-├── migrations/              skema, constraint, indeks, supplier, dan gudang
-└── seeders/                 data akun lokal dan seeder prediksi opsional
-docs/                        SRS, ERD, Data Dictionary, diagram, dan peta konsep
-public/                      aset frontend dan visual dokumentasi
+|-- migrations/             struktur tabel, constraint, dan indeks
+`-- seeders/                akun lokal dan data demo
+docs/                        SRS, ERD, data dictionary, dan diagram
+public/                      aset CSS, JavaScript, gambar, dan entry point
 python/
-├── document_checker.py      engine OCR/verifikasi
-├── stock_predictor.py       engine prediksi
-└── tests/                   suite Python
-resources/views/             antarmuka Blade
-routes/web.php               seluruh route aplikasi saat ini
-tests/                       suite Unit dan Feature Laravel
+|-- document_checker.py     OCR dan pemeriksaan dokumen
+|-- stock_predictor.py      prediksi kebutuhan stok
+`-- tests/                  unit test Python
+resources/views/             halaman Blade dan komponen UI
+routes/web.php               route web aplikasi
+tests/                       unit dan feature test Laravel
 ```
 
-## Dokumentasi dan visual
-
-| Dokumen | Isi |
-|---|---|
-| [Indeks dokumentasi](docs/README.md) | Peta dokumentasi dan status tugas modul |
-| [SRS final](docs/srs.md) | Kebutuhan as-built, use case, activity diagram, kriteria penerimaan, dan ketertelusuran |
-| [SRS PDF](docs/SRS_Sistem_Inventaris_LogistikKu.pdf) | Publikasi versi 1.3 yang disinkronkan dari `srs.md`; versi 1.1 tersedia di `docs/archive/` |
-| [Peta Konsep](docs/PETA_KONSEP_LOGISTIKKU.md) | Ringkasan modul dan alur Laravel-Python |
-| [ERD](docs/database/erd.md) | Relasi tabel, aturan FK, dan audit migration/model |
-| [Data Dictionary](docs/data_dictionary.md) | Kolom, tipe, constraint, indeks, dan audit database |
-| [Diagram proses bisnis](docs/srs.md#10-use-case-dan-activity-diagram) | Source Mermaid Use Case, Activity stok, dan Activity verifikasi |
-| [Use Case SVG](docs/images/tugas-1-2-use-case.svg) | Render diagram Use Case |
-| [Activity stok SVG](docs/images/tugas-1-2-activity-stok.svg) | Render baseline alur stok |
-| [Activity verifikasi SVG](docs/images/tugas-1-2-activity-verifikasi.svg) | Render alur verifikasi dokumen |
-
-Repository tidak memuat screenshot UI aplikasi yang dapat diverifikasi. Aset yang tersedia adalah infografik dokumentasi; berikut salah satunya dengan label yang tepat:
-
-![Infografik gambaran keseluruhan LogistikKu](public/images/dokumentasi-aplikasi/01-gambaran-keseluruhan-aplikasi.png)
-
-Visual lain:
-
-- [Arsitektur dan aliran data](public/images/dokumentasi-aplikasi/02-arsitektur-dan-aliran-data.png)
-- [Hak akses dan alur pengguna](public/images/dokumentasi-aplikasi/03-hak-akses-dan-alur-pengguna.png)
-- [ERD visual lama](public/images/dokumentasi-aplikasi/04-erd-database.png) — gunakan [`docs/database/erd.md`](docs/database/erd.md) sebagai sumber skema terkini.
+LogistikKu belum menyediakan REST API publik. Endpoint JSON yang ada dipakai antarmuka internal dan tetap dilindungi autentikasi session.
 
 ## Troubleshooting
 
-- **Prediksi tetap Menunggu:** pastikan database aktif, `QUEUE_CONNECTION=database`, migration tabel job sudah dijalankan, dan worker `stock-predictions` hidup. Periksa `php artisan queue:failed` serta log lokal.
-- **Verifikasi dokumen tetap Menunggu:** jalankan worker `default`, lalu periksa file privat, `PYTHON_EXECUTABLE`, dependency Python, dan Tesseract.
-- **Python tidak ditemukan:** arahkan `PYTHON_EXECUTABLE` ke interpreter virtual environment, jalankan `php artisan optimize:clear`, lalu restart worker.
-- **Tesseract tidak ditemukan:** jalankan `tesseract --version` dari terminal worker dan pastikan data bahasa `eng` atau `ind` tersedia.
-- **Import ditolak:** gunakan template aplikasi, maksimum 5 MiB, header yang benar, kategori/satuan yang diizinkan, dan stok bilangan bulat nonnegatif.
-- **Foto tidak tampil:** jalankan `php artisan storage:link` dan pastikan web server dapat membaca `storage/app/public`.
-- **Worker memakai kode lama:** jalankan `php artisan queue:restart`, kemudian pastikan proses worker dimulai kembali.
+### Halaman login tidak tampil
 
-## Batasan dan rencana pengembangan
+- Buka `http://127.0.0.1:8000/login` secara langsung.
+- Pastikan route tersedia dengan `php artisan route:list --path=login`.
+- Bersihkan cache menggunakan `php artisan optimize:clear`.
+- Jika sedang login, lakukan logout atau hapus cookie situs; middleware `guest` memang mengalihkan pengguna aktif ke `/barang`.
 
-### Batasan
+### Email atau password tidak sesuai
 
-- Belum ada REST API publik, autentikasi token, atau OpenAPI.
-- Tabel supplier dan multi-gudang tersedia, tetapi belum ada UI master supplier, pilihan gudang transaksi, atau transfer antargudang. Alur aktif memakai `GDG-UTAMA`.
-- Prediksi adalah alat bantu; kualitasnya bergantung pada histori transaksi keluar dan input cold-start.
-- Fallback Laravel memakai metode yang lebih sederhana daripada engine Python.
-- Verifikasi dokumen bukan penetapan keaslian hukum; scan buram, tulisan tangan, dan template baru dapat memerlukan pemeriksaan manusia.
-- Tidak ada health monitoring worker. Status `Menunggu` hanya berarti job telah dijadwalkan.
-- Tabel legacy `stok_histories` masih ada; alur aktif memakai `stok_transactions`.
-- Tidak ada workflow CI yang dapat menjadi dasar badge build/test.
+- Jalankan `php artisan migrate --seed`.
+- Gunakan akun demo persis seperti tabel pada bagian login.
+- Email boleh memakai huruf besar/kecil, tetapi password bersifat case-sensitive.
+- Setelah lima kegagalan, tunggu 60 detik sebelum mencoba lagi.
 
-### Rencana pengembangan
+### Database tidak tersedia
 
-- REST API terversi dengan autentikasi dan kontrak OpenAPI;
-- UI supplier, multi-gudang, dan transfer stok;
-- health check dan observabilitas queue worker;
-- screenshot UI aktual dan panduan deployment produksi;
-- workflow CI untuk test otomatis;
-- perluasan dataset evaluasi OCR dan pemantauan kualitas prediksi.
+- SQLite: pastikan `database/database.sqlite` ada dan dapat ditulis.
+- MySQL/MariaDB: pastikan service aktif dan nilai `DB_*` benar.
+- Jalankan `php artisan migrate:status` untuk memeriksa koneksi dan migration.
 
-## Keamanan repository
+### Foto barang tidak tampil
 
-- Jangan commit `.env`, database lokal, kredensial, token, log, backup, atau dokumen pengguna.
-- Dokumen verifikasi harus tetap berada pada storage privat.
-- Gunakan akun seed hanya untuk lokal dan ganti kredensial sebelum sistem dibagikan.
-- Periksa `storage/logs/laravel.log` hanya secara lokal saat troubleshooting.
-- History Git masih memuat artefak recovery sensitif pada commit `5c9f69b`. Jangan push repository sebelum pembersihan history ditinjau dan dikoordinasikan secara terpisah.
+Jalankan `php artisan storage:link`, lalu pastikan web server dapat membaca `storage/app/public`.
 
-## Lisensi dan kontributor
+### Prediksi tetap berstatus Menunggu
 
-Metadata [`composer.json`](composer.json) mendeklarasikan lisensi MIT, tetapi repository saat ini tidak memiliki file `LICENSE` terpisah. Daftar kontributor resmi juga belum didokumentasikan, sehingga README tidak mengarang informasi tersebut.
+- Pastikan `QUEUE_CONNECTION=database`.
+- Jalankan worker queue `stock-predictions`.
+- Periksa kegagalan dengan `php artisan queue:failed`.
+- Periksa `PYTHON_EXECUTABLE` dan dependency Python.
+
+### Verifikasi dokumen tetap berstatus Menunggu
+
+- Jalankan worker queue `default`.
+- Periksa Tesseract dengan `tesseract --version`.
+- Pastikan file privat dapat dibaca worker dan dependency pada `python/requirements.txt` terpasang.
+
+### Worker memakai kode lama
+
+```bash
+php artisan optimize:clear
+php artisan queue:restart
+```
+
+Kemudian pastikan proses worker dimulai kembali.
+
+### Import ditolak
+
+Gunakan template dari aplikasi, ukuran maksimum 5 MiB, header yang benar, kategori/satuan yang diizinkan, dan nilai stok berupa bilangan bulat nonnegatif.
+
+## Dokumentasi lanjutan
+
+| Dokumen | Keterangan |
+|---|---|
+| [Indeks dokumentasi](docs/README.md) | Peta seluruh dokumentasi proyek |
+| [SRS](docs/srs.md) | Kebutuhan, use case, activity diagram, dan kriteria penerimaan |
+| [SRS PDF](docs/SRS_Sistem_Inventaris_LogistikKu.pdf) | Versi PDF dokumen kebutuhan |
+| [Peta konsep](docs/PETA_KONSEP_LOGISTIKKU.md) | Ringkasan modul dan alur Laravel-Python |
+| [ERD](docs/database/erd.md) | Relasi tabel dan aturan database |
+| [Data dictionary](docs/data_dictionary.md) | Penjelasan tabel, kolom, constraint, dan indeks |
+| [Dokumentasi Python](python/README.md) | Cara kerja script OCR dan prediksi |
+
+## Keamanan dan batasan
+
+- Jangan commit `.env`, database lokal, token, log, backup, atau dokumen pengguna.
+- Jangan gunakan akun dan password demo di produksi.
+- Dokumen verifikasi harus tetap berada di storage privat.
+- Verifikasi OCR dapat keliru pada scan buram, tulisan tangan, atau format dokumen baru; hasil tetap perlu diperiksa manusia.
+- Prediksi adalah alat bantu dan sangat bergantung pada kualitas histori transaksi.
+- Belum ada REST API publik, autentikasi token, OpenAPI, atau health monitoring worker.
+- Setelah deployment, gunakan HTTPS, `APP_DEBUG=false`, cookie aman, proses queue terkelola, backup database, dan rotasi kredensial.
+
+## Lisensi
+
+Metadata [`composer.json`](composer.json) mendeklarasikan lisensi MIT. Repository saat ini belum memiliki file `LICENSE` terpisah.

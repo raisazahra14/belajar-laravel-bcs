@@ -1,6 +1,6 @@
 # Data Dictionary Database LogistikKu
 
-Dokumen ini mencatat kontrak skema yang dibentuk oleh seluruh source migration setelah implementasi Supplier dan Multi-Gudang. Audit 21 September 2026 membandingkan migration, model Eloquent, dan [`docs/database/erd.md`](database/erd.md), lalu menjalankan seluruh migration pada SQLite kosong. Koneksi database deployment MySQL/MariaDB sedang tidak tersedia; kondisi fisik dan data deployment tidak diklaim telah diverifikasi ulang.
+Dokumen ini mencatat kontrak skema yang dibentuk oleh seluruh source migration, termasuk Supplier, Multi-Gudang, pelaku transaksi, harga beli, transfer, reversal, biaya, dan referensi dokumen. Audit 5 Oktober 2026 membandingkan migration, model Eloquent, serta [`docs/database/erd.md`](database/erd.md), lalu menjalankan seluruh migration pada SQLite kosong. Kondisi fisik dan data database deployment harus diverifikasi terpisah.
 
 Source migration adalah sumber utama untuk tipe logis, nullable, default, PK, FK, indeks, dan referential action. Skema SQLite bersih digunakan untuk memverifikasi bahwa urutan migration benar-benar dapat dijalankan dan menghasilkan constraint yang dinyatakan. Perbedaan model atau keterbatasan verifikasi deployment dicatat secara eksplisit.
 
@@ -15,6 +15,7 @@ Source migration adalah sumber utama untuk tipe logis, nullable, default, PK, FK
   - [`warehouse_stocks`](#warehouse_stocks)
   - [`barang`](#barang)
   - [`stok_transactions`](#stok_transactions)
+  - [`stok_transaction_actors`](#stok_transaction_actors)
   - [`stok_histories`](#stok_histories)
   - [`document_verifications`](#document_verifications)
   - [`document_verification_audits`](#document_verification_audits)
@@ -30,7 +31,7 @@ Source migration adalah sumber utama untuk tipe logis, nullable, default, PK, FK
 
 ## Cakupan dan legenda
 
-Hasil migration bersih memiliki **22 tabel dan 201 kolom**: **14 tabel bisnis/aplikasi dengan 159 kolom** serta **8 tabel framework/internal dengan 42 kolom**. Engine, collation, dan representasi fisik JSON pada MySQL/MariaDB deployment perlu diperiksa di lingkungan target.
+Hasil migration bersih memiliki **23 tabel dan 218 kolom**: **15 tabel bisnis/aplikasi dengan 176 kolom** serta **8 tabel framework/internal dengan 42 kolom**. Terdapat 24 FK aktual. Engine, collation, perilaku `CHECK`, dan representasi fisik JSON/timestamp pada MySQL/MariaDB perlu diperiksa di lingkungan target.
 
 | Istilah | Arti |
 |---|---|
@@ -54,8 +55,9 @@ Tipe di bawah memakai bentuk MySQL/MariaDB yang diharapkan dari Laravel Schema B
 
 - Supplier dapat menjadi supplier utama banyak barang melalui `barang.supplier_id`, serta supplier asal banyak transaksi melalui `stok_transactions.supplier_id`. Keduanya nullable dan menjadi `NULL` ketika supplier dihapus permanen.
 - Satu barang dapat memiliki banyak saldo gudang dan satu gudang dapat memiliki banyak saldo barang. `warehouse_stocks` menjadi tabel penghubung, dengan UK komposit (`barang_id`, `warehouse_id`) sehingga satu pasangan barang–gudang hanya memiliki satu saldo.
-- `warehouse_stocks.stok` adalah saldo per gudang. `barang.stok` tetap dipertahankan sebagai **stok total/legacy** untuk kompatibilitas fitur lama dan input prediksi. Migration Multi-Gudang membuat `GDG-UTAMA`, menyalin stok lama ke sana, dan menghubungkan transaksi lama.
-- `stok_transactions` adalah ledger utama mutasi. FK ke barang dan saldo gudang memakai `ON DELETE RESTRICT`; supplier opsional memakai `SET NULL`. Snapshot sebelum/sesudah menggambarkan total legacy pada workflow saat ini.
+- `warehouse_stocks.stok` adalah saldo per gudang. `barang.stok` dipertahankan sebagai total seluruh gudang dan input prediksi. Migration menyediakan `GDG-UTAMA`, `GDG-A`, `GDG-B`, dan `GDG-C` serta menghubungkan transaksi lama ke gudang utama.
+- `stok_transactions` adalah ledger utama mutasi operasional, transfer, dan reversal. Dua baris transfer memakai `transfer_group_uuid` yang sama; reversal menunjuk transaksi awal melalui `reversal_of_id`.
+- `stok_transaction_actors` mencatat satu pelaku per transaksi. Penghapusan pengguna hanya mengosongkan `user_id`, sehingga histori tetap tersedia.
 - Barang menjadi induk histori lama, prediksi, notifikasi prediksi, dan state proses prediksi. Sebagian besar relasi prediksi memakai `CASCADE` saat barang dihapus permanen.
 - Pengguna memiliki dokumen verifikasi; verifikasi memiliki audit. Notifikasi Laravel ke pengguna bersifat polymorphic tanpa FK.
 - `stock_prediction_processes.source_transaction_id` adalah referensi logis ke transaksi sumber, bukan FK. Integritasnya tidak dijaga database.
@@ -156,6 +158,7 @@ PK: `id` (AI). UK: `barang_kode_barang_unique` (`kode_barang`). IDX: `barang_sup
 | `nama_barang` | `varchar(255)` | Tidak | — | — | Nama barang. |
 | `kategori` | `varchar(255)` | Tidak | — | — | Kategori aplikasi. |
 | `stok` | `int(10) unsigned` | Tidak | `0` | CHECK `ck_barang_stok_nn` | **Stok total/legacy**, bukan saldo satu gudang; wajib `>= 0`. |
+| `harga_beli` | `decimal(18,2)` | Ya | `NULL` | CHECK `ck_barang_harga_beli_nn` | Harga beli saat ini untuk valuasi; wajib `>= 0` bila terisi. |
 | `daily_usage_estimate` | `decimal(10,2)` | Ya | `NULL` | — | Estimasi konsumsi harian. |
 | `lead_time_days` | `smallint(5) unsigned` | Ya | `NULL` | — | Lead time pemasokan dalam hari. |
 | `satuan` | `varchar(255)` | Tidak | — | — | Satuan barang. |
@@ -168,9 +171,9 @@ Aturan penting: saldo per gudang berada di `warehouse_stocks`; `barang.stok` tet
 
 ### `stok_transactions`
 
-Fungsi: ledger mutasi stok masuk/keluar, snapshot supplier saat transaksi, saldo gudang asal, dan snapshot stok total sebelum/sesudah.
+Fungsi: ledger mutasi stok masuk/keluar, transfer, reversal, supplier, saldo gudang, biaya historis, referensi dokumen, dan snapshot stok sebelum/sesudah.
 
-PK: `id` (AI). IDX: `stok_transactions_barang_id_foreign` (`barang_id`), `stok_transactions_supplier_id_foreign` (`supplier_id`), `stok_transactions_warehouse_stock_id_foreign` (`warehouse_stock_id`), `idx_stok_barang_created` (`barang_id`, `created_at`), `idx_stok_barang_jenis_created` (`barang_id`, `jenis`, `created_at`), `idx_stok_supplier_created` (`supplier_id`, `created_at`), dan `idx_stok_supplier_jenis_created` (`supplier_id`, `jenis`, `created_at`). Soft delete: tidak.
+PK: `id` (AI). IDX utama: FK barang/supplier/saldo/reversal/pengguna reversal; kombinasi barang/supplier dengan waktu dan jenis; `mutation_type`; `transfer_group_uuid`; serta `reference_number`. Soft delete: tidak.
 
 | Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
 |---|---|---:|---|---|---|
@@ -179,14 +182,41 @@ PK: `id` (AI). IDX: `stok_transactions_barang_id_foreign` (`barang_id`), `stok_t
 | `supplier_id` | `bigint(20) unsigned` | Ya | `NULL` | FK → `suppliers.id`; delete `SET NULL`, update `RESTRICT` | Snapshot supplier saat transaksi dibuat; `NULL` untuk barang tanpa supplier atau transaksi lama yang belum merekam snapshot. |
 | `warehouse_stock_id` | `bigint(20) unsigned` | Ya | `NULL` | FK → `warehouse_stocks.id`; delete/update `RESTRICT` | Saldo gudang terkait; nullable untuk kompatibilitas data lama. |
 | `jenis` | `enum('masuk','keluar')` | Tidak | — | — | Arah mutasi. |
+| `mutation_type` | `varchar(24)` | Tidak | `'operational'` | IDX | Jenis proses: operasional, transfer, atau reversal. |
+| `transfer_group_uuid` | `char(36)` | Ya | `NULL` | IDX | UUID yang memasangkan sisi keluar dan masuk pada satu transfer. |
+| `reversal_of_id` | `bigint(20) unsigned` | Ya | `NULL` | FK → `stok_transactions.id`; delete `SET NULL` | Transaksi asli yang dibalik oleh baris ini. |
+| `reversed_at` | `timestamp` | Ya | `NULL` | — | Waktu transaksi asli dinyatakan telah direversal. |
+| `reversed_by` | `bigint(20) unsigned` | Ya | `NULL` | FK → `users.id`; delete `SET NULL` | Pengguna yang menjalankan reversal. |
 | `jumlah` | `int(11)` | Tidak | — | CHECK `ck_stok_jumlah_pos` | Kuantitas mutasi, wajib `> 0`. |
+| `unit_cost` | `decimal(18,2)` | Ya | `NULL` | — | Harga satuan yang dibekukan saat transaksi. |
+| `unit_cost_source` | `varchar(32)` | Ya | `NULL` | — | Asal harga satuan, termasuk input atau backfill harga aktif. |
 | `stok_sebelum` | `int(10) unsigned` | Ya | `NULL` | CHECK snapshot | Stok total legacy sebelum mutasi. |
 | `stok_sesudah` | `int(10) unsigned` | Ya | `NULL` | CHECK snapshot | Stok total legacy sesudah mutasi. |
 | `keterangan` | `text` | Ya | `NULL` | — | Catatan transaksi. |
+| `reference_type` | `varchar(40)` | Ya | `NULL` | — | Jenis referensi seperti PO, invoice, atau surat jalan. |
+| `reference_number` | `varchar(120)` | Ya | `NULL` | IDX | Nomor referensi transaksi. |
+| `document_date` | `date` | Ya | `NULL` | — | Tanggal dokumen referensi. |
+| `document_path` | `varchar(255)` | Ya | `NULL` | — | Path file bukti/referensi transaksi. |
 | `created_at` | `timestamp` | Ya | `NULL` | — | Waktu transaksi dibuat. |
 | `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
 
-Aturan penting: kedua snapshot stok harus sama-sama `NULL` atau sama-sama terisi, harus nonnegatif, dan harus memenuhi `sesudah = sebelum + jumlah` untuk masuk atau `sebelum = sesudah + jumlah` untuk keluar. Implementasi terbaru memperbarui saldo gudang dan total legacy dalam satu transaksi database. Supplier penerimaan yang dipilih operator menjadi snapshot transaksi masuk; jika tidak dipilih, serta untuk transaksi keluar, sistem menyalin supplier master barang saat transaksi terjadi. Data lama yang `NULL` tidak diisi dari master saat ini agar tidak menciptakan atribusi historis palsu.
+Aturan penting: kedua snapshot harus sama-sama `NULL` atau terisi, nonnegatif, dan memenuhi matematika jenis transaksi. Operasi biasa memperbarui saldo gudang dan total barang; transfer membuat dua baris dengan UUID sama tanpa mengubah total; reversal membuat transaksi lawan dan tidak menghapus histori. Supplier, biaya, pelaku, dan referensi dibekukan untuk kebutuhan audit.
+
+### `stok_transaction_actors`
+
+Fungsi: menyimpan pengguna yang menjalankan transaksi stok tanpa membuat ledger bergantung pada keberadaan akun.
+
+PK: `id` (AI). UK: `stok_transaction_actors_stok_transaction_id_unique` (`stok_transaction_id`). Soft delete: tidak.
+
+| Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
+|---|---|---:|---|---|---|
+| `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas record pelaku. |
+| `stok_transaction_id` | `bigint(20) unsigned` | Tidak | — | UK, FK → `stok_transactions.id`; delete `CASCADE` | Tepat satu record pelaku per transaksi. |
+| `user_id` | `bigint(20) unsigned` | Ya | `NULL` | FK → `users.id`; delete `SET NULL` | Pengguna pelaksana; tetap nullable jika akun dihapus. |
+| `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
+| `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
+
+Aturan penting: penghapusan transaksi menghapus record aktor, tetapi penghapusan pengguna tidak menghapus histori transaksi.
 
 ### `stok_histories`
 
@@ -473,19 +503,19 @@ Fungsi: penyimpanan session database. PK: `id`. IDX: `sessions_user_id_index` (`
 
 ### Primary key, unique, dan index
 
-- Semua 22 tabel memiliki PK: **16 PK AI** dan **6 PK non-AI** (`cache.key`, `cache_locks.key`, `job_batches.id`, `notifications.id`, `password_reset_tokens.email`, dan `sessions.id`).
+- Semua 23 tabel memiliki PK: **17 PK AI** dan **6 PK non-AI** (`cache.key`, `cache_locks.key`, `job_batches.id`, `notifications.id`, `password_reset_tokens.email`, dan `sessions.id`).
 - UK bisnis: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan `warehouse_stocks(barang_id, warehouse_id)`, `barang.kode_barang`, `document_verification_audits.idempotency_key`, pasangan `stock_predictions(barang_id, process_generation)`, tripel notifikasi prediksi, pasangan receipt prediksi/pengguna, dan `stock_prediction_processes.barang_id`.
 - UK internal tambahan: `failed_jobs.uuid`.
 - Semua indeks yang tercatat didefinisikan migration dan terbentuk pada migration bersih. Pada MySQL/MariaDB, index FK dapat juga dilayani oleh sisi kiri UK komposit, seperti `warehouse_stocks.barang_id`.
 
 ### Foreign key
 
-Terdapat **20 FK pada skema migration bersih**. Semuanya memakai `ON UPDATE RESTRICT`.
+Terdapat **24 FK pada skema migration bersih**. Semuanya memakai `ON UPDATE RESTRICT`.
 
 | ON DELETE | Jumlah | FK |
 |---|---:|---|
-| `CASCADE` | 9 | `document_verifications.user_id`; `document_verification_audits.document_verification_id`; `stock_predictions.barang_id`; kedua FK `stock_prediction_notifications`; kedua FK `stock_prediction_notification_reads`; `stock_prediction_processes.barang_id`; `stok_histories.barang_id`. |
-| `SET NULL` | 7 | `barang.supplier_id`; `document_verifications.ocr_corrected_by`; `document_verification_audits.user_id`; `stock_predictions.analyzed_by`; `stock_prediction_processes.requested_by`; `stock_prediction_processes.stock_prediction_id`; `stok_transactions.supplier_id`. |
+| `CASCADE` | 10 | `document_verifications.user_id`; `document_verification_audits.document_verification_id`; `stock_predictions.barang_id`; kedua FK `stock_prediction_notifications`; kedua FK `stock_prediction_notification_reads`; `stock_prediction_processes.barang_id`; `stok_histories.barang_id`; `stok_transaction_actors.stok_transaction_id`. |
+| `SET NULL` | 10 | `barang.supplier_id`; `document_verifications.ocr_corrected_by`; `document_verification_audits.user_id`; `stock_predictions.analyzed_by`; `stock_prediction_processes.requested_by`; `stock_prediction_processes.stock_prediction_id`; `stok_transactions.supplier_id`; `stok_transactions.reversal_of_id`; `stok_transactions.reversed_by`; `stok_transaction_actors.user_id`. |
 | `RESTRICT` | 4 | `stok_transactions.barang_id`; `stok_transactions.warehouse_stock_id`; `warehouse_stocks.barang_id`; `warehouse_stocks.warehouse_id`. |
 
 ### Referensi logis tanpa FK
@@ -503,13 +533,13 @@ Terdapat **20 FK pada skema migration bersih**. Semuanya memakai `ON UPDATE REST
 3. Beberapa FK tidak memiliki relasi inverse Eloquent: antara lain aktor/korektor/analis/peminta pada `User`, dan `StockPredictionProcess` ke `requested_by`/`stock_prediction_id`. Sebaliknya `StokHistory::barang()` ada tetapi `Barang` tidak mempunyai inverse `stokHistories()`.
 4. `stock_prediction_notifications.read_at` masih menyimpan status baca legacy/global, sementara model dan tabel receipt terbaru memakai `stock_prediction_notification_reads` untuk status per pengguna.
 5. Migration awal transaksi stok memakai cascade delete dan migration Multi-Gudang sempat membuat relasi nullable/`SET NULL`; migration koreksi `2026_09_16_030000_enforce_stock_history_item_integrity.php` menghasilkan kontrak akhir wajib/`RESTRICT` untuk `stok_transactions.barang_id` serta `RESTRICT` untuk saldo gudang. Dokumentasi ini memakai keadaan setelah migration terakhir.
-6. `stok_histories` dan `stok_transactions` sama-sama menyimpan mutasi, tetapi hanya `stok_transactions` memiliki supplier, gudang, snapshot, dan CHECK integritas. Keduanya tetap didokumentasikan karena masih memiliki tabel/model.
+6. `stok_histories` dan `stok_transactions` sama-sama menyimpan mutasi, tetapi hanya `stok_transactions` memiliki supplier, gudang, snapshot, transfer, reversal, biaya, referensi, aktor, dan CHECK integritas. Keduanya tetap didokumentasikan karena masih memiliki tabel/model.
 7. Database deployment MySQL/MariaDB tidak dapat dihubungi saat audit. Status migration, engine/collation, representasi fisik JSON/TIMESTAMP, isi backfill, dan kemungkinan drift terhadap source berstatus **Perlu Uji Produksi**.
 
 Hal yang selaras: `Barang` memakai nama tabel nonstandar, soft delete, dan `UPDATED_AT = null`; Supplier dan Warehouse memakai soft delete; seluruh `belongsTo` yang dideklarasikan memiliki kolom/FK yang sesuai; relasi Multi-Gudang pada Barang, Warehouse, WarehouseStock, Supplier, dan StokTransaction sesuai skema migration bersih.
 
 ## Rekonsiliasi dengan ERD
 
-Jumlah tabel bisnis, seluruh 20 FK, nullable, seluruh UK termasuk receipt per pengguna, aturan `RESTRICT`/`SET NULL`, peran `barang.stok` sebagai stok total/legacy, serta referensi logis `source_transaction_id` sesuai dengan [`docs/database/erd.md`](database/erd.md). ERD memang sengaja tidak menggambar delapan tabel framework/internal, tetapi inventaris ERD mencatat keberadaannya; kamus data ini melengkapinya dengan seluruh 201 kolom hasil migration bersih.
+Jumlah tabel bisnis, seluruh 24 FK, nullable, UK, aturan `RESTRICT`/`SET NULL`, stok total, pelaku transaksi, transfer, reversal, harga, dan referensi logis `source_transaction_id` sesuai dengan [`docs/database/erd.md`](database/erd.md). ERD tidak menggambar delapan tabel framework/internal agar tetap terbaca; kamus data ini melengkapinya dengan seluruh 218 kolom hasil migration bersih.
 
 ERD juga mencerminkan kardinalitas model-vs-database untuk process prediksi dan membedakan FK fisik dari referensi logis. Tidak ditemukan tabel hasil migration bersih yang hilang dari inventaris ERD.

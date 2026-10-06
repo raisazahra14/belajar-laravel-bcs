@@ -147,16 +147,16 @@ def browser_path() -> Path:
 
 def prepare_markdown(source: str) -> str:
     required = (
-        "SRS-LOGISTIKKU-1.3",
-        "| Versi | 1.3 |",
-        "| Tanggal pembaruan | 21 September 2026 |",
+        "SRS-LOGISTIKKU-1.4",
+        "| Versi | 1.4 |",
+        "| Tanggal pembaruan | 5 Oktober 2026 |",
         "## 12. Matriks Ketertelusuran Kebutuhan",
-        "### 12.3 Bukti eksekusi audit 21 September 2026",
+        "### 12.3 Bukti eksekusi audit 5 Oktober 2026",
         "Perlu Uji Produksi",
     )
     missing = [marker for marker in required if marker not in source]
     if missing:
-        raise RuntimeError("SRS bukan baseline 1.3 yang diharapkan: " + ", ".join(missing))
+        raise RuntimeError("SRS bukan baseline 1.4 yang diharapkan: " + ", ".join(missing))
 
     # A page break already separates major sections in the PDF. Keeping the
     # preceding Markdown horizontal rule can create a page containing only a
@@ -206,7 +206,7 @@ def render_html(markdown_source: str) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <base href="{base_uri}">
-  <title>SRS LogistikKu 1.3</title>
+  <title>SRS LogistikKu 1.4</title>
   <style>{CSS}</style>
 </head>
 <body>
@@ -225,8 +225,8 @@ def attach_source_metadata(output: Path, source: str) -> str:
             {
                 "title": "Software Requirements Specification (SRS) Sistem Inventaris LogistikKu",
                 "author": "Tim LogistikKu",
-                "subject": f"SRS versi 1.3; source docs/srs.md SHA-256 {source_hash}",
-                "keywords": "LogistikKu, SRS, inventaris, OCR, prediksi stok, versi 1.3",
+                "subject": f"SRS versi 1.4; source docs/srs.md SHA-256 {source_hash}",
+                "keywords": "LogistikKu, SRS, inventaris, OCR, prediksi stok, versi 1.4",
             }
         )
         document.set_metadata(metadata)
@@ -271,7 +271,7 @@ def main() -> int:
 
     safe_clean_build_dir()
     BUILD_DIR.mkdir(parents=True)
-    html_path = BUILD_DIR / "srs-v1.3.html"
+    html_path = BUILD_DIR / "srs-v1.4.html"
     profile_path = BUILD_DIR / "browser-profile"
     html_path.write_text(html, encoding="utf-8")
 

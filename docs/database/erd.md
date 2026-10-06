@@ -1,6 +1,6 @@
 # ERD Database LogistikKu
 
-Dokumen ini menggambarkan **skema akhir yang didefinisikan repository** setelah seluruh migration di `database/migrations` dijalankan berurutan, lalu mencocokkannya dengan relasi Eloquent di `app/Models`. Audit 21 September 2026 juga menjalankan seluruh migration pada database SQLite kosong. Database deployment MySQL/MariaDB sedang tidak dapat dihubungi, sehingga isi dan data deployment tidak diklaim telah diverifikasi ulang.
+Dokumen ini menggambarkan **skema akhir repository** setelah seluruh migration dijalankan berurutan, termasuk supplier, multi-gudang, pelaku transaksi, harga beli, transfer, reversal, biaya, dan referensi dokumen. Audit 5 Oktober 2026 menjalankan 32 migration pada SQLite kosong dan mencocokkan hasilnya dengan model Eloquent.
 
 ## ERD
 
@@ -53,6 +53,7 @@ erDiagram
         varchar nama_barang
         varchar kategori
         uint stok "default 0; CHECK >= 0"
+        decimal_18_2 harga_beli "nullable; CHECK >= 0"
         decimal_10_2 daily_usage_estimate "nullable"
         ushort lead_time_days "nullable"
         varchar satuan
@@ -68,10 +69,29 @@ erDiagram
         bigint supplier_id FK "nullable"
         bigint warehouse_stock_id FK "nullable; delete RESTRICT"
         enum jenis "masuk atau keluar"
+        varchar_24 mutation_type "default operational"
+        uuid transfer_group_uuid "nullable"
+        bigint reversal_of_id FK "nullable; self reference"
+        timestamp reversed_at "nullable"
+        bigint reversed_by FK "nullable"
         int jumlah "CHECK > 0"
+        decimal_18_2 unit_cost "nullable"
+        varchar_32 unit_cost_source "nullable"
         uint stok_sebelum "nullable; berpasangan"
         uint stok_sesudah "nullable; berpasangan"
         text keterangan "nullable"
+        varchar_40 reference_type "nullable"
+        varchar_120 reference_number "nullable"
+        date document_date "nullable"
+        varchar document_path "nullable"
+        timestamp created_at "nullable"
+        timestamp updated_at "nullable"
+    }
+
+    STOK_TRANSACTION_ACTORS {
+        bigint id PK
+        bigint stok_transaction_id FK,UK
+        bigint user_id FK "nullable"
         timestamp created_at "nullable"
         timestamp updated_at "nullable"
     }
@@ -215,12 +235,16 @@ erDiagram
     USERS o|--o{ DOCUMENT_VERIFICATION_AUDITS : "menjadi aktor"
     USERS o|--o{ NOTIFICATIONS : "menerima; polymorphic tanpa FK"
 
-    BARANG ||--o{ STOK_TRANSACTIONS : "memiliki transaksi legacy"
+    BARANG ||--o{ STOK_TRANSACTIONS : "memiliki transaksi"
     SUPPLIERS o|--o{ BARANG : "menjadi supplier utama"
     SUPPLIERS o|--o{ STOK_TRANSACTIONS : "menjadi supplier asal"
     BARANG ||--o{ WAREHOUSE_STOCKS : "memiliki saldo gudang"
     WAREHOUSES ||--o{ WAREHOUSE_STOCKS : "menyimpan saldo"
     WAREHOUSE_STOCKS o|--o{ STOK_TRANSACTIONS : "menjadi asal saldo"
+    STOK_TRANSACTIONS o|--o| STOK_TRANSACTIONS : "membalikkan transaksi"
+    STOK_TRANSACTIONS ||--o| STOK_TRANSACTION_ACTORS : "memiliki pelaku"
+    USERS o|--o{ STOK_TRANSACTION_ACTORS : "menjalankan transaksi"
+    USERS o|--o{ STOK_TRANSACTIONS : "menjalankan reversal"
     BARANG ||--o{ STOK_HISTORIES : "memiliki histori"
     BARANG ||--o{ STOCK_PREDICTIONS : "diprediksi"
     USERS o|--o{ STOCK_PREDICTIONS : "menganalisis"
@@ -233,7 +257,7 @@ erDiagram
     STOCK_PREDICTIONS o|--o{ STOCK_PREDICTION_PROCESSES : "hasil proses menurut DB"
 ```
 
-[Buka render SVG ERD](../images/database-erd.svg). SVG ini dirender dari source Mermaid di atas pada audit 21 September 2026.
+[Buka render SVG ERD](../images/database-erd.svg). SVG ini diselaraskan dengan source Mermaid pada audit 5 Oktober 2026.
 
 Catatan kardinalitas: relasi yang memakai `o|` pada sisi induk berarti FK pada anak nullable (nol atau satu induk). `barang_id` pada `stock_prediction_processes` unik, sehingga satu barang hanya dapat memiliki nol atau satu baris proses. Sebaliknya, `stock_prediction_id` pada tabel tersebut **tidak unik**; database mengizinkan satu prediksi dirujuk banyak proses walaupun model `StockPrediction::process()` mendeklarasikan `hasOne`.
 
@@ -245,10 +269,11 @@ Tidak dibuat garis dari `STOK_TRANSACTIONS` ke `STOCK_PREDICTION_PROCESSES`: `so
 |---|---|
 | `users` | Akun pengguna, peran aplikasi, pemilik dokumen, analis/peminta prediksi, aktor audit, dan penerima notifikasi. |
 | `suppliers` | Master supplier aktif/nonaktif; dapat menjadi supplier utama barang dan supplier asal transaksi stok. Soft delete aktif. |
-| `warehouses` | Master gudang aktif/nonaktif. `GDG-UTAMA` adalah gudang default yang dibuat migration secara idempotent. Soft delete aktif. |
+| `warehouses` | Master gudang aktif/nonaktif. Migration menyediakan `GDG-UTAMA`, `GDG-A`, `GDG-B`, dan `GDG-C` secara idempotent. Soft delete aktif. |
 | `warehouse_stocks` | Saldo dan stok minimum satu barang pada satu gudang; pasangan barang/gudang unik. |
-| `barang` | Master barang dan stok terkini; menyimpan input estimasi konsumsi serta lead time. Soft delete aktif. |
-| `stok_transactions` | Ledger mutasi stok masuk/keluar beserta snapshot sebelum dan sesudah. |
+| `barang` | Master barang, stok total, harga beli, input estimasi konsumsi, dan lead time. Soft delete aktif. |
+| `stok_transactions` | Ledger mutasi, transfer, reversal, snapshot stok/biaya/supplier, dan referensi dokumen. |
+| `stok_transaction_actors` | Identitas pengguna yang menjalankan setiap transaksi; satu record per transaksi. |
 | `stok_histories` | Histori stok lama/alternatif yang juga terhubung ke barang; masih memiliki model dan FK aktual. |
 | `document_verifications` | Dokumen yang diproses OCR, metadata hasil ekstraksi, skor, status proses, dan hasil keaslian. |
 | `document_verification_audits` | Jejak append-only perubahan/proses verifikasi dengan kunci idempotensi unik. |
@@ -258,21 +283,21 @@ Tidak dibuat garis dari `STOK_TRANSACTIONS` ke `STOCK_PREDICTION_PROCESSES`: `so
 | `stock_prediction_notification_reads` | Status baca notifikasi prediksi per pengguna. |
 | `stock_prediction_processes` | Satu state proses prediksi aktif per barang, termasuk generasi, peminta, hasil, dan informasi kegagalan. |
 
-Alur stok: `suppliers` dapat direferensikan secara opsional sebagai supplier utama `barang` dan sebagai snapshot supplier saat `stok_transactions` dibuat. Setiap kombinasi barang/gudang memiliki satu `warehouse_stocks`; `barang.stok` tetap menjadi total/legacy. Migration membuat `GDG-UTAMA`, menyalin setiap stok barang lama tepat sekali ke gudang tersebut, lalu menghubungkan transaksi lama melalui `warehouse_stock_id`. Workflow stok lama memperbarui total barang dan saldo gudang utama dalam transaksi database yang sama. Snapshot transaksi tetap menggambarkan total legacy agar kompatibel dengan implementasi lama. Data barang dan riwayat transaksi menjadi masukan prediksi. Setiap hasil disimpan di `stock_predictions`, dapat menghasilkan notifikasi, lalu setiap pengguna memperoleh status baca sendiri.
+Alur stok: supplier dapat menjadi master barang dan snapshot transaksi. Setiap pasangan barang/gudang memiliki satu saldo. Operasi masuk/keluar memperbarui saldo gudang serta total barang; transfer membuat transaksi keluar dan masuk ber-UUID sama tanpa mengubah total; reversal membuat transaksi lawan dan menandai transaksi asli. Harga satuan, referensi, dan pelaku disimpan untuk audit. Transaksi keluar menjadi masukan prediksi.
 
 Alur dokumen: pengguna mengunggah `document_verifications`. Pengguna lain atau pengguna yang sama dapat menjadi korektor OCR melalui `ocr_corrected_by`. Semua kejadian penting dicatat di `document_verification_audits`; selesai/gagalnya proses dikirim melalui `notifications` kepada pemilik dokumen. Hubungan notifikasi ke dokumen disimpan dalam payload `data`, bukan FK.
 
 ## Aturan FK dan integritas
 
-- `CASCADE DELETE`: barang ke `stok_histories`, `stock_predictions`, `stock_prediction_notifications`, dan `stock_prediction_processes`; prediksi ke notifikasi prediksi; notifikasi prediksi ke status baca; pengguna ke status baca; verifikasi ke audit; pengguna pengunggah ke verifikasi.
-- `SET NULL`: `document_verifications.ocr_corrected_by`, `document_verification_audits.user_id`, `stock_predictions.analyzed_by`, `stock_prediction_processes.requested_by`, dan `stock_prediction_processes.stock_prediction_id` ketika induknya dihapus.
+- `CASCADE DELETE`: relasi lama tetap berlaku, ditambah transaksi ke `stok_transaction_actors`.
+- `SET NULL`: relasi lama tetap berlaku, ditambah `stok_transaction_actors.user_id`, `stok_transactions.reversal_of_id`, dan `stok_transactions.reversed_by`.
 - `SET NULL` juga berlaku dari `suppliers` ke `barang.supplier_id` dan `stok_transactions.supplier_id`. Soft delete supplier tidak memicu FK; force delete mempertahankan kedua record anak dan mengosongkan referensinya.
 - `RESTRICT DELETE/UPDATE` melindungi rantai histori utama: `stok_transactions.barang_id`, `stok_transactions.warehouse_stock_id`, `warehouse_stocks.barang_id`, dan `warehouse_stocks.warehouse_id`. Barang, gudang, atau saldo yang masih dipakai tidak dapat dihapus permanen. `stok_transactions.barang_id` wajib terisi (`NOT NULL`).
 - `BarangTrashController` menolak force delete sebelum menyentuh file/data bila barang masih memiliki transaksi, saldo gudang, histori stok legacy, prediksi, notifikasi prediksi, atau proses prediksi. Soft delete tetap menjadi jalur penghapusan normal dan tidak memengaruhi histori.
-- Seluruh **20 FK pada skema migration bersih** memakai `ON UPDATE RESTRICT`; tidak ada FK dengan cascade atau set-null saat key induk diperbarui.
+- Seluruh **24 FK pada skema migration bersih** memakai `ON UPDATE RESTRICT`.
 - `notifications.notifiable_type/notifiable_id` adalah pasangan polymorphic berindeks, tetapi tidak mempunyai FK database.
 - `stock_prediction_processes.source_transaction_id` tidak mempunyai FK. Penghapusan transaksi tidak dijaga database terhadap nilai ini.
-- Check constraint stok memastikan `barang.stok >= 0`, jumlah transaksi positif, pasangan snapshot sama-sama null atau sama-sama terisi, snapshot nonnegatif, dan persamaan stok sesuai jenis mutasi.
+- Check constraint stok memastikan `barang.stok >= 0`, `barang.harga_beli >= 0`, jumlah transaksi positif, pasangan snapshot sama-sama null atau terisi, snapshot nonnegatif, dan persamaan stok sesuai jenis mutasi.
 - Unique yang didefinisikan migration dan terverifikasi pada migration bersih: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan (`warehouse_stocks.barang_id`, `warehouse_stocks.warehouse_id`), `barang.kode_barang`, `document_verification_audits.idempotency_key`, pasangan (`barang_id`, `process_generation`) pada prediksi, tripel (`stock_prediction_id`, `barang_id`, `status`) pada notifikasi prediksi, pasangan (`stock_prediction_notification_id`, `user_id`) pada status baca, serta `stock_prediction_processes.barang_id`.
 - `warehouse_stocks.stok` dan `stok_minimum` nonnegatif: MySQL/MariaDB menegakkannya melalui tipe unsigned, sedangkan jalur SQLite migration memakai check constraint eksplisit.
 - Nilai status dokumen divalidasi oleh event model, bukan check constraint database: proses `menunggu/diproses/selesai/gagal`; hasil keaslian hanya boleh terisi ketika selesai dan bernilai `asli/mencurigakan/palsu`.
@@ -320,6 +345,7 @@ Ketidaksesuaian atau relasi yang hanya tersedia di satu lapisan:
 | `barang` | Masuk ERD | Tabel utama persediaan. |
 | `stok_histories` | Masuk ERD | Relasi bisnis langsung ke `barang`; mempunyai model aktual. |
 | `stok_transactions` | Masuk ERD | Tabel utama ledger stok. |
+| `stok_transaction_actors` | Masuk ERD | Pelaku transaksi dengan relasi langsung ke transaksi dan pengguna. |
 | `document_verifications` | Masuk ERD | Tabel utama verifikasi dokumen. |
 | `stock_predictions` | Masuk ERD | Tabel utama prediksi stok. |
 | `stock_prediction_notifications` | Masuk ERD | Turunan langsung prediksi dan barang. |
@@ -329,16 +355,16 @@ Ketidaksesuaian atau relasi yang hanya tersedia di satu lapisan:
 | `stock_prediction_processes` | Masuk ERD | State proses langsung untuk barang, pengguna, dan hasil prediksi. |
 | `migrations` | Tidak masuk | Tabel internal Laravel untuk status migration; dibuat oleh migrator, bukan `Schema::create` project. |
 
-Source migration mendefinisikan **21 tabel**. Hasil migration bersih berisi **22 tabel** setelah menyertakan tabel internal `migrations`: 14 dimasukkan ke ERD dan 8 dikecualikan.
+Source migration mendefinisikan **22 tabel**. Hasil migration bersih berisi **23 tabel** setelah menyertakan tabel internal `migrations`: 15 dimasukkan ke ERD dan 8 dikecualikan.
 
 ## Validasi
 
-- Audit statis mencakup seluruh **26 file migration** dan **13 model** di repository.
-- Seluruh **26 migration** berhasil dijalankan dari nol pada SQLite 3.39.2; hasilnya **22 tabel, 201 kolom, dan 20 FK**. Unique status-baca per pengguna serta index (`user_id`, `read_at`) terbentuk.
-- Migration bersih membuat tepat satu `GDG-UTAMA`. Karena database kosong, audit ini memverifikasi jalur migrasi dan constraint, bukan jumlah atau rekonsiliasi data deployment.
-- Koneksi MySQL/MariaDB lokal ditolak pada 21 September 2026. Status migration, data backfill, engine/collation, dan drift skema deployment karena itu berstatus **Perlu Uji Produksi**.
+- Audit statis mencakup seluruh **32 file migration** dan model di repository.
+- Seluruh **32 migration** berhasil dijalankan dari nol; hasilnya **23 tabel, 218 kolom, dan 24 FK**.
+- Migration bersih membuat `GDG-UTAMA`, `GDG-A`, `GDG-B`, dan `GDG-C`. Audit ini memverifikasi jalur migration dan constraint, bukan data deployment.
+- Engine/collation, representasi JSON/timestamp, perilaku constraint, isi backfill, dan drift database target tetap berstatus **Perlu Uji Produksi**.
 - Skema akhir memperhitungkan migration lanjutan: penambahan soft delete/foto/input prediksi/snapshot stok/nomor DO, pemisahan skor, serta penggantian `document_verifications.status` menjadi dua kolom status.
 - Setiap garis relasi ber-FK pada ERD dicocokkan dengan deklarasi `foreignId()->constrained()` atau `foreign()->references()`; relasi polymorphic tanpa FK diberi label eksplisit.
 - Kardinalitas nullable dan unique dicocokkan dengan migration, bukan diasumsikan dari nama kolom.
-- Mermaid CLI 11.17.0 berhasil mem-parse dan merender blok `erDiagram` menjadi [`docs/images/database-erd.svg`](../images/database-erd.svg).
+- Render fallback terbaru tersedia pada [`docs/images/database-erd.svg`](../images/database-erd.svg).
 - Source migration, skema SQLite bersih, model, dan test struktural konsisten untuk jumlah tabel/kolom/FK. Perbandingan drift terhadap database deployment belum dapat dilakukan karena koneksinya tidak tersedia.

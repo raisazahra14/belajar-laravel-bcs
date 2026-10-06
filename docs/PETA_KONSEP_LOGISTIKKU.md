@@ -1,209 +1,265 @@
 # Peta Konsep LogistikKu
 
-Dokumen ini menjelaskan hubungan antara kebutuhan pengguna, proses Laravel/Python, data, dan hasil yang terlihat. Referensi mengarah ke file source aktual. Detail struktur terbaru setelah Supplier dan Multi-Gudang mengikuti [ERD](./database/erd.md) dan [Data Dictionary](./data_dictionary.md).
+Dokumen ini menjelaskan tujuan dan cara kerja seluruh fitur LogistikKu. Detail kebutuhan formal berada di [SRS](./srs.md), sedangkan struktur data berada di [ERD](./database/erd.md) dan [Data Dictionary](./data_dictionary.md).
 
-## Gambaran utama
+## 1. Arsitektur aplikasi
 
 ```mermaid
 flowchart LR
-    U[Admin, Manager, Staff] --> W[Blade dan route web]
-    W --> A[Autentikasi dan otorisasi]
-    A --> C[Controller dan FormRequest]
-    C --> S[Service dan Job Laravel]
+    U[Admin, Manager, Staff] --> UI[Blade, Bootstrap, JavaScript]
+    UI --> MW[Route, Auth, Middleware, Gate]
+    MW --> C[Controller dan Form Request]
+    C --> S[Service Laravel]
     S --> DB[(Database)]
-    S --> FS[(Storage privat)]
+    S --> PUB[(Storage foto publik)]
+    S --> PRI[(Storage dokumen privat)]
     S --> Q[(Queue database)]
-    Q --> PY[Engine Python]
-    PY --> S
-    DB --> V[Dashboard, tabel, grafik, notifikasi]
-    S --> V
+    Q --> J[Job Laravel]
+    J --> PY[Python OCR/Prediksi]
+    PY --> J
+    DB --> UI
 ```
 
-Intinya: browser tidak berbicara langsung dengan database atau Python. Laravel memvalidasi akses dan input, service menjaga proses bisnis, queue menjalankan pekerjaan berat, lalu hasil disimpan dan ditampilkan kembali.
+Browser tidak mengakses database atau Python secara langsung. Laravel memeriksa autentikasi, hak akses, dan input; service menjalankan aturan bisnis; queue memproses pekerjaan berat; hasil disimpan lalu ditampilkan melalui Blade atau endpoint JSON internal.
 
-## 1. Login dan hak akses
+## 2. Login dan hak akses
 
-| Bagian | Penjelasan |
+| Bagian | Kegunaan |
 |---|---|
-| Masalah pengguna | Sistem persediaan tidak boleh terbuka untuk pengguna yang tidak berhak. |
-| Tujuan | Membuat session aman dan membatasi tindakan menurut role. |
-| Aktor | Admin, Manager, Staff Gudang (`staff`). |
-| Input | Email, password, opsi ingat saya. |
-| Proses | `AuthController` menormalkan email, memeriksa rate limit, menjalankan `Auth::attempt`, lalu meregenerasi session. Middleware dan Gate memeriksa role/kemampuan. |
-| Database | `users`; cache rate limit memakai cache store yang dikonfigurasi. |
-| Output | Redirect ke daftar barang atau pesan login/rate-limit yang aman. |
-| Berhasil/gagal | Berhasil bila kredensial benar dan database tersedia. Gagal bila input salah, limit tercapai, atau koneksi database bermasalah. |
-| Inti | Role bukan sekadar label UI; route, request, Gate, dan kepemilikan dokumen tetap memeriksa akses di server. |
-| Referensi | `app/Http/Controllers/AuthController.php`, `app/Providers/AppServiceProvider.php`, `app/Http/Middleware/EnsureUserHasRole.php`, `routes/web.php`. |
+| Login | Membuat session pengguna dengan email dan password. |
+| Normalisasi | Email dipangkas dan diubah menjadi huruf kecil. |
+| Perlindungan | Maksimal lima kegagalan per kombinasi email/IP selama 60 detik. |
+| Remember-me | Mempertahankan login pada perangkat pengguna bila dipilih. |
+| Logout | Menghapus session dan mengganti token CSRF. |
+| Role | Admin, Manager, dan Staff menentukan fitur yang dapat dijalankan. |
 
-## 2. Barang, pencarian, dan CRUD
+Kredensial demo tidak ditampilkan pada halaman login. Middleware `auth`, middleware `role`, Laravel Gate, Form Request, dan pemeriksaan kepemilikan dokumen tetap menegakkan akses di server.
 
-| Bagian | Penjelasan |
-|---|---|
-| Masalah pengguna | Data barang sulit ditemukan dan rawan tidak konsisten. |
-| Tujuan | Menyediakan daftar, pencarian/filter instan, tambah, ubah, foto, dan penghapusan yang dapat dipulihkan. |
-| Aktor | Semua role melihat/mencari; hanya Admin melakukan CRUD/trash. |
-| Input | Nama, kategori, stok awal, satuan, lokasi, foto, estimasi pemakaian harian, lead time; kata pencarian/filter/sort. |
-| Proses | FormRequest memvalidasi; generator membuat kode `BRG-######`; filter memakai query Eloquent dan endpoint partial; delete memakai `SoftDeletes`. |
-| Database | `barang` dengan `supplier_id` opsional; master supplier berada di `suppliers`. Foto disimpan pada disk `public`. |
-| Output | Daftar paginated, hasil filter instan, detail barang, form, dan trash. |
-| Berhasil/gagal | Berhasil bila data valid dan kode unik. Error validasi tampil tanpa perubahan parsial. |
-| Inti | Update barang tidak mengubah stok langsung; stok berubah melalui alur transaksi khusus. |
-| Referensi | `BarangController.php`, `InventoryFilterRequest.php`, `BarangCodeGenerator.php`, `Barang.php`, `resources/views/barang/`, `public/assets/js/inventory-filter.js`. |
-
-## 3. Stok masuk, stok keluar, dan histori
+## 3. Master barang, supplier, dan gudang
 
 ```mermaid
 flowchart TD
-    F[Input jenis dan jumlah] --> V{Valid dan stok cukup?}
-    V -- Tidak --> E[Pesan error, tanpa perubahan]
-    V -- Ya --> L[Kunci barang dan saldo gudang utama]
-    L --> B[Perbarui stok total dan saldo GDG-UTAMA]
-    B --> T[Simpan transaksi, saldo gudang, dan snapshot total]
-    T --> P[Jadwalkan prediksi setelah commit]
-    T --> H[Timeline dan grafik saldo]
+    S[Supplier] -->|supplier utama| B[Barang]
+    B --> WS[Saldo per Gudang]
+    W[Gudang] --> WS
+    B --> T[Transaksi Stok]
+    WS --> T
+    S -->|snapshot supplier| T
 ```
 
-| Bagian | Penjelasan |
-|---|---|
-| Masalah pengguna | Saldo dapat salah bila dua transaksi terjadi bersamaan atau histori tidak dapat diaudit. |
-| Tujuan | Mengubah stok secara atomik dengan jejak saldo sebelum/sesudah. |
-| Aktor | Admin, Manager, Staff Gudang. |
-| Input | Jenis `masuk`/`keluar`, jumlah positif, keterangan opsional. |
-| Proses | Database transaction dan `lockForUpdate`; stok keluar ditolak bila stok total atau saldo gudang utama tidak cukup; prediksi dijadwalkan setelah commit. |
-| Database | `barang`, `warehouses`, `warehouse_stocks`, `stok_transactions`, `stock_prediction_processes`, `jobs`. |
-| Output | Stok baru, transaksi, timeline, tabel alternatif, dan grafik snapshot. |
-| Berhasil/gagal | Berhasil bila aturan stok terpenuhi. Gagal akan rollback. Snapshot legacy null ditandai, bukan direkonstruksi. |
-| Inti | `warehouse_stocks.stok` adalah saldo per gudang, sedangkan `barang.stok` tetap menjadi total/legacy. Workflow UI saat ini memakai `GDG-UTAMA`; constraint database menjadi lapisan terakhir untuk mencegah stok, jumlah, atau perhitungan snapshot invalid. |
-| Referensi | `StockAdjustmentService.php`, `BarangController.php`, `StokTransaction.php`, migration `2026_09_02_020000_*`, `riwayat-stok.blade.php`, `stock-history.js`. |
+### Barang
 
-## 4. Import dan export
+- Menyimpan kode otomatis `BRG-######`, nama, kategori, satuan, lokasi, stok total, harga beli, foto, estimasi pemakaian harian, dan lead time.
+- Semua role dapat melihat, mencari, memfilter, dan membuka detail.
+- Admin dapat menambah, mengubah, soft delete, restore, dan menghapus permanen jika tidak memiliki dependensi.
+- Stok tidak diubah dari form edit barang; perubahan harus melalui transaksi stok.
 
-| Bagian | Penjelasan |
-|---|---|
-| Masalah pengguna | Memasukkan atau membagikan banyak data barang satu per satu tidak efisien. |
-| Tujuan | Import tervalidasi dan export laporan yang konsisten. |
-| Aktor | Admin. |
-| Input | XLSX/XLS/CSV maksimal 5 MB dengan kolom kode, nama, kategori, stok, satuan, lokasi. |
-| Proses | Spreadsheet dibaca, seluruh baris dinormalisasi/divalidasi, lalu di-upsert dalam transaction. Export menyusun XLSX atau PDF internal. |
-| Database | `barang`, `warehouses`, `warehouse_stocks`, dan `stok_transactions`; import menjaga target stok total serta saldo `GDG-UTAMA`, lalu menjadwalkan prediksi setelah berhasil. |
-| Output | Ringkasan import, template XLSX, laporan XLSX, laporan PDF. |
-| Berhasil/gagal | File/baris invalid menolak import tanpa hasil parsial. Kode existing diperbarui; kode baru dibuat. |
-| Inti | Import mengganti nilai stok dari file, bukan menambahkannya sebagai transaksi masuk. |
-| Referensi | `BarangImportController.php`, `BarangReportController.php`, `BarangSpreadsheetImporter.php`, `BarangImport.php`, `InventoryPdfReport.php`. |
+### Supplier
 
-## 5. Dashboard dan Pusat Perhatian
+- Menyimpan kode, nama, narahubung, telepon, email, alamat, dan status aktif.
+- Dapat menjadi supplier utama barang dan snapshot supplier transaksi.
+- Semua role dapat melihat daftar/detail; Admin dapat CRUD.
+- Soft delete mempertahankan histori. Force delete mengosongkan FK nullable.
 
-| Bagian | Penjelasan |
-|---|---|
-| Masalah pengguna | Angka total saja tidak menunjukkan tindakan yang perlu diprioritaskan. |
-| Tujuan | Merangkum persediaan, aktivitas, dan perhatian operasional. |
-| Aktor | Semua role; item aksi menyesuaikan permission. |
-| Input | Data barang, transaksi, hasil prediksi, periode 7 atau 30 hari. |
-| Proses | Service menghitung kartu, seri transaksi masuk/keluar, dan daftar perhatian. Endpoint aktivitas hanya menerima periode yang valid. |
-| Database | `barang`, `stok_transactions`, `stock_predictions`, proses/notifikasi terkait. |
-| Output | Kartu ringkasan, grafik Chart.js, tabel alternatif, dan Pusat Perhatian. |
-| Berhasil/gagal | Grafik memiliki loading/empty/error state; data perhatian kosong ditampilkan secara eksplisit. |
-| Inti | Dashboard bersifat read-only dan tidak menjalankan prediksi saat dibuka. |
-| Referensi | `InventoryDashboardService.php`, `DashboardActivityRequest.php`, `BarangController.php`, `barang/index.blade.php`, `inventory-dashboard.js`. |
+### Gudang
 
-## 6. Verifikasi dokumen Laravel–Python
+- Menyimpan kode, nama, alamat, catatan, status aktif, dan soft delete.
+- Migration menyediakan `GDG-UTAMA`, `GDG-A`, `GDG-B`, dan `GDG-C` secara aman/idempoten.
+- `warehouse_stocks` menyimpan saldo unik setiap pasangan barang-gudang.
+- Semua role dapat melihat daftar/detail saldo; Admin dapat CRUD master.
+
+## 4. Stok masuk dan keluar
+
+```mermaid
+flowchart TD
+    F[Form stok] --> V{Input dan akses valid?}
+    V -- Tidak --> E[Pesan error]
+    V -- Ya --> L[Kunci barang dan saldo gudang]
+    L --> C{Stok keluar mencukupi?}
+    C -- Tidak --> R[Rollback]
+    C -- Ya --> U[Ubah saldo gudang dan total barang]
+    U --> T[Simpan transaksi dan snapshot]
+    T --> A[Simpan pelaku transaksi]
+    A --> P[Jadwalkan prediksi setelah commit]
+    P --> H[Riwayat, laporan, dan notifikasi]
+```
+
+Input dapat mencakup jenis masuk/keluar, jumlah, gudang, supplier, harga satuan, keterangan, tipe/nomor/tanggal referensi, dan dokumen pendukung. Proses memakai transaksi database dan `lockForUpdate()` untuk mencegah kehilangan pembaruan.
+
+Data penting yang dicatat:
+
+- barang dan saldo gudang terkait;
+- jenis dan jumlah mutasi;
+- supplier saat transaksi;
+- stok sebelum/sesudah;
+- harga satuan dan sumber harga;
+- referensi dokumen dan file;
+- pengguna yang menjalankan transaksi;
+- waktu pembuatan.
+
+## 5. Transfer antargudang
+
+Transfer memindahkan stok barang dari satu gudang ke gudang lain tanpa mengubah total `barang.stok`.
+
+```mermaid
+flowchart LR
+    A[Saldo Gudang Asal] -->|Transaksi keluar| G[Transfer Group UUID]
+    G -->|Transaksi masuk| B[Saldo Gudang Tujuan]
+```
+
+Aturan utama:
+
+- gudang asal dan tujuan harus berbeda dan aktif;
+- jumlah harus positif dan tidak melebihi saldo asal;
+- dua transaksi dibuat secara atomik dengan `transfer_group_uuid` yang sama;
+- jika salah satu langkah gagal, seluruh transfer dibatalkan;
+- semua role dapat melakukan transfer karena termasuk kemampuan memperbarui stok.
+
+## 6. Reversal transaksi
+
+Reversal membalik efek transaksi yang salah tanpa menghapus histori.
+
+- Hanya Admin dan Manager.
+- Transaksi yang sudah direversal tidak dapat dibalik lagi.
+- Sistem membuat transaksi lawan dan menghubungkannya melalui `reversal_of_id`.
+- Transaksi asli mencatat `reversed_at` serta `reversed_by`.
+- Alasan reversal wajib dicatat.
+- Reversal transfer mempertahankan jejak pasangan transfer dan integritas saldo.
+
+## 7. Riwayat dan audit stok
+
+Halaman riwayat menyediakan timeline, tabel berhalaman, grafik snapshot, gudang, supplier, jenis mutasi, pelaku, referensi, serta status reversal. `stok_transactions` adalah ledger utama; `stok_histories` hanya tabel legacy.
+
+`stok_transaction_actors` memisahkan identitas pelaku dari ledger agar akun yang dihapus tidak menghapus transaksi. FK pengguna memakai `SET NULL`, sedangkan record aktor ikut terhapus jika transaksi induknya dihapus.
+
+## 8. Import dan export inventaris
+
+### Import
+
+- Format: XLSX, XLS, atau CSV maksimum 5 MiB.
+- Kolom: `kode_barang`, `nama_barang`, `kategori`, `stok`, `satuan`, `lokasi`.
+- Semua baris dinormalisasi dan divalidasi sebelum commit.
+- Kode baru membuat barang; kode aktif yang sudah ada memperbarui data.
+- Target stok diterapkan melalui service transaksi agar ledger dan saldo tetap konsisten.
+- Satu kesalahan membatalkan seluruh batch.
+
+### Export
+
+Admin dapat mengekspor inventaris aktif ke CSV, XLSX, atau PDF. Barang dalam Tong Sampah tidak ikut diekspor.
+
+## 9. Dashboard, analitik, dan laporan
+
+### Dashboard operasional
+
+- jumlah barang, stok, kategori, dan stok menipis;
+- aktivitas masuk/keluar 7 atau 30 hari;
+- grafik dengan alternatif tabel;
+- pusat perhatian untuk kondisi yang perlu ditindaklanjuti;
+- status prediksi terbaru.
+
+### Analitik bisnis
+
+Khusus Admin:
+
+- mutasi periodik;
+- Fast-Moving, Slow-Moving, dan Dead Stock;
+- valuasi persediaan berdasarkan `harga_beli`;
+- ringkasan per kategori dan gudang;
+- rekonsiliasi total barang dengan jumlah saldo gudang;
+- ringkasan otomatis yang deterministik;
+- export CSV hasil terfilter.
+
+Filter supplier, gudang, dan kategori berlaku pada dataset yang relevan. Filter tanggal membatasi mutasi, bukan snapshot valuasi saat ini.
+
+### Laporan mutasi
+
+Admin dan Manager dapat memfilter laporan berdasarkan tanggal, supplier, gudang, dan kategori, lalu mengekspornya ke CSV, XLSX, atau PDF. Identitas saldo mengikuti rumus:
+
+```text
+saldo awal + total masuk - total keluar = saldo akhir
+```
+
+## 10. Verifikasi dokumen Laravel-Python
 
 ```mermaid
 sequenceDiagram
     participant U as Pengguna
     participant L as Laravel
     participant Q as Queue default
-    participant P as document_checker.py
+    participant P as Python/Tesseract
     participant D as Database/Storage
-    U->>L: Upload PDF/JPG/JPEG/PNG dan jenis dokumen
-    L->>D: Simpan file privat dan status menunggu
-    L->>Q: Dispatch ProcessDocumentVerification
-    Q->>P: Jalankan Python melalui Symfony Process
-    P-->>Q: JSON skor, OCR, metadata, dan temuan
-    Q->>D: Simpan hasil, audit, dan notifikasi
-    L-->>U: Status polling, hasil, retry, atau koreksi
+    U->>L: Upload dokumen dan pilih jenis
+    L->>D: Simpan privat, status menunggu
+    L->>Q: Dispatch job
+    Q->>D: Status diproses
+    Q->>P: Path file dan jenis dokumen
+    P-->>Q: JSON OCR, metadata, skor, temuan
+    Q->>D: Simpan hasil, audit, notifikasi
+    L-->>U: Poll status dan tampilkan hasil
 ```
 
-| Bagian | Penjelasan |
-|---|---|
-| Masalah pengguna | Pemeriksaan dokumen manual lambat dan metadata scan sering tidak rapi. |
-| Tujuan | Memberi bantuan OCR, ekstraksi metadata, skor, indikasi manipulasi, dan jejak audit. |
-| Aktor | Semua role mengunggah/melihat milik sendiri; Admin dapat melihat semua. |
-| Input | Jenis `surat_jalan`, `invoice`, atau `bukti_fisik`; PDF/JPG/JPEG/PNG maksimal 10 MB. |
-| Proses Laravel/Python | Laravel menyimpan file privat dan dispatch job unik. Python memakai PyMuPDF/Pillow/OpenCV/pytesseract, lalu Laravel memvalidasi kontrak JSON dan menyimpan hasil. |
-| Database | `document_verifications`, audit, notifications; file pada `storage/app/private/document-verifications/{user_id}`. |
-| Output | Status, empat skor, OCR/metadata, catatan, audit, notifikasi, download, koreksi, retry/reprocess. |
-| Berhasil/gagal | Timeout/kontrak invalid/file hilang menghasilkan status gagal dan pesan aman. Retry memerlukan file masih tersedia. |
-| Inti | Status otomatis bukan jaminan keaslian hukum; hasil perlu konteks dan pemeriksaan manusia. Worker queue `default` harus aktif. |
-| Referensi | `DocumentVerificationController.php`, `ProcessDocumentVerification.php`, `DocumentVerificationService.php`, `DocumentVerificationResultWriter.php`, `python/document_checker.py`, `resources/views/verifications/`. |
+Kegunaan fitur:
 
-## 7. Prediksi stok dan queue
+- membantu membaca Surat Jalan, Invoice, dan Bukti Fisik;
+- mengekstrak nomor/tanggal dokumen, nomor PO/DO, supplier, nominal, dan metadata lain;
+- menghitung readability, completeness, authenticity, overall, dan confidence;
+- menyimpan temuan pemeriksaan visual/manipulasi;
+- menyediakan koreksi metadata, retry, reprocess, download, audit, dan notifikasi.
+
+File PDF/JPG/JPEG/PNG maksimum 10 MiB disimpan privat. Manager/Staff hanya dapat mengakses dokumen sendiri; Admin dapat mengakses semua. Hasil OCR bukan keputusan hukum dan tetap perlu pemeriksaan manusia.
+
+## 11. Prediksi stok
 
 ```mermaid
 flowchart TD
-    R[Transaksi/import/aksi analisis] --> S[StockPredictionScheduler]
-    S --> G[Naikkan generation dan status waiting]
-    G --> Q[(Queue stock-predictions)]
+    S[Transaksi atau analisis manual] --> SC[Scheduler]
+    SC --> Q[(Queue stock-predictions)]
     Q --> J[ProcessStockPrediction]
-    J --> X[Payload stok, histori OUT, estimasi, lead time]
-    X --> P[python/stock_predictor.py]
-    P --> M{Ketersediaan histori}
-    M -- Tidak ada --> C[Cold-start]
-    M -- Sedikit --> A[Rata-rata historis]
-    M -- Cukup --> ML[Machine Learning]
-    P -- Gagal/timeout --> F[Fallback lokal]
-    C --> DB[(stock_predictions)]
-    A --> DB
-    ML --> DB
-    F --> DB
-    DB --> O[Status risiko, tanggal, restock, confidence, notifikasi]
+    J --> I[Stok, histori OUT, estimasi, lead time]
+    I --> M{Data tersedia}
+    M -- Belum ada --> C[Cold-start]
+    M -- Terbatas --> A[Simple average]
+    M -- Cukup --> ML[Machine learning]
+    C --> O[Hasil dan rekomendasi]
+    A --> O
+    ML --> O
+    J -- Python gagal --> F[Fallback Laravel]
+    F --> O
+    O --> N[Notifikasi per pengguna]
 ```
 
-| Bagian | Penjelasan |
-|---|---|
-| Masalah pengguna | Pengguna perlu mengetahui risiko kehabisan dan perkiraan kebutuhan sebelum terlambat restock. |
-| Tujuan | Mengubah histori OUT dan input awal menjadi rekomendasi yang dapat ditinjau. |
-| Aktor | Semua role melihat hasil; Admin/Manager menjalankan analisis dan menyetujui restock. |
-| Input | Stok kini, histori OUT, minimum stok, estimasi pemakaian harian, lead time, horizon/minimum histori. |
-| Proses Laravel/Python | Scheduler menjaga satu proses per barang dan generation terbaru. Job memakai `WithoutOverlapping`. Python memilih cold-start/rata-rata/ML; Laravel memakai fallback lokal bila Python gagal. |
-| Database | `stock_predictions`, `stock_prediction_processes`, `jobs`, `failed_jobs`, notifikasi dan receipt pengguna. |
-| Output | Risiko Aman/Waspada/Perlu Restock/Mendesak/Perlu Ditinjau, kebutuhan 30 hari, tanggal, safety stock, restock, metode, confidence, alasan, status proses. |
-| Berhasil/gagal | Job selesai menyimpan prediksi dan status completed. Retry hingga tiga kali; kegagalan akhir menjadi failed. Data berubah saat analisis berjalan akan menjadwalkan generation terbaru. |
-| Inti | Worker queue `stock-predictions` harus aktif. Status Menunggu sendiri tidak membuktikan worker offline. Prediksi tidak mengubah stok; persetujuan hanya membuka form stok masuk. |
-| Referensi | `StockPredictionScheduler.php`, `ProcessStockPrediction.php`, `StockPredictionService.php`, `StockPredictionController.php`, `StockPredictionPresenter.php`, `python/stock_predictor.py`, `stock-predictions/index.blade.php`. |
+Prediksi menghasilkan status Aman, Waspada, Perlu Restock, Mendesak, atau Perlu Ditinjau beserta kebutuhan, tanggal minimum/habis, safety stock, jumlah restock, metode, confidence, dan alasan.
 
-## 8. Notifikasi per pengguna
+Semua role dapat melihat hasil. Admin/Manager dapat menjalankan analisis, melihat proses, dan menerapkan rekomendasi ke form stok masuk. Prediksi tidak pernah mengubah stok secara otomatis.
 
-| Bagian | Penjelasan |
-|---|---|
-| Masalah pengguna | Status penting dapat terlewat bila hanya terlihat pada halaman sumber. |
-| Tujuan | Menyampaikan hasil OCR dan perubahan risiko prediksi kepada pengguna yang tepat. |
-| Aktor | Pengguna terautentikasi. |
-| Input | Hasil job dokumen atau prediksi baru berstatus restock/mendesak. |
-| Proses | Service/job membuat notifikasi; prediksi memakai receipt per pengguna agar status baca tidak dibagi bersama. |
-| Database | `notifications`, `stock_prediction_notifications`, `stock_prediction_notification_reads`. |
-| Output | Badge jumlah, daftar notifikasi, buka hasil, tandai satu/semua dibaca. |
-| Berhasil/gagal | Kegagalan notifikasi OCR dicatat ke log dan tidak menggagalkan hasil OCR. Akses notifikasi prediksi memeriksa receipt pengguna. |
-| Inti | Status sudah dibaca adalah milik masing-masing pengguna. |
-| Referensi | `AppServiceProvider.php`, `DocumentVerificationNotificationService.php`, controller notifikasi OCR/prediksi, model notifikasi dan receipt. |
+## 12. Pusat notifikasi
 
-## Ringkasan data aktif
+Pusat notifikasi menggabungkan:
+
+- hasil verifikasi dokumen;
+- perubahan risiko prediksi;
+- kondisi stok yang memerlukan perhatian.
+
+Badge diperbarui melalui polling endpoint internal. Pengguna dapat membuka sumber notifikasi serta menandai satu atau semua notifikasi telah dibaca. Status baca prediksi disimpan per pengguna sehingga tidak saling memengaruhi.
+
+## 13. Data aktif
 
 | Kelompok | Tabel utama |
 |---|---|
-| Identitas/infrastruktur | `users`, `password_reset_tokens`, `sessions`, `cache`, `cache_locks` |
-| Supplier/barang/stok | `suppliers`, `warehouses`, `warehouse_stocks`, `barang`, `stok_transactions`; `stok_histories` adalah tabel legacy |
-| Queue | `jobs`, `job_batches`, `failed_jobs` |
-| Verifikasi | `document_verifications`, `document_verification_audits`, `notifications` |
+| Identitas | `users`, `sessions`, `password_reset_tokens` |
+| Master | `barang`, `suppliers`, `warehouses`, `warehouse_stocks` |
+| Transaksi | `stok_transactions`, `stok_transaction_actors`, `stok_histories` |
+| OCR | `document_verifications`, `document_verification_audits`, `notifications` |
 | Prediksi | `stock_predictions`, `stock_prediction_processes`, `stock_prediction_notifications`, `stock_prediction_notification_reads` |
+| Infrastruktur | `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs`, `migrations` |
 
-## Prinsip yang harus diingat
+## 14. Prinsip operasional
 
-1. Gunakan transaksi stok untuk mengubah saldo, bukan edit barang.
-2. Jalankan worker `default` untuk OCR dan `stock-predictions` untuk prediksi.
-3. Jangan menganggap confidence sebagai kepastian.
-4. Jangan merekonstruksi snapshot histori lama yang memang tidak tersedia.
-5. Jangan menyimpan `.env`, dokumen privat, log, cache, atau database backup di Git.
-6. Jalankan migration biasa dan test; jangan memakai `migrate:fresh` pada data yang perlu dipertahankan.
-7. Perlakukan `warehouse_stocks.stok` sebagai saldo per gudang dan `barang.stok` sebagai total/legacy; workflow operasional saat ini hanya memperbarui `GDG-UTAMA`.
+1. Ubah stok melalui transaksi, transfer, reversal, atau import resmi—bukan edit langsung database.
+2. Jumlah seluruh `warehouse_stocks.stok` harus konsisten dengan `barang.stok`.
+3. Jalankan worker `default` untuk OCR dan `stock-predictions` untuk prediksi.
+4. Jangan menganggap hasil OCR atau confidence prediksi sebagai kepastian.
+5. Pertahankan dokumen verifikasi pada storage privat.
+6. Jangan menjalankan `migrate:fresh` pada database yang datanya harus dipertahankan.
+7. Setelah perubahan kode worker, jalankan `php artisan queue:restart`.
+8. Jangan commit `.env`, database lokal, dokumen pengguna, log, atau backup.
