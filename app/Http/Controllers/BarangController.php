@@ -84,6 +84,48 @@ class BarangController extends Controller
         return response()->json($dashboard->activity($request->integer('period')));
     }
 
+    public function scanner(): View
+    {
+        return view('barang.scanner');
+    }
+
+    public function scanLookup(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'code' => ['required', 'string', 'max:255'],
+        ], [
+            'code.required' => 'Kode hasil scan wajib diisi.',
+            'code.max' => 'Kode hasil scan terlalu panjang.',
+        ]);
+
+        $code = trim($validated['code']);
+        $barang = Barang::query()
+            ->whereRaw('LOWER(kode_barang) = ?', [mb_strtolower($code)])
+            ->first();
+
+        if (! $barang) {
+            return response()->json([
+                'message' => "Barang dengan kode {$code} tidak ditemukan.",
+            ], 404);
+        }
+
+        return response()->json([
+            'item' => [
+                'id' => $barang->id,
+                'code' => $barang->kode_barang,
+                'name' => $barang->nama_barang,
+                'stock' => $barang->stok,
+                'unit' => $barang->satuan,
+                'location' => $barang->lokasi,
+                'is_low_stock' => $barang->isLowStock(),
+            ],
+            'urls' => [
+                'detail' => url('/barang/'.$barang->id),
+                'stock' => route('barang.stok', $barang->id),
+            ],
+        ]);
+    }
+
     public function create(BarangCodeGenerator $codeGenerator)
     {
         $kategori_options = Barang::KATEGORI;

@@ -4,6 +4,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BarangController;
 use App\Http\Controllers\BarangImportController;
+use App\Http\Controllers\BarangQrCodeController;
 use App\Http\Controllers\BarangReportController;
 use App\Http\Controllers\BarangTrashController;
 use App\Http\Controllers\DocumentToolController;
@@ -41,6 +42,8 @@ Route::middleware('auth')->group(function () {
     Route::patch('/verifications/{documentVerification}/metadata', [DocumentVerificationController::class, 'updateMetadata'])->name('verifications.metadata.update');
 
     Route::get('/barang', [BarangController::class, 'index'])->name('barang.index');
+    Route::get('/barang/scanner', [BarangController::class, 'scanner'])->name('barang.scanner');
+    Route::get('/barang/scanner/cari', [BarangController::class, 'scanLookup'])->name('barang.scanner.lookup');
     Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
     Route::get('/warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
     Route::middleware('role:admin')->group(function () {
@@ -53,6 +56,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
     Route::get('/barang/results', [BarangController::class, 'inventoryResults'])->name('barang.results');
     Route::get('/barang/dashboard/activity', [BarangController::class, 'dashboardActivity'])->name('barang.dashboard.activity');
+    Route::get('/barang/{barang}/qr-code', [BarangQrCodeController::class, 'show'])->name('barang.qr-code');
+    Route::get('/barang/{barang}/qr-code/download', [BarangQrCodeController::class, 'download'])->name('barang.qr-code.download');
     Route::get('/barang/create', [BarangController::class, 'create'])->middleware('role:admin');
     Route::get('/barang/low-stock', [BarangController::class, 'lowStock']);
     Route::get('/barang/{id}', [BarangController::class, 'show']);

@@ -3,14 +3,15 @@
 @section('content')
 <header class="page-header">
     <div><h1>Persediaan Barang</h1><p>Kelola data dan stok barang gudang Anda.</p></div>
-    @can('manage-barang')
     <div class="page-actions">
+        <x-ui.button :href="route('barang.scanner')" variant="outline-primary" icon="ti-barcode">Scan Barang</x-ui.button>
+    @can('manage-barang')
         <x-ui.button :href="route('barang.trash.index')" variant="outline-secondary" icon="ti-trash">Tong Sampah</x-ui.button>
         <div class="dropdown"><button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="ti-download" aria-hidden="true"></i> Export</button><ul class="dropdown-menu dropdown-menu-end"><li><a class="dropdown-item" href="{{ route('barang.report.pdf') }}"><i class="ti-file"></i> Laporan PDF</a></li><li><a class="dropdown-item" href="{{ route('barang.report.excel') }}"><i class="ti-layout-grid2"></i> Laporan Excel</a></li><li><a class="dropdown-item" href="{{ route('barang.report.csv') }}" title="Seluruh barang aktif, urutan nama seperti laporan Excel/PDF">Export CSV</a></li></ul></div>
         <x-ui.button variant="outline-primary" icon="ti-upload" data-bs-toggle="modal" data-bs-target="#importBarangModal">Import Excel / CSV</x-ui.button>
         <x-ui.button href="/barang/create" icon="ti-plus">Tambah Barang</x-ui.button>
-    </div>
     @endcan
+    </div>
 </header>
 
 @if(session('success'))<x-ui.alert type="success" dismissible>{{ session('success') }}</x-ui.alert>@endif
@@ -69,6 +70,26 @@
 
 <div id="inventory-results-region" class="inventory-results-region" aria-live="polite"><p id="inventory-filter-feedback" class="inventory-filter-feedback" role="status" hidden></p><div id="inventory-results-content">@include('barang.partials.inventory-results', ['barang' => $barang, 'filters' => $filters])</div></div>
 
+<div class="modal fade" id="qrPreviewModal" tabindex="-1" aria-labelledby="qrPreviewModalLabel" aria-describedby="qrPreviewModalDescription" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered qr-preview-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div><h2 class="modal-title" id="qrPreviewModalLabel">QR Code Barang</h2><p class="modal-subtitle" id="qr-preview-name"></p></div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup preview QR"></button>
+            </div>
+            <div class="modal-body qr-preview-body">
+                <img id="qr-preview-image" class="qr-preview-image" alt="">
+                <x-ui.badge id="qr-preview-code" variant="primary"></x-ui.badge>
+                <p id="qrPreviewModalDescription">Arahkan scanner ke QR ini atau download untuk dicetak dan ditempel pada barang.</p>
+            </div>
+            <div class="modal-footer">
+                <x-ui.button type="button" variant="light" data-bs-dismiss="modal">Tutup</x-ui.button>
+                <a class="btn btn-primary" id="qr-preview-download" href="#" download><i class="ti-download" aria-hidden="true"></i> Download QR</a>
+            </div>
+        </div>
+    </div>
+</div>
+
 @can('manage-barang')
 <div class="modal fade" id="importBarangModal" tabindex="-1" aria-labelledby="importBarangModalLabel" aria-describedby="importBarangModalDescription" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form action="{{ route('barang.import.store') }}" method="POST" enctype="multipart/form-data">@csrf<div class="modal-header"><div><h2 class="modal-title" id="importBarangModalLabel">Import Data Barang</h2><p class="modal-subtitle" id="importBarangModalDescription">Perbarui stok dan harga beli banyak barang dalam satu file.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button></div><div class="modal-body import-steps"><section><span>1</span><div><h3>Download template</h3><p>Pilih Excel atau CSV. Template baru sudah menyediakan kolom harga beli.</p><x-ui.button :href="route('barang.import.template')" variant="outline-primary" size="sm" icon="ti-download">Template Excel</x-ui.button><x-ui.button :href="route('barang.import.template.csv')" variant="outline-primary" size="sm" icon="ti-download">Template CSV</x-ui.button></div></section><section><span>2</span><div><h3>Isi data dan harga</h3><p><strong>Barang lama:</strong> cukup isi kode dan kolom yang ingin diubah. Stok kosong mempertahankan stok saat ini; harga kosong mempertahankan harga tersimpan. Isi 0 hanya jika nilainya memang nol.</p><p class="mb-0 text-muted"><small>Barang baru tetap wajib mengisi nama, kategori, stok, satuan, dan lokasi. Jika satu baris bermasalah, seluruh batch dibatalkan.</small></p></div></section><section><span>3</span><div class="w-100"><h3>Unggah dan periksa</h3><label for="spreadsheet" class="form-label">File Excel atau CSV</label><input type="file" class="form-control" id="spreadsheet" name="spreadsheet" accept=".xlsx,.xls,.csv" aria-describedby="spreadsheetHelp" required><div class="form-text" id="spreadsheetHelp">Maksimal 5 MB. Gunakan 7 kolom template baru; file lama dengan 6 kolom tetap didukung. Harga ditulis sebagai angka tanpa “Rp” dan maksimal 2 desimal.</div></div></section></div><div class="modal-footer"><x-ui.button variant="light" data-bs-dismiss="modal">Batal</x-ui.button><x-ui.button type="submit" icon="ti-upload">Import Data</x-ui.button></div></form></div></div></div>
 @endcan
@@ -78,5 +99,6 @@
 <script type="application/json" id="stock-activity-data">@json($stockActivity)</script>
 <script src="{{ asset('assets/js/inventory-dashboard.js') }}"></script>
 <script src="{{ asset('assets/js/inventory-filter.js') }}"></script>
+<script src="{{ asset('assets/js/inventory-qr-preview.js') }}"></script>
 @if(request()->boolean('import') || $errors->has('spreadsheet'))<script>document.addEventListener('DOMContentLoaded',function(){const element=document.getElementById('importBarangModal');if(element&&window.bootstrap){bootstrap.Modal.getOrCreateInstance(element).show();}});</script>@endif
 @endpush
