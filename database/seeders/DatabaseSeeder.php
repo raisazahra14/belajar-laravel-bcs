@@ -3,9 +3,9 @@
 namespace Database\Seeders;
 
 use App\Models\User;
-use Illuminate\Support\Facades\Hash;
-// use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+// use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
@@ -17,8 +17,15 @@ class DatabaseSeeder extends Seeder
         User::updateOrCreate(['email' => 'admin@logistikku.test'], [
             'name' => 'Administrator', 'role' => 'admin', 'password' => Hash::make('password'),
         ]);
+        User::updateOrCreate(['email' => 'manager@logistikku.test'], [
+            'name' => 'Manager Logistik', 'role' => 'manager', 'password' => Hash::make('password'),
+        ]);
         User::updateOrCreate(['email' => 'staff@logistikku.test'], [
             'name' => 'Staff Gudang', 'role' => 'staff', 'password' => Hash::make('password'),
         ]);
+
+        if (app()->environment(['local', 'testing'])) {
+            $this->call(LogisticsDemoDataSeeder::class);
+        }
     }
 }

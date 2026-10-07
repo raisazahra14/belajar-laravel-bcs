@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="920" viewBox="0 0 1400 920" role="img" aria-labelledby="title desc">
+  <title id="title">ERD Ringkas Database LogistikKu</title>
+  <desc id="desc">Relasi 15 tabel bisnis LogistikKu versi 1.4.</desc>
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8z" fill="#8a90a3"/></marker><style>.bg{fill:#f7f8fc}.head{fill:#353687}.box{fill:#fff;stroke:#cfd4e5;stroke-width:2}.core{fill:#eef0fb;stroke:#5758a6}.ocr{fill:#eef7ff;stroke:#3576b8}.ml{fill:#fff8e8;stroke:#d88b16}.line{stroke:#8a90a3;stroke-width:2;fill:none;marker-end:url(#a)}.h{font:700 30px Arial;fill:#fff}.t{font:700 17px Arial;fill:#20263d}.p{font:13px Arial;fill:#555c70}.note{font:14px Arial;fill:#6d7387}</style></defs>
+  <rect class="bg" width="1400" height="920"/><rect class="head" width="1400" height="82"/><text class="h" x="45" y="52">ERD Ringkas LogistikKu — 15 Tabel Bisnis</text>
+  <g class="core"><rect x="40" y="120" width="250" height="82" rx="12"/><text class="t" x="60" y="151">USERS</text><text class="p" x="60" y="177">role, email, password</text></g>
+  <g class="core"><rect x="360" y="120" width="250" height="82" rx="12"/><text class="t" x="380" y="151">SUPPLIERS</text><text class="p" x="380" y="177">master pemasok</text></g>
+  <g class="core"><rect x="680" y="120" width="250" height="82" rx="12"/><text class="t" x="700" y="151">BARANG</text><text class="p" x="700" y="177">stok total, harga, prediksi</text></g>
+  <g class="core"><rect x="1030" y="120" width="250" height="82" rx="12"/><text class="t" x="1050" y="151">WAREHOUSES</text><text class="p" x="1050" y="177">Utama, A, B, C</text></g>
+  <g class="core"><rect x="880" y="270" width="300" height="82" rx="12"/><text class="t" x="900" y="301">WAREHOUSE_STOCKS</text><text class="p" x="900" y="327">saldo unik barang + gudang</text></g>
+  <g class="core"><rect x="520" y="410" width="360" height="100" rx="12"/><text class="t" x="540" y="441">STOK_TRANSACTIONS</text><text class="p" x="540" y="466">operasional • transfer • reversal</text><text class="p" x="540" y="488">snapshot stok, biaya, supplier, referensi</text></g>
+  <g class="core"><rect x="80" y="430" width="290" height="82" rx="12"/><text class="t" x="100" y="461">STOK_TRANSACTION_ACTORS</text><text class="p" x="100" y="487">pelaku satu transaksi</text></g>
+  <g class="box"><rect x="1030" y="430" width="250" height="82" rx="12"/><text class="t" x="1050" y="461">STOK_HISTORIES</text><text class="p" x="1050" y="487">histori legacy</text></g>
+  <path class="line" d="M610 161H680"/><path class="line" d="M930 161H1030"/><path class="line" d="M805 202V270H880"/><path class="line" d="M1155 202V270"/><path class="line" d="M1030 352V410H830"/><path class="line" d="M805 202V410"/><path class="line" d="M485 202V410H560"/><path class="line" d="M290 161V430"/><path class="line" d="M370 471H520"/><path class="line" d="M930 161V471H1030"/>
+  <g class="ocr"><rect x="40" y="610" width="300" height="82" rx="12"/><text class="t" x="60" y="641">DOCUMENT_VERIFICATIONS</text><text class="p" x="60" y="667">OCR, metadata, status, skor</text></g>
+  <g class="ocr"><rect x="40" y="750" width="300" height="82" rx="12"/><text class="t" x="60" y="781">DOCUMENT_AUDITS</text><text class="p" x="60" y="807">jejak proses dan koreksi</text></g>
+  <g class="ocr"><rect x="400" y="680" width="250" height="82" rx="12"/><text class="t" x="420" y="711">NOTIFICATIONS</text><text class="p" x="420" y="737">notifikasi Laravel</text></g>
+  <path class="line" d="M165 202V610"/><path class="line" d="M190 692V750"/><path class="line" d="M340 651H400"/>
+  <g class="ml"><rect x="760" y="610" width="250" height="82" rx="12"/><text class="t" x="780" y="641">STOCK_PREDICTIONS</text><text class="p" x="780" y="667">hasil analisis stok</text></g>
+  <g class="ml"><rect x="1080" y="610" width="270" height="82" rx="12"/><text class="t" x="1100" y="641">PREDICTION_PROCESSES</text><text class="p" x="1100" y="667">generation dan status job</text></g>
+  <g class="ml"><rect x="760" y="750" width="280" height="82" rx="12"/><text class="t" x="780" y="781">PREDICTION_NOTIFICATIONS</text><text class="p" x="780" y="807">perubahan risiko</text></g>
+  <g class="ml"><rect x="1080" y="750" width="270" height="82" rx="12"/><text class="t" x="1100" y="781">NOTIFICATION_READS</text><text class="p" x="1100" y="807">status baca per pengguna</text></g>
+  <path class="line" d="M805 202V610"/><path class="line" d="M1010 651H1080"/><path class="line" d="M885 692V750"/><path class="line" d="M1040 791H1080"/><path class="line" d="M290 180V580H1215V610"/>
+  <text class="note" x="40" y="880">Skema penuh: docs/database/erd.md • Detail 23 tabel dan 218 kolom: docs/data_dictionary.md • Audit 5 Oktober 2026</text>
+</svg>

@@ -1,0 +1,163 @@
+<?php
+
+namespace App\Services;
+
+use Carbon\CarbonInterface;
+use RuntimeException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+
+class AnalyticsCsv
+{
+    private const BOM = "\xEF\xBB\xBF";
+
+    /** @param array<string,mixed> $data */
+    public function download(array $data): StreamedResponse
+    {
+        return response()->streamDownload(function () use ($data): void {
+            $stream = fopen('php://output', 'wb');
+            if ($stream === false) {
+                throw new RuntimeException('Tidak dapat membuka stream CSV analitik.');
+            }
+
+            try {
+                fwrite($stream, self::BOM);
+                foreach ($this->rows($data) as $row) {
+                    fputcsv($stream, array_map($this->safeCell(...), $row), ',', '"', '', "\r\n");
+                }
+            } finally {
+                fclose($stream);
+            }
+        }, 'analitik-bisnis-'.now(config('app.display_timezone'))->format('Ymd-His').'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
+    /** @param array<string,mixed> $data */
+    private function rows(array $data): iterable
+    {
+        $mutation = $data['mutation'];
+        $movement = $data['movement'];
+        $valuation = $data['valuation'];
+        $warehouse = $data['selectedWarehouse']?->nama_gudang ?? 'Semua gudang';
+        $supplier = $data['selectedSupplier']?->nama_supplier ?? 'Semua supplier transaksi';
+
+        yield ['ANALITIK BISNIS LOGISTIKKU'];
+        yield ['Waktu dibuat', now(config('app.display_timezone'))->format('Y-m-d H:i:s T')];
+        yield ['Filter gudang', $warehouse];
+        yield ['Filter supplier', $supplier];
+        yield ['Filter kategori', $data['filters']['category'] ?? 'Semua kategori'];
+        yield ['Periode mutasi', $mutation['period']['start_date'].' s.d. '.$mutation['period']['end_date']];
+        yield ['Definisi rasio perputaran', $mutation['turnover']['definition']];
+        yield ['Definisi Fast-Moving', 'Top 5 total unit OUT dalam 30 hari terakhir'];
+        yield ['Definisi Slow-Moving', 'Stok positif dan total OUT 1–2 unit dalam 60 hari terakhir'];
+        yield ['Definisi Dead Stock', 'Stok positif dan tanpa OUT dalam 60 hari terakhir'];
+        yield ['Definisi valuasi', 'Stok saat ini × harga beli master; harga kosong tidak dianggap nol'];
+        yield [];
+
+        yield ['RINGKASAN'];
+        yield ['Total mutasi masuk', $mutation['totals']['total_masuk']];
+        yield ['Total mutasi keluar', $mutation['totals']['total_keluar']];
+        yield [$valuation['total']['label'], $valuation['total']['calculated_value']];
+        yield ['Rasio perputaran', $mutation['turnover']['percentage_formatted'] === null ? 'Tidak tersedia' : $mutation['turnover']['percentage_formatted'].'%'];
+        yield ['Status rasio', $mutation['turnover']['reason'] ?? 'Tersedia'];
+        yield ['Barang tanpa harga', $valuation['total']['unpriced_item_count']];
+        yield ['Unit tanpa harga', $valuation['total']['unpriced_stock_units']];
+        yield ['Cakupan harga unit', $valuation['total']['coverage_percentage'].'%'];
+        yield ['Nilai dead stock terhitung', $movement['dead_stock_valuation']['calculated_value']];
+        yield ['Unit dead stock tanpa harga', $movement['dead_stock_valuation']['unpriced_stock_units']];
+        yield [];
+
+        yield ['REKAP MUTASI'];
+        yield ['Kode', 'Barang', 'Kategori', 'Supplier saat ini', 'Saldo awal', 'Masuk', 'Keluar', 'Saldo akhir', 'Status'];
+        foreach ($mutation['rows'] as $row) {
+            yield [
+                $row['barang']->kode_barang,
+                $row['barang']->nama_barang,
+                $row['barang']->kategori,
+                $row['barang']->supplier?->nama_supplier ?? 'Tanpa Supplier',
+                $row['history_available'] ? $row['saldo_awal'] : 'Tidak tersedia',
+                $row['total_masuk'],
+                $row['total_keluar'],
+                $row['history_available'] ? $row['saldo_akhir'] : 'Tidak tersedia',
+                $row['history_available'] ? 'Tersedia' : $row['unavailable_reason'],
+            ];
+        }
+        yield [];
+
+        yield from $this->movementSection('FAST-MOVING — 30 HARI', $movement['periods']['start_30'].' s.d. '.$movement['periods']['end'], $movement['fast_moving']);
+        yield from $this->movementSection('SLOW-MOVING — 60 HARI', $movement['periods']['start_60'].' s.d. '.$movement['periods']['end'], $movement['slow_moving']);
+        yield from $this->movementSection('DEAD STOCK — 60 HARI', $movement['periods']['start_60'].' s.d. '.$movement['periods']['end'], $movement['dead_stock'], true);
+
+        yield ['VALUASI PER KATEGORI', 'Acuan '.$this->dateTime($valuation['scope']['as_of'])];
+        yield ['Kategori', 'Jumlah jenis barang', 'Total unit stok', 'Nilai terhitung', 'Barang dinilai', 'Unit dinilai', 'Barang tanpa harga', 'Unit tanpa harga', 'Status'];
+        foreach ($valuation['categories'] as $row) {
+            yield [$row['kategori'], $row['item_count'], $row['stock_units'], $row['calculated_value'], $row['priced_item_count'], $row['priced_stock_units'], $row['unpriced_item_count'], $row['unpriced_stock_units'], $row['label']];
+        }
+        yield ['TOTAL', $valuation['total']['item_count'], $valuation['total']['stock_units'], $valuation['total']['calculated_value'], $valuation['total']['priced_item_count'], $valuation['total']['priced_stock_units'], $valuation['total']['unpriced_item_count'], $valuation['total']['unpriced_stock_units'], $valuation['total']['label']];
+        yield [];
+
+        yield ['VALUASI PER GUDANG', 'Acuan '.$this->dateTime($valuation['scope']['as_of'])];
+        yield ['Kode gudang', 'Gudang', 'Jumlah jenis barang', 'Total unit stok', 'Nilai terhitung', 'Barang tanpa harga', 'Unit tanpa harga', 'Status'];
+        foreach ($valuation['warehouses'] as $row) {
+            yield [$row['kode_gudang'], $row['nama_gudang'], $row['item_count'], $row['stock_units'], $row['calculated_value'], $row['unpriced_item_count'], $row['unpriced_stock_units'], $row['label']];
+        }
+        yield ['TOTAL', 'Seluruh gudang pada cakupan', $valuation['warehouse_total']['item_count'], $valuation['warehouse_total']['stock_units'], $valuation['warehouse_total']['calculated_value'], $valuation['warehouse_total']['unpriced_item_count'], $valuation['warehouse_total']['unpriced_stock_units'], $valuation['warehouse_total']['label']];
+        yield [];
+
+        yield ['AUDIT SALDO'];
+        yield ['Status', $valuation['stock_consistency']['status']];
+        yield ['Cakupan audit', $valuation['stock_consistency']['scope']];
+        yield ['Saldo barang', $valuation['stock_consistency']['barang_stock_units']];
+        yield ['Saldo seluruh gudang', $valuation['stock_consistency']['warehouse_stock_units']];
+        yield ['Selisih', $valuation['stock_consistency']['difference_units']];
+        yield ['Barang berselisih', $valuation['stock_consistency']['mismatched_item_count']];
+        yield ['Unit master belum tercermin di gudang', $valuation['stock_consistency']['undistributed_units']];
+        yield ['Unit gudang di atas saldo master', $valuation['stock_consistency']['excess_warehouse_units']];
+        yield ['Transaksi tanpa relasi gudang valid', $valuation['stock_consistency']['unlinked_transaction_count']];
+        yield ['Transaksi tertaut ke barang lain', $valuation['stock_consistency']['wrong_item_link_count']];
+        foreach ($valuation['stock_consistency']['possible_causes'] as $cause) {
+            yield ['Kemungkinan penyebab berdasarkan bukti', $cause];
+        }
+        yield ['Kelengkapan histori gudang 30 hari', $movement['warehouse_history']['complete_30'] ? 'Lengkap' : 'Tidak lengkap'];
+        yield ['Kelengkapan histori gudang 60 hari', $movement['warehouse_history']['complete_60'] ? 'Lengkap' : 'Tidak lengkap'];
+    }
+
+    private function movementSection(string $title, string $period, iterable $rows, bool $withStockValue = false): iterable
+    {
+        yield [$title];
+        yield ['Periode', $period];
+        $header = ['Kode', 'Barang', 'Total OUT', 'Jumlah transaksi', 'OUT terakhir', 'Stok saat ini'];
+        if ($withStockValue) {
+            $header[] = 'Nilai stok mati';
+            $header[] = 'Status harga';
+        }
+        yield $header;
+        foreach ($rows as $row) {
+            $values = [$row['kode_barang'], $row['nama_barang'], $row['total_unit_keluar'], $row['jumlah_transaksi'], $this->dateTime($row['out_terakhir']), $row['stok_saat_ini']];
+            if ($withStockValue) {
+                $values[] = $row['stock_value'] ?? 'Tidak tersedia';
+                $values[] = $row['stock_value'] === null ? 'Harga belum diisi' : 'Terhitung';
+            }
+            yield $values;
+        }
+        yield [];
+    }
+
+    private function dateTime(?CarbonInterface $date): string
+    {
+        return $date?->format('Y-m-d H:i:s T') ?? 'Tidak tersedia';
+    }
+
+    private function safeCell(mixed $value): string
+    {
+        $value = (string) $value;
+        if (preg_match('/\A[\s\p{Z}\x{FEFF}]*[=+@\-\x{FF1D}\x{FF0B}\x{FF0D}\x{FF20}]/u', $value) === 1
+            || preg_match('/\A[\t\r\n]/', $value) === 1) {
+            return "\t".$value;
+        }
+
+        return $value;
+    }
+}
