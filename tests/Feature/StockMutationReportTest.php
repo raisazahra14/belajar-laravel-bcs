@@ -414,6 +414,39 @@ class StockMutationReportTest extends TestCase
             ->assertDontSee(route('stock-mutations.index'), false);
     }
 
+    public function test_stock_mutation_report_page_and_paginated_rows_prevent_n_plus_one_queries(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $suppliers = collect(range(1, 5))->map(fn ($i) => Supplier::create([
+            'kode_supplier' => "SUP-N1-{$i}",
+            'nama_supplier' => "Supplier N1 {$i}",
+        ]));
+
+        foreach (range(1, 15) as $i) {
+            $supplier = $suppliers[$i % 5];
+            $barang = $this->barang(sprintf('MUT-N1-%02d', $i), "Barang N1 {$i}", 10, $supplier->id);
+            $this->transaction($barang, 'masuk', 5, '2026-09-01 02:00:00');
+        }
+
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+
+        $response = $this->actingAs($admin)->get(route('stock-mutations.index', ['per_page' => 25]));
+        $response->assertOk();
+        $response->assertSee('Barang N1 1');
+        $response->assertSee('Supplier N1 1');
+
+        $queries = \Illuminate\Support\Facades\DB::getQueryLog();
+        // Query count should be strictly bounded (O(1)) and not grow per item (N+1)
+        $this->assertLessThanOrEqual(25, count($queries), 'Query count should not scale with items (N+1 prevented).');
+
+        // Verify supplier relation is already loaded on rows without triggering lazy load queries
+        $reportRows = $response->viewData('mutationRows');
+        foreach ($reportRows as $row) {
+            $this->assertTrue($row['barang']->relationLoaded('supplier'));
+        }
+    }
+
     private function barang(string $code, string $name, int $stock, ?int $supplierId = null): Barang
     {
         return Barang::create([

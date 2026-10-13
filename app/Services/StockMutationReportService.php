@@ -34,7 +34,7 @@ class StockMutationReportService
         $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
 
         $barangQuery = Barang::query()
-            ->with('supplier')
+            ->with(['supplier' => fn ($query) => $query->select(['id', 'nama_supplier', 'kode_supplier', 'is_active', 'deleted_at'])])
             ->orderBy('nama_barang')
             ->orderBy('id');
         if ($onlyBarangIds !== null) {

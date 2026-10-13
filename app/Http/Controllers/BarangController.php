@@ -391,10 +391,10 @@ class BarangController extends Controller
     private function filteredInventory(array $filters): Builder
     {
         $query = Barang::query()->with([
-            'supplier',
+            'supplier:id,nama_supplier,kode_supplier,is_active,deleted_at',
             'warehouseStocks' => fn ($stock) => $stock
                 ->where('stok', '>', 0)
-                ->with('warehouse'),
+                ->with('warehouse:id,kode_gudang,nama_gudang,is_active,deleted_at'),
         ]);
         $search = $filters['search'] ?? null;
         if ($search !== null && $search !== '') {
