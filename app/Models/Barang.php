@@ -70,6 +70,18 @@ class Barang extends Model
                 $barang->kode_barang = $barang->getRawOriginal('kode_barang');
             }
         });
+
+        static::saved(function (): void {
+            \App\Services\InventoryAnalyticsService::clearValuationCache();
+        });
+
+        static::deleted(function (): void {
+            \App\Services\InventoryAnalyticsService::clearValuationCache();
+        });
+
+        static::restored(function (): void {
+            \App\Services\InventoryAnalyticsService::clearValuationCache();
+        });
     }
 
     public function stokTransactions()

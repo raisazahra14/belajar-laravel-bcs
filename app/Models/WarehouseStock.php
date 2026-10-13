@@ -28,6 +28,17 @@ class WarehouseStock extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::saved(function (): void {
+            \App\Services\InventoryAnalyticsService::clearValuationCache();
+        });
+
+        static::deleted(function (): void {
+            \App\Services\InventoryAnalyticsService::clearValuationCache();
+        });
+    }
+
     public function barang(): BelongsTo
     {
         return $this->belongsTo(Barang::class, 'barang_id');

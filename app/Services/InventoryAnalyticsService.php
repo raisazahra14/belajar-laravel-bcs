@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class InventoryAnalyticsService
@@ -182,8 +183,35 @@ class InventoryAnalyticsService
         return [$now->startOfDay()->subDays($days - 1)->utc(), $now->utc()];
     }
 
-    /** Ringkasan valuasi halaman; seluruh KPI dihitung oleh agregasi database. */
+    public const VALUATION_CACHE_TTL = 900; // 15 menit
+
+    public static function clearValuationCache(): void
+    {
+        $current = (int) Cache::get('inventory:analytics:valuation:version', 1);
+        Cache::forever('inventory:analytics:valuation:version', $current + 1);
+    }
+
+    public function valuationCacheKey(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): string
+    {
+        $version = (int) Cache::get('inventory:analytics:valuation:version', 1);
+        $w = $warehouseId ?? 'all';
+        $s = $supplierId ?? 'all';
+        $c = $category !== null ? md5($category) : 'all';
+
+        return "inventory:analytics:valuation:v{$version}:w_{$w}:s_{$s}:c_{$c}";
+    }
+
+    /** Ringkasan valuasi halaman; seluruh KPI dihitung oleh agregasi database dan di-cache. */
     public function valuationSummary(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
+    {
+        $cacheKey = $this->valuationCacheKey($warehouseId, $supplierId, $category);
+
+        return Cache::remember($cacheKey, self::VALUATION_CACHE_TTL, function () use ($warehouseId, $supplierId, $category): array {
+            return $this->computeValuationSummary($warehouseId, $supplierId, $category);
+        });
+    }
+
+    public function computeValuationSummary(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
     {
         $total = $this->valuationBucketFromAggregate(
             $this->valuationBaseQuery($warehouseId, $supplierId, $category)->first(),
