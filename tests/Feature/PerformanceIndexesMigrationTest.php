@@ -10,6 +10,13 @@ class PerformanceIndexesMigrationTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        (require database_path('migrations/2026_10_13_000000_add_performance_and_analytics_indexes.php'))->up();
+    }
+
     public function test_performance_indexes_are_created_by_migration(): void
     {
         $stokIndexes = collect(Schema::getIndexes('stok_transactions'))->keyBy('name');
