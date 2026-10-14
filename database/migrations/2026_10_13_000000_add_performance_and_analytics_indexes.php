@@ -63,6 +63,10 @@ return new class extends Migration
             if ($this->hasIndex('stok_transactions', self::INDEX_STOK_WAREHOUSE_JENIS_CREATED)) {
                 $table->dropIndex(self::INDEX_STOK_WAREHOUSE_JENIS_CREATED);
             }
+
+            if ($this->hasIndex('stok_transactions', self::INDEX_STOK_BARANG_CREATED)) {
+                $table->dropIndex(self::INDEX_STOK_BARANG_CREATED);
+            }
         });
     }
 

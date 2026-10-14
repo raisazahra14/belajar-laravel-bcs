@@ -150,14 +150,19 @@ Pengujian dilakukan langsung pada database MariaDB/MySQL dengan **10.406 baris t
 php artisan db:explain-analyze --iterations=10
 ```
 
-### Tabel Perbandingan Kinerja Nyata:
+### Tabel Perbandingan Kinerja Nyata (diukur ulang 14 Oktober 2026, 10 iterasi):
 
-| Query Pengujian | Waktu SEBELUM Index | Waktu SESUDAH Index | Peningkatan Efisiensi | Index Key SEBELUM | Index Key SESUDAH | Rows Scan SEBELUM | Rows Scan SESUDAH |
+Bukti output mentah: [`docs/images/explain-analyze-output.txt`](images/explain-analyze-output.txt).
+
+| Query Pengujian | Sebelum Index | Sesudah Index | Perubahan | Key Sebelum | Key Sesudah | Rows Sebelum | Rows Sesudah |
 |---|---|---|---|---|---|---|---|
-| **1. Laporan Mutasi per Gudang & Jenis**<br>`WHERE warehouse_stock_id = :id AND jenis = 'masuk' AND created_at >= :start ORDER BY created_at DESC` | **1.365 ms** | **1.111 ms** | **+18.61% (1.23x)** | `stok_transactions_warehouse_stock_id_foreign` | `idx_stok_warehouse_jenis_created` | 113 baris | **7 baris (-93.8%)** |
-| **2. Kartu Stok Riwayat Barang Tertentu**<br>`WHERE barang_id = :id AND created_at >= :start ORDER BY created_at DESC` | **2.749 ms** | **1.319 ms** | **+52.02% (2.08x)** | `stok_transactions_barang_id_foreign` | `idx_stok_barang_created` | 172 baris | **74 baris (-56.4%)** |
-| **3. Analitik Valuasi per Kategori**<br>`SELECT kategori, COUNT(*), SUM(stok*harga_beli) FROM barang WHERE deleted_at IS NULL GROUP BY kategori` | 1.141 ms | **0.629 ms** | **+44.87% (1.81x)** | `NULL/ALL` (Full Table Scan) | `idx_barang_kategori_deleted_at` | 131 baris | 131 baris |
-| **4. Rekap Mutasi Gudang & Jenis**<br>`SELECT warehouse_stock_id, jenis, COUNT(*), SUM(jumlah) FROM stok_transactions WHERE warehouse_stock_id = :id GROUP BY warehouse_stock_id, jenis` | 1.468 ms | **0.693 ms** | **+52.79% (2.12x)** | `stok_transactions_warehouse_stock_id_foreign` | `idx_stok_warehouse_jenis_created` | 113 baris | 113 baris |
+| **1. Laporan Mutasi per Gudang & Jenis** | 1.722 ms | 0.959 ms | **+44.31% (1.8x)** | `stok_transactions_warehouse_stock_id_foreign` | `idx_stok_warehouse_jenis_created` | 113 | **7 (-93.8%)** |
+| **2. Kartu Stok Barang** | 1.982 ms | 1.676 ms | **+15.44% (1.18x)** | `stok_transactions_barang_id_foreign` | `idx_stok_barang_created` | 172 | **74 (-56.4%)** |
+| **3. Valuasi per Kategori** | 0.92 ms | 1.504 ms | -63.48% (0.61x) | NONE (full scan) | `idx_barang_kategori_deleted_at` | 131 | 131 |
+| **4. Rekap Mutasi Gudang & Jenis** | 0.947 ms | 1.321 ms | -39.49% (0.72x) | `..._warehouse_stock_id_foreign` | `idx_stok_warehouse_jenis_created` | 113 | 113 |
+
+> **Catatan jujur:** Query 1 dan 2 (filter + `ORDER BY created_at`) jelas diuntungkan index komposit. Query 3 dan 4 sedikit lebih lambat karena tabel kecil (131 baris barang; 113 baris per gudang): optimizer MySQL tidak mendapat keuntungan dari index, dan selisih sub-milidetik masih dalam rentang noise/overhead optimizer. Manfaat index pada query agregasi baru terlihat saat volume data jauh lebih besar. Angka pada versi awal laporan ini (query 3 dan 4 "lebih cepat") sudah diganti dengan hasil pengukuran ulang ini.
+
 
 ### Bukti Diagnostik Engine `EXPLAIN`:
 

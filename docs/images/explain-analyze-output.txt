@@ -1,0 +1,20 @@
+$ php artisan db:explain-analyze --iterations=10
+Database: mysql | Total Transaksi: 10406 baris | Iterasi: 10x
+Dijalankan: 2026-10-14
+
+1. Laporan Mutasi per Gudang & Jenis
+   Tanpa Index : 1.722 ms (Key: stok_transactions_warehouse_stock_id_foreign | Rows: 113)
+   Dengan Index: 0.959 ms (Key: idx_stok_warehouse_jenis_created | Rows: 7)
+   -> +44.31% (1.8x)
+2. Kartu Stok Barang Tertentu
+   Tanpa Index : 1.982 ms (Key: stok_transactions_barang_id_foreign | Rows: 172)
+   Dengan Index: 1.676 ms (Key: idx_stok_barang_created | Rows: 74)
+   -> +15.44% (1.18x)
+3. Analitik Valuasi per Kategori
+   Tanpa Index : 0.92 ms (Key: NONE | Rows: 131)
+   Dengan Index: 1.504 ms (Key: idx_barang_kategori_deleted_at | Rows: 131)
+   -> -63.48% (0.61x)  [lebih lambat; tabel barang hanya 131 baris]
+4. Rekap Mutasi Gudang & Jenis
+   Tanpa Index : 0.947 ms (Key: stok_transactions_warehouse_stock_id_foreign | Rows: 113)
+   Dengan Index: 1.321 ms (Key: idx_stok_warehouse_jenis_created | Rows: 113)
+   -> -39.49% (0.72x)  [lebih lambat; selisih sub-milidetik]
