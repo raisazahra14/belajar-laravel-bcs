@@ -13,7 +13,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
 {
     protected $signature = 'db:explain-analyze {--iterations=10 : Jumlah iterasi per query untuk menghitung rata-rata waktu eksekusi} {--json : Output format JSON}';
 
-    protected $description = 'Jalankan analisis Query Execution Plan (EXPLAIN / EXPLAIN ANALYZE) sebelum vs sesudah penambahan index pada 10.000+ data';
+    protected $description = 'Jalankan EXPLAIN dan benchmark waktu aplikasi sebelum vs sesudah penambahan index pada 10.000+ data';
 
     public function handle(): int
     {
@@ -22,12 +22,12 @@ class AnalyzeQueryExecutionPlanCommand extends Command
         $totalTransactions = DB::table('stok_transactions')->count();
 
         $this->info('======================================================================');
-        $this->info("🔍 ANALISIS QUERY EXECUTION PLAN (EXPLAIN / EXPLAIN ANALYZE)");
+        $this->info('[ANALISIS] QUERY EXECUTION PLAN (EXPLAIN + BENCHMARK APLIKASI)');
         $this->info("   Database: {$driver} | Total Transaksi: {$totalTransactions} baris | Iterasi: {$iterations}x");
         $this->info('======================================================================');
 
         if ($totalTransactions < 1000) {
-            $this->warn('⚠️  Peringatan: Jumlah transaksi kurang dari 1.000. Jalankan seeder dahulu:');
+            $this->warn('[PERINGATAN] Jumlah transaksi kurang dari 1.000. Jalankan seeder dahulu:');
             $this->line('   php artisan db:seed --class=LargeScaleStockTransactionSeeder');
             $this->newLine();
         }
@@ -89,7 +89,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
         $results = [];
 
         foreach ($queries as $label => $config) {
-            $this->info("\n▶ Menguji: {$label}");
+            $this->info("\n[UJI] {$label}");
             $this->line("   {$config['description']}");
 
             // A. Ambil Execution Plan
@@ -154,7 +154,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
 
         // Output Tabel Ringkasan
         $this->newLine();
-        $this->info("📊 TABEL PERBANDINGAN PERFORMA SEBELUM vs SESUDAH INDEX:");
+        $this->info('[RINGKASAN] PERFORMA SEBELUM vs SESUDAH INDEX:');
         $tableData = [];
         foreach ($results as $r) {
             $tableData[] = [
@@ -174,7 +174,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
             $tableData
         );
 
-        $this->info("💡 ANALISIS EXECUTION PLAN (berdasarkan hasil pengukuran di atas):");
+        $this->info('[KESIMPULAN] EXECUTION PLAN (berdasarkan hasil pengukuran di atas):');
         foreach ($results as $r) {
             $rowsBefore = $r['plan_without']['rows'] ?? null;
             $rowsAfter = $r['plan_with']['rows'] ?? null;

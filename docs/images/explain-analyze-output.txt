@@ -1,33 +1,33 @@
 ﻿======================================================================
-­ƒöì ANALISIS QUERY EXECUTION PLAN (EXPLAIN / EXPLAIN ANALYZE)
+[ANALISIS] QUERY EXECUTION PLAN (EXPLAIN + BENCHMARK APLIKASI)
    Database: mysql | Total Transaksi: 10406 baris | Iterasi: 10x
 ======================================================================
 
-ÔûÂ Menguji: 1. Laporan Mutasi per Gudang & Jenis
+[UJI] 1. Laporan Mutasi per Gudang & Jenis
    Filter warehouse_stock_id, jenis masuk, dan rentang tanggal (60 hari) + ORDER BY created_at DESC
    - Tanpa Index : 0.767 ms (Key: stok_transactions_warehouse_stock_id_foreign | Rows: 113)
    - Dengan Index: 0.503 ms (Key: idx_stok_warehouse_jenis_created | Rows: 7)
    -> Efisiensi: 1.52x (+34.42%, lebih cepat)
 
-ÔûÂ Menguji: 2. Kartu Stok Barang Tertentu
+[UJI] 2. Kartu Stok Barang Tertentu
    Filter barang_id dan rentang tanggal berurutan + ORDER BY created_at DESC
    - Tanpa Index : 0.856 ms (Key: stok_transactions_barang_id_foreign | Rows: 172)
    - Dengan Index: 0.859 ms (Key: idx_stok_barang_created | Rows: 74)
    -> Efisiensi: 1x (-0.35%, lebih lambat)
 
-ÔûÂ Menguji: 3. Analitik Valuasi per Kategori
+[UJI] 3. Analitik Valuasi per Kategori
    Agregasi total item, total stok, dan total valuasi per kategori barang aktif
    - Tanpa Index : 0.575 ms (Key: NONE | Rows: 131)
    - Dengan Index: 0.568 ms (Key: idx_barang_kategori_deleted_at | Rows: 131)
    -> Efisiensi: 1.01x (+1.22%, lebih cepat)
 
-ÔûÂ Menguji: 4. Rekap Mutasi Gudang & Jenis
+[UJI] 4. Rekap Mutasi Gudang & Jenis
    Agregasi mutasi per jenis pada gudang tertentu
    - Tanpa Index : 0.72 ms (Key: stok_transactions_warehouse_stock_id_foreign | Rows: 113)
    - Dengan Index: 0.625 ms (Key: idx_stok_warehouse_jenis_created | Rows: 113)
    -> Efisiensi: 1.15x (+13.19%, lebih cepat)
 
-­ƒôè TABEL PERBANDINGAN PERFORMA SEBELUM vs SESUDAH INDEX:
+[RINGKASAN] PERFORMA SEBELUM vs SESUDAH INDEX:
 +--------------------------------------+--------------+--------------+-----------------+----------------------------------------------+----------------------------------+-----------+-----------+
 | Query                                | Sebelum (ms) | Sesudah (ms) | Peningkatan     | Key Sebelum                                  | Key Sesudah                      | Rows Sblm | Rows Ssdh |
 +--------------------------------------+--------------+--------------+-----------------+----------------------------------------------+----------------------------------+-----------+-----------+
@@ -36,7 +36,7 @@
 | 3. Analitik Valuasi per Kategori     | 0.575 ms     | 0.568 ms     | +1.22% (1.01x)  | NULL/ALL                                     | idx_barang_kategori_deleted_at   | 131       | 131       |
 | 4. Rekap Mutasi Gudang & Jenis       | 0.72 ms      | 0.625 ms     | +13.19% (1.15x) | stok_transactions_warehouse_stock_id_foreign | idx_stok_warehouse_jenis_created | 113       | 113       |
 +--------------------------------------+--------------+--------------+-----------------+----------------------------------------------+----------------------------------+-----------+-----------+
-­ƒÆí ANALISIS EXECUTION PLAN (berdasarkan hasil pengukuran di atas):
+[KESIMPULAN] EXECUTION PLAN (berdasarkan hasil pengukuran di atas):
 - 1. Laporan Mutasi per Gudang & Jenis: rows diperiksa turun 113 -> 7; waktu 1.52x lebih cepat.
 - 2. Kartu Stok Barang Tertentu: rows diperiksa turun 172 -> 74; waktu lebih lambat (1x); selisih kecil pada tabel kecil dapat berupa noise/overhead optimizer.
 - 3. Analitik Valuasi per Kategori: rows diperiksa tidak berubah (131); waktu 1.01x lebih cepat.
