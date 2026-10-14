@@ -141,7 +141,10 @@ class AnalyzeQueryExecutionPlanCommand extends Command
 
             $this->line("   - Tanpa Index : {$avgWithoutMs} ms (Key: " . ($planWithout['key'] ?? 'NONE') . " | Rows: " . ($planWithout['rows'] ?? 'ALL') . ")");
             $this->line("   - Dengan Index: {$avgWithMs} ms (Key: " . ($planWith['key'] ?? 'INDEX') . " | Rows: " . ($planWith['rows'] ?? '-') . ")");
-            $this->info("   -> Efisiensi: {$speedup} lebih cepat (+{$improvementPct}%)");
+            $verdict = $improvementPct >= 0 ? 'lebih cepat' : 'lebih lambat';
+            $sign = $improvementPct >= 0 ? '+' : '';
+            $message = "   -> Efisiensi: {$speedup} ({$sign}{$improvementPct}%, {$verdict})";
+            $improvementPct >= 0 ? $this->info($message) : $this->warn($message);
         }
 
         if ($this->option('json')) {
@@ -158,7 +161,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
                 'Query' => $r['name'],
                 'Sebelum Index (ms)' => $r['time_without_index_ms'] . ' ms',
                 'Sesudah Index (ms)' => $r['time_with_index_ms'] . ' ms',
-                'Peningkatan' => '+' . $r['improvement_pct'] . '% (' . $r['speedup'] . ')',
+                'Peningkatan' => ($r['improvement_pct'] >= 0 ? '+' : '') . $r['improvement_pct'] . '% (' . $r['speedup'] . ')',
                 'Key Sebelum' => $r['plan_without']['key'] ?? 'NULL/ALL',
                 'Key Sesudah' => $r['plan_with']['key'] ?? $r['target_index'],
                 'Rows Scan Sebelum' => $r['plan_without']['rows'] ?? 'N/A',
@@ -171,10 +174,21 @@ class AnalyzeQueryExecutionPlanCommand extends Command
             $tableData
         );
 
-        $this->info("💡 ANALISIS EXECUTION PLAN:");
-        $this->line("1. Query dengan Index langsung mengeliminasi full table scan ('ALL') menjadi 'ref' atau 'range'.");
-        $this->line("2. Menghilangkan overhead 'Using filesort' dan 'Using temporary' pada pengurutan created_at dan grouping.");
-        $this->line("3. Volume row yang dibaca MySQL terpangkas drastis dari ribuan baris menjadi hanya baris target.");
+        $this->info("💡 ANALISIS EXECUTION PLAN (berdasarkan hasil pengukuran di atas):");
+        foreach ($results as $r) {
+            $rowsBefore = $r['plan_without']['rows'] ?? null;
+            $rowsAfter = $r['plan_with']['rows'] ?? null;
+            $rowsNote = is_numeric($rowsBefore) && is_numeric($rowsAfter)
+                ? ($rowsAfter < $rowsBefore
+                    ? "rows diperiksa turun {$rowsBefore} -> {$rowsAfter}"
+                    : "rows diperiksa tidak berubah ({$rowsAfter})")
+                : 'rows tidak tersedia';
+            $timeNote = $r['improvement_pct'] >= 0
+                ? "waktu {$r['speedup']} lebih cepat"
+                : "waktu lebih lambat ({$r['speedup']}); selisih kecil pada tabel kecil dapat berupa noise/overhead optimizer";
+            $this->line("- {$r['name']}: {$rowsNote}; {$timeNote}.");
+        }
+        $this->line('Catatan: manfaat index paling jelas pada query filter + ORDER BY di tabel besar; pada tabel kecil index tidak selalu lebih cepat.');
 
         return self::SUCCESS;
     }

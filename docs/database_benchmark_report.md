@@ -30,7 +30,7 @@ Pada volume transaksi besar (>10.000 record), sistem sebelumnya memiliki potensi
 3. **Agregasi Berulang**: Penghitungan total nilai valuasi inventaris (`SUM(stok * harga_beli)`) diproses berulang dari database setiap kali dashboard dimuat.
 
 ### Hasil Utama Optimasi:
-* **Penambahan Composite Index**: Menghilangkan 100% operasi `Using filesort` pada laporan mutasi dan memangkas pembacaan baris (*rows examined*) hingga **93.8%**.
+* **Penambahan Composite Index**: Konsisten pada dua kali pengukuran, query filter + `ORDER BY created_at` untuk laporan mutasi per gudang membaca **93.8% lebih sedikit rows** (113 ke 7) dan 1.5x-1.8x lebih cepat; `EXPLAIN` menunjukkan `Using filesort` hilang. Query lain (kartu stok, valuasi per kategori, rekap gudang) selisih waktunya sub-milidetik dan berubah arah antar pengukuran (noise), sehingga **belum terbukti** lebih cepat pada skala data saat ini; lihat bagian 6.
 * **Eliminasi N+1**: Mengeliminasi **98 query (97% query terpotong)** pada halaman laporan, memangkas waktu muat hingga **82.17%**, dan menghemat memori sebesar **46.3%**.
 * **Caching Agregasi Valuasi**: Menghilangkan **100% beban query database** pada pemanggilan berikutnya (*warm cache*) dengan respon instan **0.04 ms (296x lebih cepat)**.
 * **Integritas Test Suite**: 369 unit & feature tests (4.357 assertions) berstatus **100% HIJAU (PASSING)**.
@@ -150,18 +150,19 @@ Pengujian dilakukan langsung pada database MariaDB/MySQL dengan **10.406 baris t
 php artisan db:explain-analyze --iterations=10
 ```
 
-### Tabel Perbandingan Kinerja Nyata (diukur ulang 14 Oktober 2026, 10 iterasi):
+### Tabel Perbandingan Kinerja Nyata (14 Oktober 2026, 10 iterasi, dua kali run pada data yang sama):
 
-Bukti output mentah: [`docs/images/explain-analyze-output.txt`](images/explain-analyze-output.txt).
+Bukti output mentah (run 2): [`docs/images/explain-analyze-output.txt`](images/explain-analyze-output.txt).
 
-| Query Pengujian | Sebelum Index | Sesudah Index | Perubahan | Key Sebelum | Key Sesudah | Rows Sebelum | Rows Sesudah |
-|---|---|---|---|---|---|---|---|
-| **1. Laporan Mutasi per Gudang & Jenis** | 1.722 ms | 0.959 ms | **+44.31% (1.8x)** | `stok_transactions_warehouse_stock_id_foreign` | `idx_stok_warehouse_jenis_created` | 113 | **7 (-93.8%)** |
-| **2. Kartu Stok Barang** | 1.982 ms | 1.676 ms | **+15.44% (1.18x)** | `stok_transactions_barang_id_foreign` | `idx_stok_barang_created` | 172 | **74 (-56.4%)** |
-| **3. Valuasi per Kategori** | 0.92 ms | 1.504 ms | -63.48% (0.61x) | NONE (full scan) | `idx_barang_kategori_deleted_at` | 131 | 131 |
-| **4. Rekap Mutasi Gudang & Jenis** | 0.947 ms | 1.321 ms | -39.49% (0.72x) | `..._warehouse_stock_id_foreign` | `idx_stok_warehouse_jenis_created` | 113 | 113 |
+| Query Pengujian | Run 1 Sebelum → Sesudah | Run 2 Sebelum → Sesudah | Key Sesudah | Rows Sebelum → Sesudah |
+|---|---|---|---|---|
+| **1. Laporan Mutasi per Gudang & Jenis** | 1.722 → 0.959 ms (**1.8x**) | 0.767 → 0.503 ms (**1.52x**) | `idx_stok_warehouse_jenis_created` | 113 → **7 (-93.8%)** |
+| **2. Kartu Stok Barang** | 1.982 → 1.676 ms (1.18x) | 0.856 → 0.859 ms (1.0x) | `idx_stok_barang_created` | 172 → **74 (-56.4%)** |
+| **3. Valuasi per Kategori** | 0.92 → 1.504 ms (0.61x) | 0.575 → 0.568 ms (1.01x) | `idx_barang_kategori_deleted_at` | 131 → 131 |
+| **4. Rekap Mutasi Gudang & Jenis** | 0.947 → 1.321 ms (0.72x) | 0.72 → 0.625 ms (1.15x) | `idx_stok_warehouse_jenis_created` | 113 → 113 |
 
-> **Catatan jujur:** Query 1 dan 2 (filter + `ORDER BY created_at`) jelas diuntungkan index komposit. Query 3 dan 4 sedikit lebih lambat karena tabel kecil (131 baris barang; 113 baris per gudang): optimizer MySQL tidak mendapat keuntungan dari index, dan selisih sub-milidetik masih dalam rentang noise/overhead optimizer. Manfaat index pada query agregasi baru terlihat saat volume data jauh lebih besar. Angka pada versi awal laporan ini (query 3 dan 4 "lebih cepat") sudah diganti dengan hasil pengukuran ulang ini.
+> **Catatan jujur:** Hanya query 1 yang konsisten lebih cepat di kedua run, dan query 1 juga satu-satunya yang `EXPLAIN`-nya menunjukkan perubahan jelas (rows 113 → 7, `filesort` hilang). Query 2 mengurangi rows (172 → 74) tetapi waktunya sama dalam run 2. Query 3 dan 4 berubah arah antar run (0.61x vs 1.01x; 0.72x vs 1.15x): selisih sub-milidetik pada tabel kecil (131 baris barang; 113 baris per gudang) adalah noise pengukuran, bukan bukti index memperlambat atau mempercepat. Manfaat index pada query tersebut baru dapat dibuktikan pada volume data yang jauh lebih besar. Angka versi awal laporan ini (query 3 dan 4 "1.8x-2.1x lebih cepat") tidak dapat direproduksi dan sudah diganti.
+
 
 
 ### Bukti Diagnostik Engine `EXPLAIN`:
@@ -203,8 +204,9 @@ Hasil eksekusi dari automated benchmark suite [`tests/Benchmark/InventoryAnalyti
 ### A. Komponen dengan Dampak Terbesar:
 1. **Eliminasi N+1 (Dampak User Experience Terbesar)**:
    Pada koneksi jaringan nyata antara web server dan database server (misal jeda 2-5 ms per network round-trip), memangkas 98 query langsung menghemat 200–500 ms waktu tunggu perenderan halaman oleh pengguna.
-2. **Penghapusan Operasi `Using filesort`**:
-   Index komposit `(warehouse_stock_id, jenis, created_at)` dan `(barang_id, created_at)` menjaga kompleksitas pengurutan tetap pada $O(\log N)$ daripada $O(N \log N)$ yang menghabiskan memory sort buffer.
+2. **Penghapusan Operasi `Using filesort` pada Query Filter + ORDER BY**:
+   Index komposit `(warehouse_stock_id, jenis, created_at)` dan `(barang_id, created_at)` menjaga urutan `created_at` langsung dari index sehingga sorting manual di memori tidak diperlukan. Dampak pada dataset 10.406 baris masih kecil dalam milidetik; manfaatnya diperkirakan membesar seiring pertumbuhan volume data.
+   *Keterbatasan:* index `(kategori, deleted_at)` dan agregasi per gudang tidak menunjukkan percepatan yang konsisten pada tabel kecil saat ini (hasil berubah arah antar run). Index tersebut dipertahankan untuk antisipasi pertumbuhan data, tetapi manfaatnya belum terbukti pada skala sekarang.
 3. **Caching Metrik Valuasi**:
    Mencegah kalkulasi perkalian matriks harga x stok saat dashboard diakses secara bersamaan oleh banyak pengguna (*high concurrency*).
 
