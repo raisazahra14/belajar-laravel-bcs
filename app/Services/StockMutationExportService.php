@@ -128,7 +128,13 @@ class StockMutationExportService
     /** @param array<string,mixed> $report @param array<string,mixed> $filters */
     public function pdf(array $report, array $filters): string
     {
-        $rows = $report['rows']->values();
+        $rows = ($report['rows'] instanceof \Illuminate\Support\Collection)
+            ? $report['rows']->values()
+            : collect($report['rows'])->values();
+        $maxPdfRows = (int) config('reports.max_pdf_rows', 1000);
+        if ($rows->count() > $maxPdfRows) {
+            $rows = $rows->take($maxPdfRows);
+        }
         $pages = $rows->chunk(30);
         if ($pages->isEmpty()) {
             $pages = collect([collect()]);

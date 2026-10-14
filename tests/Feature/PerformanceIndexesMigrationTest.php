@@ -16,6 +16,7 @@ class PerformanceIndexesMigrationTest extends TestCase
         parent::setUp();
 
         (require database_path('migrations/2026_10_13_000000_add_performance_and_analytics_indexes.php'))->up();
+        (require database_path('migrations/2026_10_14_010000_add_dashboard_and_search_indexes.php'))->up();
     }
 
     public function test_performance_indexes_are_created_by_migration(): void
@@ -34,6 +35,15 @@ class PerformanceIndexesMigrationTest extends TestCase
         $whStockIndexes = collect(Schema::getIndexes('warehouse_stocks'))->keyBy('name');
         $this->assertTrue($whStockIndexes->has('idx_warehouse_stocks_wh_stok'));
         $this->assertSame(['warehouse_id', 'stok'], $whStockIndexes->get('idx_warehouse_stocks_wh_stok')['columns']);
+
+        $this->assertSame(
+            ['created_at', 'jenis'],
+            $stokIndexes->get('idx_stok_created_jenis')['columns'],
+        );
+        $this->assertSame(
+            ['deleted_at', 'stok'],
+            $barangIndexes->get('idx_barang_deleted_stok')['columns'],
+        );
     }
 
     public function test_barang_id_created_at_index_exists_without_duplicate(): void

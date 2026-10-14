@@ -8,6 +8,7 @@ use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
 use App\Services\InventoryAnalyticsService;
+use App\Services\InventoryDashboardService;
 use App\Services\StockAdjustmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -65,6 +66,41 @@ class DashboardValuationCacheTest extends TestCase
         $this->assertEmpty($secondQueries, 'Second call should be served entirely from cache.');
         $this->assertSame($firstResult['total']['calculated_value'], $secondResult['total']['calculated_value']);
         $this->assertSame($firstResult['total']['stock_units'], $secondResult['total']['stock_units']);
+    }
+
+    public function test_dashboard_and_analytics_summaries_use_warm_cache_and_invalidate_on_mutation(): void
+    {
+        $barang = Barang::create([
+            'kode_barang' => 'CACHE-SUMMARY', 'nama_barang' => 'Barang Ringkasan Cache',
+            'kategori' => 'ATK', 'stok' => 8, 'harga_beli' => '10.00',
+            'satuan' => 'Pcs', 'lokasi' => 'Rak Cache',
+        ]);
+        $analytics = app(InventoryAnalyticsService::class);
+        $dashboard = app(InventoryDashboardService::class);
+
+        $analytics->movementSummary();
+        $analytics->currentAttentionSummary();
+        $dashboard->activity(7);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $analytics->movementSummary();
+        $analytics->currentAttentionSummary();
+        $dashboard->activity(7);
+        $this->assertSame([], DB::getQueryLog());
+
+        StokTransaction::create([
+            'barang_id' => $barang->id, 'jenis' => 'keluar', 'jumlah' => 1,
+            'stok_sebelum' => 8, 'stok_sesudah' => 7,
+        ]);
+        DB::flushQueryLog();
+        $movement = $analytics->movementSummary();
+        $activity = $dashboard->activity(7);
+
+        $this->assertNotEmpty(DB::getQueryLog());
+        $this->assertSame(1, $movement['composition']['slow_items'] ?? $movement['composition']['item_counts'][1]);
+        $this->assertSame(1, $activity['totals']['keluar']);
+        DB::disableQueryLog();
     }
 
     public function test_valuation_cache_is_scoped_by_parameters(): void

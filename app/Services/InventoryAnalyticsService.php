@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 class InventoryAnalyticsService
 {
+    public const SUMMARY_CACHE_TTL = 300;
+
     public function paginatedMovement(
         string $classification,
         ?int $warehouseId,
@@ -53,14 +55,24 @@ class InventoryAnalyticsService
     /** Ringkasan halaman tanpa memuat seluruh daftar slow/dead stock. */
     public function movementSummary(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
     {
+        $key = $this->summaryCacheKey('movement', $warehouseId, $supplierId, $category, now(config('app.display_timezone'))->toDateString());
+
+        return Cache::remember($key, self::SUMMARY_CACHE_TTL, fn (): array => $this->computeMovementSummary(
+            $warehouseId, $supplierId, $category,
+        ));
+    }
+
+    public function computeMovementSummary(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
+    {
         $timezone = config('app.display_timezone', 'Asia/Jakarta');
         $nowLocal = CarbonImmutable::now($timezone);
         $asOf = $nowLocal->utc();
         $start30 = $nowLocal->startOfDay()->subDays(29)->utc();
         $start60 = $nowLocal->startOfDay()->subDays(59)->utc();
         $warehouse = $warehouseId === null ? null : Warehouse::withTrashed()->findOrFail($warehouseId);
-        $invalid30 = $warehouseId === null ? collect() : $this->invalidWarehouseHistory($warehouseId, $start30, $asOf, $supplierId);
-        $invalid60 = $warehouseId === null ? collect() : $this->invalidWarehouseHistory($warehouseId, $start60, $asOf, $supplierId);
+        [$invalid30, $invalid60] = $warehouseId === null
+            ? [collect(), collect()]
+            : $this->invalidWarehouseHistories($warehouseId, $start60, $start30, $asOf, $supplierId);
         $base = $this->movementClassificationQuery($start60, $asOf, $warehouseId, $supplierId, $invalid60, $category);
         $composition = DB::query()->fromSub(clone $base, 'movement_rows')->selectRaw(
             'SUM(CASE WHEN total_unit_keluar > 2 THEN 1 ELSE 0 END) AS active_items,
@@ -119,6 +131,15 @@ class InventoryAnalyticsService
      * @return array<string,mixed>
      */
     public function currentAttentionSummary(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
+    {
+        $key = $this->summaryCacheKey('attention', $warehouseId, $supplierId, $category);
+
+        return Cache::remember($key, self::SUMMARY_CACHE_TTL, fn (): array => $this->computeCurrentAttentionSummary(
+            $warehouseId, $supplierId, $category,
+        ));
+    }
+
+    public function computeCurrentAttentionSummary(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): array
     {
         $base = DB::table('barang')->whereNull('barang.deleted_at')
             ->when($supplierId !== null, fn (Builder $query) => $query->where('barang.supplier_id', $supplierId))
@@ -199,6 +220,21 @@ class InventoryAnalyticsService
         $c = $category !== null ? md5($category) : 'all';
 
         return "inventory:analytics:valuation:v{$version}:w_{$w}:s_{$s}:c_{$c}";
+    }
+
+    private function summaryCacheKey(string $summary, ?int $warehouseId, ?int $supplierId, ?string $category, ?string $period = null): string
+    {
+        $version = (int) Cache::get('inventory:analytics:valuation:version', 1);
+
+        return sprintf(
+            'inventory:analytics:%s:v%d:w_%s:s_%s:c_%s:p_%s',
+            $summary,
+            $version,
+            $warehouseId ?? 'all',
+            $supplierId ?? 'all',
+            $category === null ? 'all' : md5($category),
+            $period ?? 'current',
+        );
     }
 
     /** Ringkasan valuasi halaman; seluruh KPI dihitung oleh agregasi database dan di-cache. */
@@ -592,12 +628,9 @@ class InventoryAnalyticsService
         $warehouse = $warehouseId === null
             ? null
             : Warehouse::withTrashed()->findOrFail($warehouseId);
-        $invalid30 = $warehouseId === null
-            ? collect()
-            : $this->invalidWarehouseHistory($warehouseId, $start30, $asOf, $supplierId);
-        $invalid60 = $warehouseId === null
-            ? collect()
-            : $this->invalidWarehouseHistory($warehouseId, $start60, $asOf, $supplierId);
+        [$invalid30, $invalid60] = $warehouseId === null
+            ? [collect(), collect()]
+            : $this->invalidWarehouseHistories($warehouseId, $start60, $start30, $asOf, $supplierId);
 
         $fastMoving = $this->fastMoving($start30, $asOf, $warehouseId, $supplierId, $invalid30, $category);
         [$slowMoving, $deadStock, $activeMoving] = $this->slowAndDeadStock(
@@ -812,6 +845,58 @@ class InventoryAnalyticsService
     }
 
     /**
+     * Satukan query riwayat gudang yang tidak valid untuk jendela 30 dan 60 hari.
+     *
+     * @return array{Collection<int,int>, Collection<int,int>}
+     */
+    private function invalidWarehouseHistories(
+        int $warehouseId,
+        CarbonImmutable $start60,
+        CarbonImmutable $start30,
+        CarbonImmutable $asOf,
+        ?int $supplierId,
+    ): array {
+        $version = (int) Cache::get('inventory:analytics:valuation:version', 1);
+        $key = sprintf(
+            'inventory:analytics:invalid-history-unified:v%d:w_%d:s_%s:from60_%d:from30_%d:to_%s',
+            $version,
+            $warehouseId,
+            $supplierId ?? 'all',
+            $start60->timestamp,
+            $start30->timestamp,
+            $asOf->format('YmdHi'),
+        );
+
+        return Cache::remember($key, self::SUMMARY_CACHE_TTL, function () use ($warehouseId, $start60, $start30, $asOf, $supplierId): array {
+            $rows = DB::table('stok_transactions as transactions')
+                ->join('barang', 'barang.id', '=', 'transactions.barang_id')
+                ->join('warehouse_stocks as selected_balance', function ($join) use ($warehouseId): void {
+                    $join->on('selected_balance.barang_id', '=', 'transactions.barang_id')
+                        ->where('selected_balance.warehouse_id', '=', $warehouseId);
+                })
+                ->leftJoin('warehouse_stocks as linked_stock', 'linked_stock.id', '=', 'transactions.warehouse_stock_id')
+                ->where('transactions.jenis', 'keluar')
+                ->whereNotNull('transactions.created_at')
+                ->where('transactions.created_at', '>=', $start60)
+                ->where('transactions.created_at', '<=', $asOf)
+                ->when($supplierId !== null, fn ($query) => $query->where('transactions.supplier_id', $supplierId))
+                ->where(function ($query): void {
+                    $query->whereNull('transactions.warehouse_stock_id')
+                        ->orWhereNull('linked_stock.id')
+                        ->orWhereColumn('linked_stock.barang_id', '<>', 'transactions.barang_id');
+                })
+                ->selectRaw('transactions.barang_id, MAX(CASE WHEN transactions.created_at >= ? THEN 1 ELSE 0 END) AS in_30', [$start30])
+                ->groupBy('transactions.barang_id')
+                ->get();
+
+            $invalid60 = $rows->pluck('barang_id');
+            $invalid30 = $rows->where('in_30', 1)->pluck('barang_id')->values();
+
+            return [$invalid30, $invalid60];
+        });
+    }
+
+    /**
      * Barang dengan OUT yang tidak dapat diatribusikan secara aman dikeluarkan dari
      * analisis gudang. Relasi NULL tidak pernah dianggap sebagai Gudang Utama.
      *
@@ -823,7 +908,17 @@ class InventoryAnalyticsService
         CarbonImmutable $asOf,
         ?int $supplierId,
     ): Collection {
-        return DB::table('stok_transactions as transactions')
+        $version = (int) Cache::get('inventory:analytics:valuation:version', 1);
+        $key = sprintf(
+            'inventory:analytics:invalid-history:v%d:w_%d:s_%s:from_%d:to_%s',
+            $version,
+            $warehouseId,
+            $supplierId ?? 'all',
+            $start->timestamp,
+            $asOf->format('YmdHi'),
+        );
+
+        return Cache::remember($key, self::SUMMARY_CACHE_TTL, fn (): Collection => DB::table('stok_transactions as transactions')
             ->join('barang', 'barang.id', '=', 'transactions.barang_id')
             ->join('warehouse_stocks as selected_balance', function ($join) use ($warehouseId): void {
                 $join->on('selected_balance.barang_id', '=', 'transactions.barang_id')
@@ -841,7 +936,7 @@ class InventoryAnalyticsService
                     ->orWhereColumn('linked_stock.barang_id', '<>', 'transactions.barang_id');
             })
             ->distinct()
-            ->pluck('transactions.barang_id');
+            ->pluck('transactions.barang_id'));
     }
 
     /** @return array<string,mixed> */

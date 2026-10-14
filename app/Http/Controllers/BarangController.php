@@ -13,10 +13,12 @@ use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Services\BarangCodeGenerator;
 use App\Services\InventoryDashboardService;
+use App\Services\InventoryMasterDataService;
 use App\Services\StockAdjustmentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -25,32 +27,46 @@ use Throwable;
 
 class BarangController extends Controller
 {
-    public function index(InventoryFilterRequest $request, InventoryDashboardService $dashboard): View
+    public function index(
+        InventoryFilterRequest $request,
+        InventoryDashboardService $dashboard,
+        InventoryMasterDataService $masterData,
+    ): View
     {
         $filters = $request->safe()->only(['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort']);
         $barang = $this->filteredInventory($filters)->paginate(5)->withQueryString();
-        // Statistik
-        $totalJenis = Barang::count();
-        $totalStok = Barang::sum('stok');
-        $totalKategori = Barang::distinct('kategori')->count('kategori');
-        $stokMenipis = Barang::lowStock()->count();
+        $inventoryMetrics = Barang::query()->selectRaw(
+            'COUNT(*) AS total_jenis,
+             COALESCE(SUM(stok), 0) AS total_stok,
+             COUNT(DISTINCT kategori) AS total_kategori,
+             SUM(CASE WHEN stok <= ? THEN 1 ELSE 0 END) AS stok_menipis,
+             SUM(CASE WHEN foto_barang IS NULL OR foto_barang = ? THEN 1 ELSE 0 END) AS tanpa_foto',
+            [Barang::MINIMUM_STOCK, ''],
+        )->first();
+        $totalJenis = (int) ($inventoryMetrics?->total_jenis ?? 0);
+        $totalStok = (int) ($inventoryMetrics?->total_stok ?? 0);
+        $totalKategori = (int) ($inventoryMetrics?->total_kategori ?? 0);
+        $stokMenipis = (int) ($inventoryMetrics?->stok_menipis ?? 0);
         $latestPredictionIds = StockPrediction::query()->selectRaw('MAX(id)')->groupBy('barang_id');
-        $latestPredictions = StockPrediction::with('barang')->whereIn('id', $latestPredictionIds);
-        // Setiap kartu harus menghitung status yang sama dengan filter pada tautannya.
-        $predictedRestockCount = (clone $latestPredictions)->where('status', StockPrediction::STATUS_RESTOCK)->count();
-        $urgentPredictionCount = (clone $latestPredictions)->where('status', StockPrediction::STATUS_URGENT)->count();
-        $predictionWarnings = (clone $latestPredictions)->whereIn('status', [StockPrediction::STATUS_RESTOCK, StockPrediction::STATUS_URGENT])->latest('analyzed_at')->limit(5)->get();
+        $latestPredictions = StockPrediction::query()->whereIn('id', $latestPredictionIds)->whereHas('barang');
+        $predictionCounts = (clone $latestPredictions)->whereIn('status', [
+            StockPrediction::STATUS_URGENT, StockPrediction::STATUS_RESTOCK, StockPrediction::STATUS_WARNING,
+        ])->selectRaw('status, COUNT(*) AS aggregate')->groupBy('status')->pluck('aggregate', 'status');
+        $predictedRestockCount = (int) ($predictionCounts[StockPrediction::STATUS_RESTOCK] ?? 0);
+        $urgentPredictionCount = (int) ($predictionCounts[StockPrediction::STATUS_URGENT] ?? 0);
+        $predictionWarnings = (clone $latestPredictions)->with('barang')->whereIn('status', [StockPrediction::STATUS_RESTOCK, StockPrediction::STATUS_URGENT])->latest('analyzed_at')->limit(5)->get();
 
         // Pilihan kategori untuk dropdown
-        $kategori_options = Barang::select('kategori')
-            ->distinct()
-            ->orderBy('kategori')
-            ->pluck('kategori');
-        $supplier_options = Supplier::withTrashed()->orderBy('nama_supplier')->get(['id', 'nama_supplier', 'is_active', 'deleted_at']);
-        $warehouse_options = Warehouse::withTrashed()->orderBy('nama_gudang')->get(['id', 'kode_gudang', 'nama_gudang', 'is_active', 'deleted_at']);
+        $kategori_options = collect(Barang::KATEGORI)->sort()->values();
+        $supplier_options = $masterData->suppliers();
+        $warehouse_options = $masterData->warehouses();
 
         $stockActivity = $dashboard->activity(7);
-        $attentionItems = $dashboard->attention($request->user());
+        $attentionItems = $dashboard->attention($request->user(), 6, [
+            'low_stock_count' => $stokMenipis,
+            'without_photo_count' => (int) ($inventoryMetrics?->tanpa_foto ?? 0),
+            'prediction_counts' => $predictionCounts,
+        ]);
 
         return view('barang.index', compact(
             'barang',
@@ -323,17 +339,19 @@ class BarangController extends Controller
         $barang = Barang::findOrFail($id);
         $validTime = now();
         $transactionQuery = $barang->stokTransactions()
-            ->with(['supplier', 'warehouseStock.warehouse', 'actor.user', 'reversedBy', 'originalTransaction'])
             ->where('created_at', '<=', $validTime)
             ->when($validated['supplier_id'] ?? null, fn ($query, $supplierId) => $query->where('supplier_id', $supplierId))
             ->when($validated['warehouse_id'] ?? null, fn ($query, $warehouseId) => $query->whereHas(
                 'warehouseStock',
                 fn ($stock) => $stock->where('warehouse_id', $warehouseId),
             ));
-        $transactions = (clone $transactionQuery)->latest('created_at')->latest('id')
+        $transactions = (clone $transactionQuery)
+            ->with(['supplier', 'warehouseStock.warehouse', 'actor.user', 'reversedBy', 'originalTransaction'])
+            ->latest('created_at')->latest('id')
             ->paginate(20)
             ->withQueryString();
         $chartTransactions = (clone $transactionQuery)
+            ->select(['id', 'barang_id', 'jenis', 'mutation_type', 'stok_sebelum', 'stok_sesudah', 'created_at'])
             ->where('mutation_type', '<>', 'transfer')
             ->latest('created_at')
             ->latest('id')
@@ -399,6 +417,13 @@ class BarangController extends Controller
         $search = $filters['search'] ?? null;
         if ($search !== null && $search !== '') {
             $query->where(function (Builder $query) use ($search): void {
+                if (DB::getDriverName() === 'mysql' && mb_strlen($search) >= 3) {
+                    $query->where('kode_barang', 'like', "{$search}%")
+                        ->orWhereFullText(['kode_barang', 'nama_barang', 'lokasi'], $search);
+
+                    return;
+                }
+
                 $query->where('kode_barang', 'like', "%{$search}%")
                     ->orWhere('nama_barang', 'like', "%{$search}%")
                     ->orWhere('lokasi', 'like', "%{$search}%");
