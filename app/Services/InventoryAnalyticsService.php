@@ -206,10 +206,43 @@ class InventoryAnalyticsService
 
     public const VALUATION_CACHE_TTL = 900; // 15 menit
 
+    private static bool $suppressValuationCacheClear = false;
+
     public static function clearValuationCache(): void
     {
+        if (self::$suppressValuationCacheClear) {
+            return;
+        }
+
         $current = (int) Cache::get('inventory:analytics:valuation:version', 1);
         Cache::forever('inventory:analytics:valuation:version', $current + 1);
+    }
+
+    /**
+     * Suppress intermediate model-hook cache invalidations during a composite mutation
+     * and invalidate the valuation cache once at the end.
+     *
+     * @template TReturn
+     *
+     * @param  callable(): TReturn  $callback
+     * @return TReturn
+     */
+    public static function batchValuationCacheInvalidation(callable $callback): mixed
+    {
+        $previouslySuppressed = self::$suppressValuationCacheClear;
+        self::$suppressValuationCacheClear = true;
+
+        try {
+            $result = $callback();
+        } finally {
+            self::$suppressValuationCacheClear = $previouslySuppressed;
+        }
+
+        if (! $previouslySuppressed) {
+            self::clearValuationCache();
+        }
+
+        return $result;
     }
 
     public function valuationCacheKey(?int $warehouseId = null, ?int $supplierId = null, ?string $category = null): string

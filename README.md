@@ -336,6 +336,39 @@ Catatan:
 - timeout job OCR adalah 300 detik, sehingga `retry_after` database sebaiknya lebih besar;
 - pada produksi gunakan `APP_DEBUG=false` dan kredensial database yang aman.
 
+### Optimasi deployment produksi
+
+Siapkan `.env` produksi final sebelum membangun cache. Minimal gunakan
+`APP_ENV=production`, `APP_DEBUG=false`, driver cache bersama yang sesuai, dan
+`QUEUE_CONNECTION=database` atau backend queue produksi lainnya. Setelah dependency,
+aset, dan migration siap, jalankan:
+
+```bash
+composer install --no-dev --classmap-authoritative --no-interaction
+npm ci
+npm run build
+php artisan migrate --force
+php artisan optimize --no-interaction
+php artisan queue:restart
+```
+
+`php artisan optimize` membangun cache konfigurasi, event, route, dan view untuk
+menghilangkan kompilasi bootstrap pada request pertama. CI juga menjalankan perintah
+ini sebelum PHPUnit agar route, view, dan konfigurasi yang tidak dapat di-cache
+terdeteksi sebelum deployment.
+
+Jangan membangun cache sebelum `.env` final tersedia. Setiap perubahan environment
+atau konfigurasi harus diikuti dengan:
+
+```bash
+php artisan optimize:clear --no-interaction
+php artisan optimize --no-interaction
+php artisan queue:restart
+```
+
+Aktifkan OPcache pada PHP-FPM/web server dan gzip atau Brotli pada reverse proxy.
+Direktori `bootstrap/cache` dan `storage` harus dapat ditulis oleh pengguna proses PHP.
+
 ## Role dan hak akses
 
 | Kemampuan | Admin | Manager | Staff |

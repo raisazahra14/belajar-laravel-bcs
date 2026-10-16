@@ -313,7 +313,7 @@ class BarangController extends Controller
         StockAdjustmentService $stock,
     ) {
         $barang = $stock->adjust(
-            Barang::findOrFail($id),
+            (int) $id,
             $request->string('jenis')->toString(),
             $request->integer('jumlah'),
             $request->string('keterangan')->toString() ?: null,

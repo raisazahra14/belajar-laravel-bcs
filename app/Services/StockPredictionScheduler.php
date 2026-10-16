@@ -10,27 +10,51 @@ use Illuminate\Support\Facades\DB;
 
 class StockPredictionScheduler
 {
-    public function schedule(Barang|int $barang, User|int|null $user = null, bool $force = false): string
-    {
+    public function schedule(
+        Barang|int $barang,
+        User|int|null $user = null,
+        bool $force = false,
+        ?int $latestTransactionId = null,
+        bool $withinTransaction = false,
+    ): string {
         $barangId = $barang instanceof Barang ? $barang->id : $barang;
         $userId = $user instanceof User ? $user->id : $user;
 
-        return DB::transaction(function () use ($barangId, $userId, $force): string {
-            StockPredictionProcess::firstOrCreate(
-                ['barang_id' => $barangId],
-                ['status' => StockPredictionProcess::STATUS_COMPLETED, 'generation' => 0],
-            );
-            $process = StockPredictionProcess::where('barang_id', $barangId)->lockForUpdate()->firstOrFail();
-            $latestTransactionId = DB::table('stok_transactions')->where('barang_id', $barangId)->max('id');
+        $callback = function () use ($barangId, $userId, $force, $latestTransactionId): string {
+            $process = StockPredictionProcess::where('barang_id', $barangId)->lockForUpdate()->first();
+            $latestId = $latestTransactionId !== null
+                ? $latestTransactionId
+                : DB::table('stok_transactions')->where('barang_id', $barangId)->max('id');
+
+            if ($process === null) {
+                $process = StockPredictionProcess::create([
+                    'barang_id' => $barangId,
+                    'requested_by' => $userId,
+                    'status' => StockPredictionProcess::STATUS_WAITING,
+                    'generation' => 1,
+                    'source_transaction_id' => $latestId,
+                    'error_message' => null,
+                    'started_at' => null,
+                    'completed_at' => null,
+                ]);
+
+                ProcessStockPrediction::dispatch($barangId, (int) $process->generation)
+                    ->onConnection('database')
+                    ->onQueue('stock-predictions')
+                    ->afterCommit();
+
+                return 'scheduled';
+            }
+
             $active = in_array($process->status, [StockPredictionProcess::STATUS_WAITING, StockPredictionProcess::STATUS_PROCESSING], true);
 
-            if ($active && ! $force && $process->source_transaction_id === $latestTransactionId) {
+            if ($active && ! $force && $process->source_transaction_id === $latestId) {
                 return 'skipped';
             }
 
             $process->generation++;
             $process->requested_by = $userId;
-            $process->source_transaction_id = $latestTransactionId;
+            $process->source_transaction_id = $latestId;
             $process->error_message = null;
             $process->completed_at = null;
             if (! $active) {
@@ -48,7 +72,9 @@ class StockPredictionScheduler
             }
 
             return $active ? 'updated' : 'scheduled';
-        });
+        };
+
+        return $withinTransaction ? $callback() : DB::transaction($callback);
     }
 
     /** @return array{scheduled: int, skipped: int, failed: int} */
