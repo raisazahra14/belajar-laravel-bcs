@@ -13,6 +13,35 @@ use Illuminate\Support\Facades\DB;
 
 class StockMutationReportService
 {
+    /** @return \Generator<int,array<string,mixed>> */
+    public function streamedRows(array $filters, int $chunkSize = 500): \Generator
+    {
+        $buffer = [];
+        $ids = $this->scopedBarangQuery($filters)
+            ->select('barang.id')
+            ->lazyById($chunkSize, 'barang.id', 'id');
+
+        foreach ($ids as $item) {
+            $buffer[] = (int) $item->id;
+            if (count($buffer) < $chunkSize) {
+                continue;
+            }
+
+            yield from $this->report($filters, collect($buffer))['rows'];
+            $buffer = [];
+        }
+
+        if ($buffer !== []) {
+            yield from $this->report($filters, collect($buffer))['rows'];
+        }
+    }
+
+    /** @return array<string,mixed> */
+    public function streamedReport(array $filters): array
+    {
+        return [...$this->summary($filters), 'rows' => $this->streamedRows($filters)];
+    }
+
     /** @return array<string,mixed> */
     public function filteredReport(array $filters): array
     {
@@ -34,7 +63,7 @@ class StockMutationReportService
         $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
 
         $barangQuery = Barang::query()
-            ->with('supplier')
+            ->with(['supplier' => fn ($query) => $query->select(['id', 'nama_supplier', 'kode_supplier', 'is_active', 'deleted_at'])])
             ->orderBy('nama_barang')
             ->orderBy('id');
         if ($onlyBarangIds !== null) {
@@ -230,11 +259,12 @@ class StockMutationReportService
         $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
         $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
         $scope = $this->scopedBarangQuery($filters);
-        $ids = (clone $scope)->pluck('barang.id');
+        $itemCount = (clone $scope)->count('barang.id');
+        $ids = (clone $scope)->select('barang.id');
         $stockIds = $warehouseId === null ? null : WarehouseStock::where('warehouse_id', $warehouseId)
-            ->whereIn('barang_id', $ids)->pluck('id');
+            ->whereIn('barang_id', clone $ids)->select('id');
 
-        $movement = $ids->isEmpty() ? null : $this->datedTransactions($ids, $stockIds, $supplierId)
+        $movement = $itemCount === 0 ? null : $this->datedTransactions(clone $ids, $stockIds === null ? null : clone $stockIds, $supplierId)
             ->where('created_at', '>=', $start)->where('created_at', '<', $endExclusive)->where('created_at', '<=', $asOf)
             ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah ELSE 0 END), 0) AS masuk")
             ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'keluar' THEN jumlah ELSE 0 END), 0) AS keluar")
@@ -247,8 +277,8 @@ class StockMutationReportService
         $nilaiMasuk = (float) ($movement?->nilai_masuk ?? 0);
         $nilaiKeluar = (float) ($movement?->nilai_keluar ?? 0);
         $topOutgoing = null;
-        if ($ids->isNotEmpty()) {
-            $outgoingTotals = $this->datedTransactions($ids, $stockIds, $supplierId)
+        if ($itemCount > 0) {
+            $outgoingTotals = $this->datedTransactions(clone $ids, $stockIds === null ? null : clone $stockIds, $supplierId)
                 ->where('jenis', 'keluar')
                 ->where('created_at', '>=', $start)
                 ->where('created_at', '<', $endExclusive)
@@ -265,13 +295,13 @@ class StockMutationReportService
         }
         $current = $warehouseId === null
             ? (int) (clone $scope)->sum('barang.stok')
-            : (int) WarehouseStock::where('warehouse_id', $warehouseId)->whereIn('barang_id', $ids)->sum('stok');
-        $net = $ids->isEmpty() ? 0 : (int) $this->datedTransactions($ids, $stockIds)
+            : (int) WarehouseStock::where('warehouse_id', $warehouseId)->whereIn('barang_id', clone $ids)->sum('stok');
+        $net = $itemCount === 0 ? 0 : (int) $this->datedTransactions(clone $ids, $stockIds === null ? null : clone $stockIds)
             ->where('created_at', '>=', $start)->where('created_at', '<=', $asOf)
             ->selectRaw("COALESCE(SUM(CASE WHEN jenis = 'masuk' THEN jumlah ELSE -jumlah END), 0) AS net")->value('net');
         $unavailable = $supplierId !== null
-            ? $ids->count()
-            : $this->unavailableCount($ids, $warehouseId, $stockIds, $asOf);
+            ? $itemCount
+            : $this->unavailableCount(clone $ids, $warehouseId, $stockIds === null ? null : clone $stockIds, $asOf);
         $available = $unavailable === 0;
         $opening = $available ? $current - $net : null;
         $closing = $available ? $opening + $masuk - $keluar : null;
@@ -305,7 +335,7 @@ class StockMutationReportService
                 },
                 'definition' => 'Total unit OUT ÷ ((saldo awal + saldo akhir) / 2), ditampilkan sebagai persentase.',
             ],
-            'daily_trend' => $this->dailyTrend($ids, $start, $endExclusive, $asOf, $stockIds, $timezone, $supplierId),
+            'daily_trend' => $this->dailyTrend(clone $ids, $start, $endExclusive, $asOf, $stockIds === null ? null : clone $stockIds, $timezone, $supplierId),
             'period' => ['key' => $filters['period'], 'label' => $label, 'start_date' => $start->setTimezone($timezone)->toDateString(), 'end_date' => $endExclusive->setTimezone($timezone)->subDay()->toDateString()],
         ];
     }
@@ -386,9 +416,9 @@ class StockMutationReportService
         });
     }
 
-    private function unavailableCount(Collection $ids, ?int $warehouseId, ?Collection $stockIds, CarbonImmutable $asOf): int
+    private function unavailableCount(Collection|Builder $ids, ?int $warehouseId, Collection|Builder|null $stockIds, CarbonImmutable $asOf): int
     {
-        if ($ids->isEmpty()) {
+        if ($ids instanceof Collection && $ids->isEmpty()) {
             return 0;
         }
         $unavailable = StokTransaction::whereIn('barang_id', $ids)->whereNull('created_at')->distinct()->pluck('barang_id');
@@ -455,11 +485,11 @@ class StockMutationReportService
 
     /** @return array<string,mixed> */
     private function dailyTrend(
-        Collection $barangIds,
+        Collection|Builder $barangIds,
         CarbonImmutable $start,
         CarbonImmutable $endExclusive,
         CarbonImmutable $asOf,
-        ?Collection $warehouseStockIds,
+        Collection|Builder|null $warehouseStockIds,
         string $timezone,
         ?int $supplierId,
     ): array {
@@ -525,15 +555,15 @@ class StockMutationReportService
     }
 
     private function trendTotals(
-        Collection $barangIds,
-        ?Collection $warehouseStockIds,
+        Collection|Builder $barangIds,
+        Collection|Builder|null $warehouseStockIds,
         CarbonImmutable $start,
         CarbonImmutable $endExclusive,
         CarbonImmutable $asOf,
         string $granularity,
         ?int $supplierId,
     ): Collection {
-        if ($barangIds->isEmpty()) {
+        if ($barangIds instanceof Collection && $barangIds->isEmpty()) {
             return collect();
         }
 
@@ -582,8 +612,8 @@ class StockMutationReportService
     }
 
     private function datedTransactions(
-        Collection $barangIds,
-        ?Collection $warehouseStockIds,
+        Collection|Builder $barangIds,
+        Collection|Builder|null $warehouseStockIds,
         ?int $supplierId = null,
     ): Builder {
         $query = StokTransaction::query()

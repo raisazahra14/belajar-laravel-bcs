@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\InventoryMasterDataService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
@@ -24,6 +25,13 @@ class Supplier extends Model
         'alamat',
         'is_active',
     ];
+
+    protected static function booted(): void
+    {
+        static::saved(fn (): mixed => InventoryMasterDataService::clearSuppliers());
+        static::deleted(fn (): mixed => InventoryMasterDataService::clearSuppliers());
+        static::restored(fn (): mixed => InventoryMasterDataService::clearSuppliers());
+    }
 
     protected function casts(): array
     {

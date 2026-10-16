@@ -8,12 +8,18 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
+use Closure;
+use Illuminate\Database\ConcurrencyErrorDetector;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class StockAdjustmentService
 {
+    private const CONCURRENCY_MAX_ATTEMPTS = 40;
+
     public function initializeStock(
         Barang $barang,
         int $target,
@@ -32,7 +38,7 @@ class StockAdjustmentService
             return $barang;
         }
 
-        return DB::transaction(function () use ($barang, $warehouseId): Barang {
+        return $this->runInTransaction(function () use ($barang, $warehouseId): Barang {
             $locked = Barang::lockForUpdate()->findOrFail($barang->getKey());
             $warehouse = $this->lockActiveWarehouse($warehouseId);
             $this->ensureWarehouseStockExists($locked, $warehouse);
@@ -42,7 +48,7 @@ class StockAdjustmentService
     }
 
     public function adjust(
-        Barang $barang,
+        Barang|int $barang,
         string $type,
         int $quantity,
         ?string $description = null,
@@ -56,30 +62,44 @@ class StockAdjustmentService
         }
 
         $actorId = $userId ?? auth()->id();
+        $barangId = $barang instanceof Barang ? (int) $barang->getKey() : $barang;
 
-        return DB::transaction(function () use ($barang, $type, $quantity, $description, $warehouseId, $supplierId, $actorId, $metadata): Barang {
+        return $this->runInTransaction(function () use ($barangId, $type, $quantity, $description, $warehouseId, $supplierId, $actorId, $metadata): Barang {
             // Urutan lock selalu Barang -> Gudang -> seluruh saldo gudang (berdasarkan id).
-            $locked = Barang::lockForUpdate()->findOrFail($barang->getKey());
+            $locked = Barang::lockForUpdate()->findOrFail($barangId);
             $warehouse = $this->lockActiveWarehouse($warehouseId);
-            $this->ensureLegacyBalanceHasWarehouse($locked, $warehouse);
-            $this->ensureWarehouseStockExists($locked, $warehouse);
+            $transactionSupplierId = ($metadata['mutation_type'] ?? null) === 'reversal'
+                ? $supplierId
+                : $this->transactionSupplierId($locked, $type, $supplierId);
 
             $warehouseStocks = WarehouseStock::query()
                 ->where('barang_id', $locked->id)
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
-            $warehouseStock = $warehouseStocks->firstWhere('warehouse_id', $warehouse->id);
-            if ($warehouseStock === null) {
-                throw ValidationException::withMessages(['warehouse_id' => 'Saldo gudang tidak dapat disiapkan.']);
+
+            if ($warehouseStocks->isEmpty()) {
+                $warehouseStock = WarehouseStock::create([
+                    'barang_id' => $locked->id,
+                    'warehouse_id' => $warehouse->id,
+                    'stok' => (int) $locked->stok,
+                    'stok_minimum' => 0,
+                ]);
+                $warehouseStocks = collect([$warehouseStock]);
+            } else {
+                $warehouseStock = $warehouseStocks->firstWhere('warehouse_id', $warehouse->id);
+                if ($warehouseStock === null) {
+                    $warehouseStock = WarehouseStock::create([
+                        'barang_id' => $locked->id,
+                        'warehouse_id' => $warehouse->id,
+                        'stok' => 0,
+                        'stok_minimum' => 0,
+                    ]);
+                    $warehouseStocks->push($warehouseStock);
+                }
             }
 
             $before = (int) $warehouseStocks->sum('stok');
-            if ((int) $locked->stok !== $before) {
-                // Saldo gudang adalah sumber konsolidasi setelah fitur multi-gudang tersedia.
-                $locked->update(['stok' => $before]);
-            }
-
             $after = $type === 'masuk' ? $before + $quantity : $before - $quantity;
             $warehouseAfter = $type === 'masuk'
                 ? (int) $warehouseStock->stok + $quantity
@@ -90,10 +110,6 @@ class StockAdjustmentService
                     'jumlah' => 'Saldo pada gudang yang dipilih tidak mencukupi.',
                 ]);
             }
-
-            $transactionSupplierId = ($metadata['mutation_type'] ?? null) === 'reversal'
-                ? $supplierId
-                : $this->transactionSupplierId($locked, $type, $supplierId);
 
             $warehouseStock->update(['stok' => $warehouseAfter]);
             $locked->update(['stok' => $after]);
@@ -120,25 +136,31 @@ class StockAdjustmentService
                 'document_date' => $metadata['document_date'] ?? null,
                 'document_path' => $metadata['document_path'] ?? null,
             ]);
-            if ($actorId !== null && User::whereKey($actorId)->exists()) {
+            if ($this->actorExists($actorId)) {
                 $transaction->actor()->create(['user_id' => $actorId]);
             }
 
-            $consolidated = (int) WarehouseStock::where('barang_id', $locked->id)->sum('stok');
+            $consolidated = (int) $warehouseStocks->sum('stok');
             if ($consolidated !== $after) {
                 throw ValidationException::withMessages([
                     'jumlah' => 'Transaksi dibatalkan karena konsistensi saldo gudang tidak dapat dipastikan.',
                 ]);
             }
 
-            app(StockPredictionScheduler::class)->schedule($locked);
+            app(StockPredictionScheduler::class)->schedule(
+                $locked,
+                null,
+                false,
+                (int) $transaction->id,
+                true,
+            );
 
             return $locked;
         });
     }
 
     public function transfer(
-        Barang $barang,
+        Barang|int $barang,
         int $sourceWarehouseId,
         int $destinationWarehouseId,
         int $quantity,
@@ -150,19 +172,37 @@ class StockAdjustmentService
             throw ValidationException::withMessages(['jumlah' => 'Gudang asal, tujuan, dan jumlah transfer tidak valid.']);
         }
 
-        return DB::transaction(function () use ($barang, $sourceWarehouseId, $destinationWarehouseId, $quantity, $description, $userId, $metadata): Barang {
-            $locked = Barang::lockForUpdate()->findOrFail($barang->getKey());
+        $barangId = $barang instanceof Barang ? (int) $barang->getKey() : $barang;
+
+        return $this->runInTransaction(function () use ($barangId, $sourceWarehouseId, $destinationWarehouseId, $quantity, $description, $userId, $metadata): Barang {
+            $locked = Barang::lockForUpdate()->findOrFail($barangId);
             $warehouses = Warehouse::query()->whereIn('id', [$sourceWarehouseId, $destinationWarehouseId])
                 ->where('is_active', true)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             if ($warehouses->count() !== 2) {
                 throw ValidationException::withMessages(['source_warehouse_id' => 'Gudang asal atau tujuan tidak aktif.']);
             }
 
-            $this->ensureWarehouseStockExists($locked, $warehouses->get($sourceWarehouseId));
-            $this->ensureWarehouseStockExists($locked, $warehouses->get($destinationWarehouseId));
             $stocks = WarehouseStock::where('barang_id', $locked->id)->orderBy('id')->lockForUpdate()->get()->keyBy('warehouse_id');
             $source = $stocks->get($sourceWarehouseId);
+            if ($source === null) {
+                $source = WarehouseStock::create([
+                    'barang_id' => $locked->id,
+                    'warehouse_id' => $sourceWarehouseId,
+                    'stok' => 0,
+                    'stok_minimum' => 0,
+                ]);
+                $stocks->put($sourceWarehouseId, $source);
+            }
             $destination = $stocks->get($destinationWarehouseId);
+            if ($destination === null) {
+                $destination = WarehouseStock::create([
+                    'barang_id' => $locked->id,
+                    'warehouse_id' => $destinationWarehouseId,
+                    'stok' => 0,
+                    'stok_minimum' => 0,
+                ]);
+                $stocks->put($destinationWarehouseId, $destination);
+            }
             if ((int) $source->stok < $quantity) {
                 throw ValidationException::withMessages(['jumlah' => 'Saldo gudang asal tidak mencukupi untuk transfer.']);
             }
@@ -199,12 +239,14 @@ class StockAdjustmentService
                 'stok_sesudah' => $total,
             ]);
             $actorId = $userId ?? auth()->id();
-            if ($actorId !== null && User::whereKey($actorId)->exists()) {
+            if ($this->actorExists($actorId)) {
                 $out->actor()->create(['user_id' => $actorId]);
                 $in->actor()->create(['user_id' => $actorId]);
             }
-            $locked->update(['stok' => (int) WarehouseStock::where('barang_id', $locked->id)->sum('stok')]);
-            app(StockPredictionScheduler::class)->schedule($locked);
+            if ((int) $locked->stok !== $total) {
+                $locked->update(['stok' => $total]);
+            }
+            app(StockPredictionScheduler::class)->schedule($locked, null, false, (int) $in->id, true);
 
             return $locked;
         });
@@ -212,7 +254,7 @@ class StockAdjustmentService
 
     public function reverse(StokTransaction $transaction, string $reason, int $userId): void
     {
-        DB::transaction(function () use ($transaction, $reason, $userId): void {
+        $this->runInTransaction(function () use ($transaction, $reason, $userId): void {
             $original = StokTransaction::lockForUpdate()->findOrFail($transaction->id);
             if ($original->reversed_at !== null || $original->reversal_of_id !== null) {
                 throw ValidationException::withMessages(['reason' => 'Transaksi ini sudah dibatalkan atau merupakan transaksi reversal.']);
@@ -228,7 +270,7 @@ class StockAdjustmentService
             }
 
             $this->adjust(
-                $original->barang,
+                (int) $original->barang_id,
                 $original->jenis === 'masuk' ? 'keluar' : 'masuk',
                 (int) $original->jumlah,
                 'Reversal #'.$original->id.': '.$reason,
@@ -311,24 +353,57 @@ class StockAdjustmentService
         return $warehouse;
     }
 
-    private function ensureLegacyBalanceHasWarehouse(Barang $barang, Warehouse $warehouse): void
-    {
-        if (! WarehouseStock::where('barang_id', $barang->id)->exists()) {
-            WarehouseStock::create([
-                'barang_id' => $barang->id,
-                'warehouse_id' => $warehouse->id,
-                'stok' => $barang->stok,
-                'stok_minimum' => 0,
-            ]);
-        }
-    }
-
     private function ensureWarehouseStockExists(Barang $barang, Warehouse $warehouse): void
     {
         WarehouseStock::firstOrCreate(
             ['barang_id' => $barang->id, 'warehouse_id' => $warehouse->id],
             ['stok' => 0, 'stok_minimum' => 0],
         );
+    }
+
+    private function actorExists(?int $actorId): bool
+    {
+        if ($actorId === null) {
+            return false;
+        }
+
+        $authUser = auth()->user();
+        if ($authUser instanceof User && $authUser->exists && (int) $authUser->getKey() === $actorId) {
+            return true;
+        }
+
+        return User::whereKey($actorId)->exists();
+    }
+
+    /**
+     * @template TResult
+     *
+     * @param  Closure(): TResult  $callback
+     * @return TResult
+     */
+    private function runInTransaction(Closure $callback): mixed
+    {
+        return InventoryAnalyticsService::batchValuationCacheInvalidation(function () use ($callback) {
+            if (DB::transactionLevel() > 0) {
+                return DB::transaction($callback);
+            }
+
+            $detector = new ConcurrencyErrorDetector;
+            for ($attempt = 1; $attempt <= self::CONCURRENCY_MAX_ATTEMPTS; $attempt++) {
+                try {
+                    return DB::transaction($callback);
+                } catch (Throwable $e) {
+                    $isConcurrencyError = $e instanceof DeadlockException || $detector->causedByConcurrencyError($e);
+                    if (! $isConcurrencyError || $attempt >= self::CONCURRENCY_MAX_ATTEMPTS) {
+                        throw $e;
+                    }
+
+                    usleep(random_int(2_000, 10_000) * min($attempt, 8));
+                }
+            }
+
+            return DB::transaction($callback);
+        });
     }
 
     private function transactionSupplierId(Barang $barang, string $type, ?int $supplierId): ?int
@@ -359,7 +434,7 @@ class StockAdjustmentService
             throw ValidationException::withMessages(['stok' => 'Target stok tidak boleh negatif.']);
         }
 
-        return DB::transaction(function () use ($barang, $target, $description): Barang {
+        return $this->runInTransaction(function () use ($barang, $target, $description): Barang {
             $locked = Barang::lockForUpdate()->findOrFail($barang->getKey());
             $difference = $target - $locked->stok;
 

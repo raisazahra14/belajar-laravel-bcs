@@ -43,4 +43,17 @@ python/debug/
 ~$*
 
 # Local recovery data and database snapshots
+*.sql
+*.sql.gz
 /storage/recovery/
+storage/recovery/
+
+# Browser audit profiles and artifacts
+/storage/*-profile*/
+/storage/browser-audit*
+/storage/edge-browser-result.json
+*-audit-profile/
+*-audit-profile-*/
+
+# Temporary runtime and shell history
+/storage/tmp/

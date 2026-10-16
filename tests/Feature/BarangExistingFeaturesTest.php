@@ -11,6 +11,16 @@ class BarangExistingFeaturesTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_inventory_fallback_illustration_uses_optimized_webp_asset(): void
+    {
+        $css = file_get_contents(public_path('css/skydash-logistics.css'));
+
+        $this->assertIsString($css);
+        $this->assertStringContainsString('/images/barang/inventory-illustrations-v1.webp', $css);
+        $this->assertFileExists(public_path('images/barang/inventory-illustrations-v1.webp'));
+        $this->assertFileDoesNotExist(public_path('images/barang/inventory-illustrations-v1.png'));
+    }
+
     public function test_admin_can_download_pdf_and_excel_inventory_reports(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
