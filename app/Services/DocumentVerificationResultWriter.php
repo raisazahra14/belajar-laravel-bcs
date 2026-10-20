@@ -217,7 +217,8 @@ class DocumentVerificationResultWriter
             'sender' => $mapped['vendor'] ?? $mapped['sender'] ?? $ocr['sender'] ?? null,
             'recipient' => $mapped['customer'] ?? $mapped['recipient'] ?? $ocr['recipient'] ?? null,
             'vehicle_number' => $mapped['vehicle_number'] ?? $ocr['vehicle_number'] ?? null,
-            'total_items' => $this->normalizeWholeNumber($weight),
+            // "Jumlah Barang" is a delivery-note concept; for invoices it was wrongly filled from a money amount.
+            'total_items' => $documentType === 'invoice' ? null : $this->normalizeWholeNumber($weight),
             'ocr_raw_text' => $ocr['raw_text'] ?? null,
         ];
     }
@@ -231,7 +232,8 @@ class DocumentVerificationResultWriter
         }
         if (is_array($structuredFields)) {
             foreach ($structuredFields as $field => $details) {
-                if (is_array($details) && array_key_exists('value', $details)) {
+                // A missed coordinate field must not erase a value read from the text layer.
+                if ($field !== 'delivery_cost' && is_array($details) && array_key_exists('value', $details) && $details['value'] !== null) {
                     $fields[$field] = $details['value'];
                 }
             }

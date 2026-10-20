@@ -78,6 +78,19 @@ class DocumentMetadataMapper
                 'down_payment' => $specialized['down_payment'] ?? null,
                 'total_amount' => $specialized['total_amount'] ?? null,
                 'currency' => $specialized['currency'] ?? null,
+                'customer_address' => $specialized['customer_address'] ?? null,
+                'items' => $this->normalizeItems($specialized['items'] ?? []),
+                'items_unparsed' => is_array($specialized['items_unparsed'] ?? null) ? $specialized['items_unparsed'] : [],
+                'amount_in_words' => $specialized['amount_in_words'] ?? null,
+                'bank_name' => $specialized['bank_name'] ?? null,
+                'bank_account_holder' => $specialized['bank_account_holder'] ?? null,
+                'bank_account_number' => isset($specialized['bank_account_number']) ? (string) $specialized['bank_account_number'] : null,
+                'contact_email' => $specialized['contact_email'] ?? null,
+                'contact_fax' => $specialized['contact_fax'] ?? null,
+                'contact_whatsapp' => $specialized['contact_whatsapp'] ?? null,
+                'signer_name' => $specialized['signer_name'] ?? null,
+                'signer_title' => $specialized['signer_title'] ?? null,
+                'signer_place' => $specialized['signer_place'] ?? null,
             ],
             'bukti_fisik' => [
                 'document_number' => $document['document_number'] ?? null,
@@ -114,6 +127,121 @@ class DocumentMetadataMapper
         }
 
         return $mapped;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function normalizeItems(mixed $items): array
+    {
+        if (! is_array($items)) {
+            return [];
+        }
+        $rows = [];
+        foreach ($items as $item) {
+            if (is_array($item)) {
+                $rows[] = $item + [
+                    'description' => null, 'reference_number' => null, 'quantity' => null,
+                    'unit' => null, 'unit_price' => null, 'amount' => null,
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Compare printed values with recomputed ones. Never changes the document values.
+     *
+     * @param  array<string, mixed>  $mapped
+     * @return array<int, string>
+     */
+    public function calculationWarnings(array $mapped): array
+    {
+        $warnings = [];
+        $num = fn (mixed $v): ?float => is_numeric($v) ? (float) $v : null;
+        $differs = fn (float $a, float $b): bool => abs($a - $b) > max(1.0, abs($b) * 0.001);
+        $fmt = fn (float $v): string => number_format($v, 0, ',', '.');
+
+        $sum = 0.0;
+        $sumComplete = true;
+        foreach ($mapped['items'] ?? [] as $i => $item) {
+            $row = $i + 1;
+            $qty = $num($item['quantity'] ?? null);
+            $price = $num($item['unit_price'] ?? null);
+            $amount = $num($item['amount'] ?? null);
+            if ($qty === null || $price === null || $amount === null) {
+                $warnings[] = "Baris {$row}: kuantitas, harga satuan, atau jumlah tidak terbaca/valid; periksa manual.";
+                $sumComplete = false;
+
+                continue;
+            }
+            $sum += $amount;
+            if ($differs($qty * $price, $amount)) {
+                $warnings[] = "Baris {$row}: kuantitas × harga satuan = ".$fmt($qty * $price).', berbeda dari jumlah pada dokumen '.$fmt($amount).'.';
+            }
+        }
+        foreach ($mapped['items_unparsed'] ?? [] as $line) {
+            $warnings[] = "Baris tabel tidak dapat dipetakan, isi manual: \"{$line}\".";
+            $sumComplete = false;
+        }
+
+        $subtotal = $num($mapped['subtotal'] ?? null);
+        if (($mapped['items'] ?? []) !== [] && $sumComplete && $subtotal !== null && $differs($sum, $subtotal)) {
+            $warnings[] = 'Jumlah seluruh baris ('.$fmt($sum).') berbeda dari Subtotal pada dokumen ('.$fmt($subtotal).').';
+        }
+        $dpp = $num($mapped['dpp'] ?? null);
+        if ($subtotal !== null && $dpp !== null) {
+            $expected = $subtotal - ($num($mapped['discount'] ?? null) ?? 0) + ($num($mapped['delivery_fee'] ?? null) ?? 0);
+            if ($differs($expected, $dpp)) {
+                $warnings[] = 'Subtotal − diskon + biaya = '.$fmt($expected).', berbeda dari DPP pada dokumen ('.$fmt($dpp).').';
+            }
+        }
+        $total = $num($mapped['total_amount'] ?? null);
+        if ($dpp !== null && $total !== null) {
+            $expected = $dpp + ($num($mapped['tax'] ?? null) ?? 0) - ($num($mapped['down_payment'] ?? null) ?? 0);
+            if ($differs($expected, $total)) {
+                $warnings[] = 'DPP + PPN − uang muka = '.$fmt($expected).', berbeda dari Total pada dokumen ('.$fmt($total).').';
+            }
+        }
+        $words = $this->wordsToNumber($mapped['amount_in_words'] ?? null);
+        if ($words !== null && $total !== null && $differs((float) $words, $total)) {
+            $warnings[] = 'Terbilang bernilai '.$fmt((float) $words).', berbeda dari Total pada dokumen ('.$fmt($total).').';
+        }
+
+        return $warnings;
+    }
+
+    /** Convert Indonesian number words to an integer; null when any token is unknown. */
+    public function wordsToNumber(mixed $text): ?int
+    {
+        if (! is_string($text) || trim($text) === '') {
+            return null;
+        }
+        $text = strtolower(preg_replace('/\brupiah\b|[,.\-]+/i', ' ', $text));
+        $text = preg_replace('/\bsebelas\b/', 'satu belas', $text);
+        $text = preg_replace('/\bse(ratus|ribu|juta|miliar|triliun|puluh|belas)\b/', 'satu $1', $text);
+        $units = ['nol' => 0, 'satu' => 1, 'dua' => 2, 'tiga' => 3, 'empat' => 4, 'lima' => 5, 'enam' => 6, 'tujuh' => 7, 'delapan' => 8, 'sembilan' => 9, 'sepuluh' => 10];
+        $scales = ['ribu' => 1_000, 'juta' => 1_000_000, 'miliar' => 1_000_000_000, 'triliun' => 1_000_000_000_000];
+        $total = $group = $current = 0;
+        foreach (preg_split('/\s+/', trim($text)) as $token) {
+            if (isset($units[$token])) {
+                $current = $units[$token];
+            } elseif ($token === 'belas') {
+                $current += 10;
+            } elseif ($token === 'puluh') {
+                $group += ($current ?: 1) * 10;
+                $current = 0;
+            } elseif ($token === 'ratus') {
+                $group += ($current ?: 1) * 100;
+                $current = 0;
+            } elseif (isset($scales[$token])) {
+                $total += (($group + $current) ?: 1) * $scales[$token];
+                $group = $current = 0;
+            } else {
+                return null;
+            }
+        }
+
+        return $total + $group + $current;
     }
 
     /** @return array<string, mixed> */

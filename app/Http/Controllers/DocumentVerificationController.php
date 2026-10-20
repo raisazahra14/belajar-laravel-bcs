@@ -288,6 +288,9 @@ class DocumentVerificationController extends Controller
 
         $states = [];
         foreach ($mapped as $field => $value) {
+            if (is_array($value)) {
+                continue; // Item rows and unparsed lines are rendered/validated separately.
+            }
             $ocrField = $fieldAliases[$field] ?? $field;
             $details = is_array($structured) && is_array($structured[$ocrField] ?? null)
                 ? $structured[$ocrField]
@@ -325,6 +328,22 @@ class DocumentVerificationController extends Controller
                     'confidence' => is_numeric($details['confidence'] ?? null) ? number_format((float) $details['confidence'] * 100, 0).'%' : null,
                     'source_text' => is_string($details['source_text'] ?? null) ? $details['source_text'] : null,
                 ];
+            }
+        }
+
+        if ($verification->document_type === 'invoice' && $verification->ocr_corrected_at === null) {
+            $flag = function (string $field, string $message) use (&$states): void {
+                if (isset($states[$field]) && $states[$field]['status'] !== 'absent') {
+                    $states[$field] = [...$states[$field], 'status' => 'review', 'label' => 'Perlu diperiksa', 'help' => $message, 'message' => $message];
+                }
+            };
+            $email = $mapped['contact_email'] ?? null;
+            if (is_string($email) && $email !== '' && (! filter_var($email, FILTER_VALIDATE_EMAIL) || $email !== strtolower($email))) {
+                $flag('contact_email', 'Format email tidak lazim (kemungkinan salah baca OCR). Periksa dengan dokumen asli.');
+            }
+            $words = $mapped['amount_in_words'] ?? null;
+            if (is_string($words) && $words !== '' && $mapper->wordsToNumber($words) === null) {
+                $flag('amount_in_words', 'Terbilang memuat kata yang tidak dikenali (kemungkinan salah baca OCR). Periksa dengan dokumen asli.');
             }
         }
 
