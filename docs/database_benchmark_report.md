@@ -2,7 +2,7 @@
 ## TUGAS 4.5: PENYUSUNAN DOKUMEN LAPORAN BENCHMARK
 **Sistem Informasi Manajemen Inventaris & Logistik (LogistikKu / BCS Logistic)**  
 *Dokumen Lampiran Bukti Penilaian Kelulusan Utama Bulan ke-2 — Portal MagangHub Kemnaker*  
-*Tanggal Pengujian: 14 Oktober 2026*  
+*Tanggal Pengujian Terakhir: 16 Oktober 2026*
 *Branch: `feature/database-optimization-and-benchmarking`*  
 *Penyusun: Tim Pengembang Aplikasi Inventaris LogistikKu*
 
@@ -36,7 +36,8 @@ Dokumen ini disusun sebagai **Laporan Resmi Pelaksanaan Tugas 4.5 Modul 3** pada
 3. **Pemberantasan Operasi Berat `Using filesort`**: Pengurutan kronologis transaksi langsung ditangani secara sekuensial oleh struktur B-Tree Index tanpa alokasi buffer memori sortir manual.
 4. **Eliminasi Masalah Kueri $N+1$**: Eager loading relasi master supplier dan saldo gudang memangkas **97% kueri** (dari 101 kueri menjadi **3 kueri**) dan menghemat memori PHP sebesar **46,3%**.
 5. **Akselerasi Dashboard via Caching Cerdas**: Pemanfaatan *versioned caching* pada valuasi dan aktivitas dashboard menghasilkan respons instan **0,04 ms (296x lebih cepat)** dengan **0 query ke database**.
-6. **Integritas Kode Penuh**: Seluruh **372 automated unit/feature tests lulus 100% (PASS)** tanpa ada regresi sistem.
+6. **Optimasi Transaksi Stok**: Jalur stok masuk/keluar turun dari **19 kueri menjadi 10 kueri** pada penjadwalan pertama dan **9 kueri** ketika prediksi aktif digabungkan (*coalesced*), tanpa mengurangi integritas saldo maupun audit.
+7. **Integritas Kode Penuh**: Seluruh **377 automated unit/feature tests dengan 4.464 assertions lulus 100% (PASS)** tanpa regresi sistem.
 
 ---
 
@@ -97,6 +98,19 @@ Pada halaman dashboard utama, dilakukan penggabungan beberapa kueri terpisah:
 2. **Kategori Statis**: Menggunakan konstanta model `Barang::KATEGORI`, menghilangkan kueri `SELECT DISTINCT kategori`.
 3. **Subquery Laporan Mutasi**: Mengganti pengambilan seluruh ID ke memori PHP (`pluck('barang.id')`) dengan Query Builder subquery SQL, mencegah lonjakan array parameter pada puluhan ribu data.
 4. **Window Function Dropdown Notifikasi**: Menggabungkan kueri penghitungan badge unread dan 10 notifikasi terbaru menjadi 1 kueri dengan `COUNT(*) OVER() AS unread_count`.
+
+### C. Optimasi Transaksi Stok Masuk/Keluar (19 Query $\rightarrow$ 9/10 Query)
+Jalur mutasi stok diaudit sampai ke validasi request, penguncian saldo gudang, pencatatan aktor, invalidasi cache, dan penjadwalan prediksi. Perubahan yang diterapkan meliputi:
+
+1. Menghapus pembacaan barang dan validasi database yang berulang sebelum transaksi.
+2. Menggabungkan pengecekan keberadaan saldo dengan pembacaan `WarehouseStock` yang sudah dikunci.
+3. Menghitung konsolidasi saldo dari koleksi yang sama tanpa kueri `SUM` tambahan.
+4. Menggunakan identitas pengguna terautentikasi tanpa kueri `User::exists()` tambahan.
+5. Meneruskan ID transaksi terbaru ke scheduler sehingga kueri `MAX(id)` tidak diperlukan.
+6. Menggabungkan invalidasi cache model menjadi satu kali per transaksi majemuk.
+7. Menyeragamkan urutan lock `Barang -> Warehouse -> WarehouseStock` dan menambahkan retry berjeda acak untuk deadlock atau *busy lock*.
+
+Hasil pengukuran endpoint aktual menunjukkan **10 kueri** saat proses prediksi baru dijadwalkan dan **9 kueri** saat proses aktif cukup diperbarui tanpa menambah job baru. Penurunan median terhadap baseline adalah **52,6%**.
 
 ---
 
@@ -206,6 +220,27 @@ ORDER BY created_at DESC;
 -- Extra : Using where  <== filesort HILANG TOTAL, data terbaca berurutan dari B-Tree!
 ```
 
+### C. Benchmark Endpoint Transaksi Stok
+
+Pengukuran dilakukan melalui Laravel HTTP test kernel pada SQLite 3.39.2, dengan 5 kali *warm-up* dan 30 sampel terukur per endpoint. Setiap respons divalidasi agar perubahan saldo dan jumlah transaksi tetap benar.
+
+| Endpoint | Sebelum p50 | Sesudah p50 | Perubahan p50 | Sebelum p95 | Sesudah p95 | Perubahan p95 | Query Sesudah |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| POST stok masuk | 8,696 ms | 5,913 ms | **-32,0%** | 12,490 ms | 7,792 ms | **-37,6%** | 10 |
+| POST stok keluar | 8,775 ms | 7,037 ms | **-19,8%** | 13,254 ms | 9,203 ms | **-30,6%** | 10 |
+
+### D. Dampak pada Concurrency
+
+Benchmark menjalankan 24 transaksi terhadap dua barang aktif dengan 2.000 transaksi historis per barang. Skenario lama 19 kueri dibandingkan dengan implementasi baru pada tingkat concurrency 1, 4, dan 8 worker.
+
+| Worker | Query Median Lama | Query Median Baru | Reduksi Query | Throughput Lama | Throughput Baru | Peningkatan Throughput | Gagal |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 19 | 9 | **52,6%** | 12,63 tx/detik | 45,43 tx/detik | **259,7%** | 0 |
+| 4 | 19 | 9 | **52,6%** | 5,18 tx/detik | 13,77 tx/detik | **165,8%** | 0 |
+| 8 | 19 | 9 | **52,6%** | 14,47 tx/detik | 15,49 tx/detik | **7,0%** | 0 |
+
+Pada 8 worker, p95 implementasi baru tercatat 2,7% lebih lambat. SQLite menggunakan *database-level write lock*, sehingga hasil concurrency tinggi tidak sepenuhnya mewakili InnoDB/MySQL yang mendukung *row-level locking*. Walaupun demikian, seluruh transaksi berhasil, rantai ledger tetap konsisten, dan skenario race stok keluar berhasil mencegah overselling.
+
 ---
 
 ## 7. ANALISIS KESIMPULAN PENINGKATAN EFISIENSI SISTEM
@@ -224,6 +259,9 @@ Semua kueri pengujian kini selesai dalam rentang **1,5 ms – 2,75 ms**. Dalam s
 ### 4. Proteksi Skalabilitas Masa Depan
 Penerapan generator bertahap (`lazyById()` / `yield`) pada ekspor mutasi memastikan ekspor data ribuan baris tidak menyebabkan lonjakan memori server (*Out of Memory*), sehingga sistem siap menangani transaksi logistik skala enterprise.
 
+### 5. Transaksi Stok Lebih Ringan dan Aman
+Pengurangan jalur mutasi dari 19 menjadi 9/10 kueri mengurangi waktu lock dan pekerjaan database pada setiap stok masuk/keluar. Urutan lock yang konsisten, retry untuk konflik concurrency, serta validasi saldo di dalam transaksi menjaga ledger tetap atomik dan mencegah overselling.
+
 ---
 
 ## 8. VERIFIKASI INTEGRITAS SISTEM & STATUS AUTOMATED TEST SUITE
@@ -232,20 +270,20 @@ Seluruh perubahan kode dan indeks telah melalui pengujian otomatis menyeluruh un
 
 ### Bukti Eksekusi Test Suite:
 ```text
-PHPUnit 11.5.12 by Sebastian Bergmann and contributors.
-Runtime: PHP 8.2.12 with Xdebug 3.3.1
+PHPUnit 11.5.56 by Sebastian Bergmann and contributors.
+Runtime: PHP 8.2.12
 Configuration: phpunit.xml
 
-...............................................................  63 / 372 ( 16%)
-............................................................... 126 / 372 ( 33%)
-............................................................... 189 / 372 ( 50%)
-............................................................... 252 / 372 ( 67%)
-............................................................... 315 / 372 ( 84%)
-.........................................................       372 / 372 (100%)
+...............................................................  63 / 377 ( 16%)
+............................................................... 126 / 377 ( 33%)
+............................................................... 189 / 377 ( 50%)
+............................................................... 252 / 377 ( 66%)
+............................................................... 315 / 377 ( 83%)
+..............................................................  377 / 377 (100%)
 
-Time: 00:51.43, Memory: 68.50 MB
+Time: 01:41.215, Memory: 84.00 MB
 
-OK (372 tests, 4366 assertions)
+OK (377 tests, 4464 assertions)
 Status: 100% HIJAU (PASSING)
 ```
 
@@ -254,6 +292,8 @@ Test suite memvalidasi seluruh fungsionalitas inventaris:
 * Mekanisme caching dan invalidasi otomatis saat mutasi stok (`DashboardValuationCacheTest`)
 * Anti-N+1 pada perenderan halaman (`AnalyticsPageTest`, `StockMutationReportTest`)
 * Filter inventaris instan dan ekspor data bertahap (`InventoryInstantFilterTest`, `StockTransferReversalTest`)
+* Batas maksimal 9/10 query serta integritas ledger paralel dan pencegahan overselling (`StockTransactionConcurrencyTest`)
+* Perbandingan throughput pada 1, 4, dan 8 worker (`StockConcurrencyBenchmark`)
 
 ---
 
@@ -276,7 +316,7 @@ Branch: `feature/database-optimization-and-benchmarking`
 | Tabel daftar indeks yang ditambahkan beserta alasannya | **TERPENUHI** | Bagian 3: Tabel 9 Indeks Komposit & FK Leading Indexes beserta alasan teknis dan dampaknya. |
 | Bukti angka perbandingan kecepatan kueri (sebelum vs sesudah) | **TERPENUHI** | Bagian 6: Tabel perbandingan latensi, rows examined, dan snapshot output CLI `db:explain-analyze`. |
 | Analisis kesimpulan peningkatan efisiensi sistem | **TERPENUHI** | Bagian 7: Analisis mendalam eliminasi filesort, efisiensi I/O (93,8%), UX, dan skalabilitas. |
-| Integritas pengujian dan kompatibilitas database | **TERPENUHI** | Bagian 8: 372 Automated Tests Passed 100% (MySQL & SQLite). |
+| Integritas pengujian dan kompatibilitas database | **TERPENUHI** | Bagian 8: 377 automated tests dan 4.464 assertions passed 100% (MySQL & SQLite). |
 
 ---
 *Laporan resmi ini dinyatakan selesai, diverifikasi secara teknis, dan sah untuk digunakan sebagai lampiran penilaian kelulusan utama Bulan ke-2 pada portal MagangHub Kemnaker.*
