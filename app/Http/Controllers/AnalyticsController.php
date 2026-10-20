@@ -9,6 +9,7 @@ use App\Models\Warehouse;
 use App\Services\AnalyticsCsv;
 use App\Services\AnalyticsInsightService;
 use App\Services\InventoryAnalyticsService;
+use App\Services\InventoryMasterDataService;
 use App\Services\StockMutationReportService;
 use Illuminate\Contracts\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -20,6 +21,7 @@ class AnalyticsController extends Controller
         StockMutationReportService $mutations,
         InventoryAnalyticsService $analytics,
         AnalyticsInsightService $insights,
+        InventoryMasterDataService $masterData,
     ): View {
         $filters = $this->filters($request);
         $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
@@ -29,7 +31,9 @@ class AnalyticsController extends Controller
         $movement = $analytics->movementSummary($warehouseId, $supplierId, $category);
         $valuation = $analytics->valuationSummary($warehouseId, $supplierId, $category);
         $attention = $analytics->currentAttentionSummary($warehouseId, $supplierId, $category);
-        $selectedWarehouse = $warehouseId === null ? null : Warehouse::withTrashed()->find($warehouseId);
+        $suppliers = $masterData->suppliers();
+        $warehouses = $masterData->warehouses();
+        $selectedWarehouse = $warehouseId === null ? null : $warehouses->firstWhere('id', $warehouseId);
         $insightData = $insights->build($mutation, $movement, $attention, $selectedWarehouse?->nama_gudang);
         $data = [
             'filters' => $filters,
@@ -45,15 +49,11 @@ class AnalyticsController extends Controller
             'valuationCategoryRows' => $analytics->paginatedValuationCategories($warehouseId, $supplierId, 5, 'category_page', $category),
             'valuationWarehouseRows' => $analytics->paginatedValuationWarehouses($warehouseId, $supplierId, 5, 'warehouse_page', $category),
             'selectedWarehouse' => $selectedWarehouse,
-            'selectedSupplier' => $supplierId === null ? null : Supplier::withTrashed()->find($supplierId),
+            'selectedSupplier' => $supplierId === null ? null : $suppliers->firstWhere('id', $supplierId),
             'categories' => Barang::KATEGORI,
         ];
-        $data['suppliers'] = Supplier::withTrashed()
-            ->orderBy('nama_supplier')
-            ->get(['id', 'nama_supplier', 'deleted_at']);
-        $data['warehouses'] = Warehouse::withTrashed()
-            ->orderBy('nama_gudang')
-            ->get(['id', 'kode_gudang', 'nama_gudang', 'deleted_at']);
+        $data['suppliers'] = $suppliers;
+        $data['warehouses'] = $warehouses;
 
         return view('analytics.index', $data);
     }

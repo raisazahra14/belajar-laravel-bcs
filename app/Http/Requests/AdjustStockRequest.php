@@ -22,16 +22,12 @@ class AdjustStockRequest extends FormRequest
             'warehouse_id' => [
                 'required',
                 'integer',
-                Rule::exists(Warehouse::class, 'id')->where(fn ($query) => $query
-                    ->where('is_active', true)
-                    ->whereNull('deleted_at')),
+                'min:1',
             ],
             'supplier_id' => [
                 'nullable',
                 'integer',
-                Rule::exists(Supplier::class, 'id')->where(fn ($query) => $query
-                    ->where('is_active', true)
-                    ->whereNull('deleted_at')),
+                'min:1',
                 Rule::prohibitedIf(fn (): bool => $this->input('jenis') === 'keluar'),
             ],
             'keterangan' => ['nullable', 'string', 'max:1000'],

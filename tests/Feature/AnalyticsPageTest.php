@@ -393,6 +393,38 @@ class AnalyticsPageTest extends TestCase
         $response->assertSee('saldo gudang kurang dari atau sama dengan warehouse_stocks.stok_minimum');
     }
 
+    public function test_analytics_page_prevents_n_plus_one_queries_with_multiple_items(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $warehouse = Warehouse::create(['kode_gudang' => 'WH-AN1', 'nama_gudang' => 'Gudang N1']);
+        $suppliers = collect(range(1, 4))->map(fn ($i) => Supplier::create([
+            'kode_supplier' => "SUP-AN-{$i}",
+            'nama_supplier' => "Supplier AN {$i}",
+        ]));
+
+        foreach (range(1, 12) as $i) {
+            $item = $this->barang("ANA-N1-{$i}", "Barang AN {$i}", 20, '150.00', $suppliers[$i % 4]->id);
+            $stock = $this->stock($item, $warehouse, 20);
+            $this->transaction($item, $stock, 'masuk', 10, '2026-09-02 02:00:00');
+            $this->transaction($item, $stock, 'keluar', 2, '2026-09-20 02:00:00');
+        }
+
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+
+        $response = $this->actingAs($admin)->get(route('analytics.index'));
+        $response->assertOk();
+
+        $queries = \Illuminate\Support\Facades\DB::getQueryLog();
+        // Query count for entire analytics dashboard must remain bounded (O(1)) without N+1 per item
+        $this->assertLessThanOrEqual(42, count($queries), 'Analytics page query count must remain bounded without N+1 queries.');
+
+        $mutationRows = $response->viewData('mutationRows');
+        foreach ($mutationRows as $row) {
+            $this->assertTrue($row['barang']->relationLoaded('supplier'));
+        }
+    }
+
     private function barang(
         string $code,
         string $name,

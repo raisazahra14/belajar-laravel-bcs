@@ -8,6 +8,7 @@ use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Services\StockMutationExportService;
 use App\Services\StockMutationReportService;
+use App\Services\InventoryMasterDataService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -17,6 +18,7 @@ class StockMutationReportController extends Controller
     public function index(
         StockMutationReportRequest $request,
         StockMutationReportService $reports,
+        InventoryMasterDataService $masterData,
     ): View {
         $filters = $this->filters($request);
         $report = $reports->summary($filters);
@@ -24,10 +26,8 @@ class StockMutationReportController extends Controller
         // Pertahankan kontrak lama untuk konsumen yang masih membaca rows dari report.
         // View utama menggunakan paginator agar navigasi halaman dan metadata total tersedia.
         $report['rows'] = $mutationRows->getCollection();
-        $suppliers = Supplier::withTrashed()->orderBy('nama_supplier')->get(['id', 'nama_supplier', 'is_active', 'deleted_at']);
-        $warehouses = Warehouse::withTrashed()->orderBy('nama_gudang')->get([
-            'id', 'kode_gudang', 'nama_gudang', 'is_active', 'deleted_at',
-        ]);
+        $suppliers = $masterData->suppliers();
+        $warehouses = $masterData->warehouses();
         $categories = Barang::KATEGORI;
 
         return view('reports.stock-mutations.index', compact(
@@ -39,14 +39,14 @@ class StockMutationReportController extends Controller
     {
         $filters = $this->filters($request);
 
-        return $export->csv($reports->filteredReport($filters), $filters);
+        return $export->csv($reports->streamedReport($filters), $filters);
     }
 
     public function excel(StockMutationReportRequest $request, StockMutationReportService $reports, StockMutationExportService $export): StreamedResponse
     {
         $filters = $this->filters($request);
 
-        return $export->excel($reports->filteredReport($filters), $filters);
+        return $export->excel($reports->streamedReport($filters), $filters);
     }
 
     public function pdf(StockMutationReportRequest $request, StockMutationReportService $reports, StockMutationExportService $export): Response

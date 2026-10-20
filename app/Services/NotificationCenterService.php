@@ -23,10 +23,15 @@ class NotificationCenterService
     {
         $unread = $this->orderedQuery($user)
             ->whereNull('read_at');
+        $rows = $unread
+            ->select('*')
+            ->selectRaw('COUNT(*) OVER() AS unread_count')
+            ->limit(10)
+            ->get();
 
         return [
-            'unread_count' => (clone $unread)->count(),
-            'notifications' => $this->hydrate($user, $unread->limit(10)->get()),
+            'unread_count' => (int) ($rows->first()?->unread_count ?? 0),
+            'notifications' => $this->hydrate($user, $rows),
         ];
     }
 

@@ -19,7 +19,8 @@
         <tr><td><strong>{{ $activeProcess->barang->nama_barang }}</strong><small>{{ $activeProcess->barang->kode_barang }}</small></td><td><x-ui.badge :variant="$activeProcess->status === 'failed' ? 'danger' : 'info'">{{ $activeLabel }}</x-ui.badge>@if($activeProcess->status === 'failed')<small class="process-safe-error">{{ $activeProcess->safe_error_message }}</small>@endif</td><td>{{ $activeProcess->updated_at?->timezone(config('app.display_timezone'))->format('d/m/Y H:i') ?? '—' }} WIB</td></tr>
         @endforeach
         </tbody></table></div>
-        <button id="prediction-process-all-trigger" class="btn btn-sm btn-link" type="button" @if($activeProcesses->count() <= 5) hidden @endif>Lihat semua (<span>{{ $activeProcesses->count() }}</span>)</button>
+        @php($activeProcessTotal = $activeProcessCounts->sum())
+        <button id="prediction-process-all-trigger" class="btn btn-sm btn-link" type="button" @if($activeProcessTotal <= 5) hidden @endif>@if($activeProcessTotal <= 50) Lihat semua (<span>{{ $activeProcessTotal }}</span>) @else Lihat 50 proses terbaru (<span>50 dari {{ $activeProcessTotal }}</span>) @endif</button>
     </div>
     <dialog id="prediction-process-dialog" class="prediction-process-dialog" aria-labelledby="prediction-process-dialog-title">
         <div class="dialog-heading"><div><h2 id="prediction-process-dialog-title">Semua Proses Aktif</h2><p>Diurutkan dari Gagal, Diproses, lalu Menunggu.</p></div><button class="dialog-close" type="button" aria-label="Tutup daftar proses"><i class="ti-close"></i></button></div>

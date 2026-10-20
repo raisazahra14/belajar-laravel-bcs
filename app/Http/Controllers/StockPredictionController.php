@@ -12,6 +12,8 @@ use Illuminate\Http\Request;
 
 class StockPredictionController extends Controller
 {
+    private const ACTIVE_PROCESS_LIMIT = 50;
+
     public function index(Request $request, StockPredictionPresenter $presenter)
     {
         $focusPredictionId = $request->integer('focus');
@@ -21,17 +23,20 @@ class StockPredictionController extends Controller
             ->when($focusPredictionId === 0, fn ($query) => $query->whereIn('id', $ids))
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
             ->latest('analyzed_at')->latest('id')->paginate(15)->withQueryString();
-        $activeProcesses = $request->user()->can('run-stock-prediction')
-            ? $this->activeProcesses()->get()
+        $canRunPrediction = $request->user()->can('run-stock-prediction');
+        $activeProcessCounts = $canRunPrediction
+            ? $this->activeProcessCounts()
+            : collect();
+        $activeProcesses = $canRunPrediction
+            ? $this->activeProcesses()->limit(self::ACTIVE_PROCESS_LIMIT)->get()
             : collect();
         $activeProcesses = $this->sortActiveProcesses($activeProcesses);
         $activeProcesses->each(fn (StockPredictionProcess $process) => $process->setAttribute(
             'safe_error_message',
             $presenter->safeProcessError($process->error_message),
         ));
-        $activeProcessCounts = $activeProcesses->countBy('status');
         $visibleActiveProcesses = $activeProcesses->take(5);
-        $processes = $request->user()->can('run-stock-prediction')
+        $processes = $canRunPrediction
             ? StockPredictionProcess::query()->whereIn('barang_id', $predictions->getCollection()->pluck('barang_id'))->get()->keyBy('barang_id')
             : collect();
         $presentations = $predictions->getCollection()->mapWithKeys(fn (StockPrediction $prediction): array => [
@@ -52,13 +57,14 @@ class StockPredictionController extends Controller
     {
         $this->authorize('run-stock-prediction');
 
-        $processes = $this->sortActiveProcesses($this->activeProcesses()->get());
+        $counts = $this->activeProcessCounts();
+        $processes = $this->sortActiveProcesses($this->activeProcesses()->limit(self::ACTIVE_PROCESS_LIMIT)->get());
 
         return response()->json([
             'counts' => [
-                StockPredictionProcess::STATUS_WAITING => $processes->where('status', StockPredictionProcess::STATUS_WAITING)->count(),
-                StockPredictionProcess::STATUS_PROCESSING => $processes->where('status', StockPredictionProcess::STATUS_PROCESSING)->count(),
-                StockPredictionProcess::STATUS_FAILED => $processes->where('status', StockPredictionProcess::STATUS_FAILED)->count(),
+                StockPredictionProcess::STATUS_WAITING => (int) ($counts[StockPredictionProcess::STATUS_WAITING] ?? 0),
+                StockPredictionProcess::STATUS_PROCESSING => (int) ($counts[StockPredictionProcess::STATUS_PROCESSING] ?? 0),
+                StockPredictionProcess::STATUS_FAILED => (int) ($counts[StockPredictionProcess::STATUS_FAILED] ?? 0),
             ],
             'processes' => $processes->map(fn (StockPredictionProcess $process): array => [
                 'id' => $process->id,
@@ -118,6 +124,20 @@ class StockPredictionController extends Controller
             ])
             ->latest('updated_at')
             ->orderByDesc('id');
+    }
+
+    private function activeProcessCounts()
+    {
+        return StockPredictionProcess::query()
+            ->whereHas('barang')
+            ->whereIn('status', [
+                StockPredictionProcess::STATUS_WAITING,
+                StockPredictionProcess::STATUS_PROCESSING,
+                StockPredictionProcess::STATUS_FAILED,
+            ])
+            ->selectRaw('status, COUNT(*) AS aggregate')
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
     }
 
     private function sortActiveProcesses($processes)

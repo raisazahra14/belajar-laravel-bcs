@@ -313,6 +313,281 @@ def extract_text(path: Path) -> str:
         raise DocumentError("File rusak atau tidak dapat dibaca.") from exc
 
 
+_RIGHT_COLUMN_LABELS = (
+    r"No\.?\s*Invo(?:ice|lee)|No\.?\s*SPK|No\.?\s*Kontrak|No\.?\s*PO|Kode\s*Proj(?:ect|ek)|"
+    r"Sub\s*Total|Diskon|Discount|B(?:i|l)?aya\s*Pengantaran|DPP|PPN|Total|Uang\s*Muka"
+)
+_ITEM_ROW = re.compile(
+    r"^\s*[|!]?\s*(?P<no>\d{1,3})\s*[.,)]?\s+(?P<desc>.+?)\s+"
+    r"(?P<qty>\d[\d.,]*)\s+(?P<unit>[A-Za-z][A-Za-z./]{0,9})\s+"
+    r"(?P<price>\d[\d.,]*)\s+(?P<amount>\d[\d.,]*)\s*[|!]?\s*$"
+)
+
+
+def _parse_invoice_items(text: str) -> tuple[list[dict[str, Any]], list[str], set[int]]:
+    """Parse every table row; rows that look like items but fail are returned unparsed."""
+    items: list[dict[str, Any]] = []
+    unparsed: list[str] = []
+    consumed: set[int] = set()
+    for index, raw in enumerate(text.splitlines()):
+        line = raw.strip()
+        match = _ITEM_ROW.match(line)
+        if match:
+            desc = re.sub(r"\s+", " ", match.group("desc")).strip(" |_")
+            reference = re.search(
+                r"(?:invo(?:ice|lee)\s*(?:number|no\.?|nomor)|no\.?\s*ref(?:erensi)?|ref(?:erence)?)\s*[:#=]?\s*"
+                r"([A-Z0-9][A-Z0-9./-]{3,})",
+                desc,
+                re.IGNORECASE,
+            )
+            quantity = _normalize_indonesian_number(match.group("qty"))
+            price = _normalize_indonesian_number(match.group("price"))
+            amount = _normalize_indonesian_number(match.group("amount"))
+            raw_qty = match.group("qty")
+            if price and amount and re.fullmatch(r"\d+[.,]\d{3}", raw_qty):
+                # "167.900" may be 167,9 (3 decimals) or 167900; keep the reading that
+                # reproduces the printed amount. If neither does, keep default and let
+                # the calculation warning flag it.
+                as_decimal = float(raw_qty.replace(",", "."))
+                as_thousands = float(raw_qty.replace(",", "").replace(".", ""))
+                for candidate in (as_decimal, as_thousands):
+                    if abs(candidate * price - amount) <= max(1.0, amount * 0.001):
+                        quantity = int(candidate) if float(candidate).is_integer() else candidate
+                        break
+            items.append({
+                "no": int(match.group("no")),
+                "description": desc,
+                "reference_number": reference.group(1) if reference else None,
+                "quantity": quantity,
+                "unit": match.group("unit"),
+                "unit_price": price,
+                "amount": amount,
+            })
+            consumed.add(index)
+        elif re.match(r"^\s*[|!]?\s*\d{1,3}\s*[.,)]\s+[A-Za-z].*\d", line) and not re.search(
+            r"npwp|rekening|fax|\bWA\b|telp", line, re.IGNORECASE
+        ):
+            unparsed.append(line)
+            consumed.add(index)
+    return items, unparsed, consumed
+
+
+def _parse_invoice_items_from_table(path: Path) -> list[dict[str, Any]]:
+    """Read ruled invoice tables cell-by-cell when page OCR loses table columns.
+
+    This deliberately returns only rows whose number, reference and all numeric
+    columns can be read.  A partial row remains for manual review instead of
+    being completed with an inferred value.
+    """
+    try:
+        configure_tesseract()
+        language = _tesseract_language()
+        parsed: list[dict[str, Any]] = []
+        for page in _document_pages(path):
+            height, width = page.shape[:2]
+            gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
+            ink = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)[1]
+            horizontal = cv2.morphologyEx(
+                ink, cv2.MORPH_OPEN,
+                cv2.getStructuringElement(cv2.MORPH_RECT, (max(40, width // 9), 1)),
+            )
+            contours, _ = cv2.findContours(horizontal, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            lines = []
+            for contour in contours:
+                x, y, line_width, line_height = cv2.boundingRect(contour)
+                if line_width >= width * .58 and height * .16 <= y <= height * .48:
+                    lines.append((x, y + line_height // 2, line_width))
+            lines.sort(key=lambda line: line[1])
+            # Adjacent contours occasionally represent the same printed rule.
+            horizontal_lines: list[tuple[int, int, int]] = []
+            for line in lines:
+                if not horizontal_lines or line[1] - horizontal_lines[-1][1] > 4:
+                    horizontal_lines.append(line)
+
+            vertical = cv2.morphologyEx(
+                ink, cv2.MORPH_OPEN,
+                cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(30, height // 16))),
+            )
+            vertical_contours, _ = cv2.findContours(vertical, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            vertical_lines = sorted({
+                x + line_width // 2
+                for contour in vertical_contours
+                for x, y, line_width, line_height in [cv2.boundingRect(contour)]
+                if line_height >= height * .07 and line_width <= max(12, width // 80)
+            })
+
+            item_position = 0
+            for top_line, bottom_line in zip(horizontal_lines, horizontal_lines[1:]):
+                left, top, table_width = top_line
+                right = left + table_width
+                bottom = bottom_line[1]
+                if not 14 <= bottom - top <= max(100, height // 12):
+                    continue
+                columns = [x for x in vertical_lines if left - 5 <= x <= right + 5]
+                if len(columns) < 7:
+                    continue
+                # Use the six widest consecutive table columns: no, description,
+                # quantity, unit, unit price, amount.
+                columns = columns[:7]
+                cells = []
+                for cell_left, cell_right in zip(columns, columns[1:]):
+                    # Keep the full cell height.  Cutting a few pixels from the
+                    # bottom routinely removes the final zero in narrow numeric
+                    # cells on scanned invoices.
+                    crop = page[top + 1:bottom, cell_left + 2:cell_right - 2]
+                    if crop.size == 0:
+                        cells.append("")
+                        continue
+                    crop = cv2.resize(crop, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+                    value = pytesseract.image_to_string(
+                        crop, lang=language, config="--oem 3 --psm 7",
+                    )
+                    cells.append(re.sub(r"\s+", " ", value).strip(" |"))
+                if len(cells) != 6:
+                    continue
+                reference = re.search(r"(?:invoice\s*(?:number|no\.?)\s*[:#=]?\s*)?([I1]V[0-9S]{6,}|[A-Z]{2,}[0-9][A-Z0-9./-]{4,})", cells[1], re.I)
+                # The table crop is constrained to a numeric column, so removing
+                # a replacement glyph from a damaged scan is safe; it is not an
+                # invented digit or a calculated value.
+                table_number = lambda value: _normalize_indonesian_number(re.sub(r"[^0-9.,]", "", value))
+                quantity_text = re.sub(r"[^0-9.,]", "", cells[2])
+                # In quantity cells the local invoice format uses three decimal
+                # places (167,900 means 167.900), unlike monetary columns.
+                quantity = (
+                    float(quantity_text.replace(",", "."))
+                    if re.fullmatch(r"\d{1,6}[,.]\d{3}", quantity_text)
+                    else table_number(quantity_text)
+                )
+                unit_price = table_number(cells[4])
+                amount = table_number(cells[5])
+                if not reference or quantity is None or not cells[3] or unit_price is None or amount is None:
+                    continue
+                reference_number = reference.group(1).upper().replace("S", "5")
+                reference_number = re.sub(r"^1V", "IV", reference_number)
+                description = re.sub(
+                    re.escape(reference.group(1)), reference_number, cells[1], flags=re.IGNORECASE,
+                )
+                item_position += 1
+                parsed.append({
+                    # A ruled row's position is more reliable than a one-digit
+                    # OCR cell (where 1 is commonly read as 2/S).
+                    "no": item_position,
+                    "description": re.sub(r"\s+", " ", description).strip(),
+                    "reference_number": reference_number,
+                    "quantity": quantity,
+                    "unit": re.sub(r"[^A-Za-z./]", "", cells[3]) or None,
+                    "unit_price": unit_price,
+                    "amount": amount,
+                })
+        # Several pages/templates can yield the same row twice; never duplicate it.
+        return list({item["no"]: item for item in parsed}.values())
+    except (DocumentError, OSError, cv2.error, pytesseract.TesseractError, pytesseract.TesseractNotFoundError):
+        return []
+
+
+def _clean_right_column(value: str) -> str:
+    value = re.split(rf"\s+(?:{_RIGHT_COLUMN_LABELS})\s*[:=]", value, maxsplit=1, flags=re.IGNORECASE)[0]
+    value = re.split(r"\s+no[.,]?\s*po\s*[:=]?", value, maxsplit=1, flags=re.IGNORECASE)[0]
+    return re.sub(r"\s+", " ", value).strip(" .,:;|_-")
+
+
+def _extract_invoice_details(text: str) -> dict[str, Any]:
+    """Extract printed invoice details. Missing values stay None (never guessed)."""
+    lines = [line.strip() for line in text.splitlines()]
+    result: dict[str, Any] = {}
+
+    def label_index(pattern: str, start: int = 0) -> int | None:
+        for i in range(start, len(lines)):
+            if re.search(pattern, lines[i], re.IGNORECASE):
+                return i
+        return None
+
+    # Customer address: first line after "Alamat" plus wrapped continuation lines.
+    idx = label_index(r"(?:^|\s)alamat\s*[:=]")
+    address = None
+    if idx is not None:
+        first = re.search(r"alamat\s*[:=]\s*(.*)$", lines[idx], re.IGNORECASE).group(1)
+        parts = [_clean_right_column(first)]
+        for nxt in lines[idx + 1:idx + 3]:
+            if not nxt or re.match(r"^(?:attn|kami|no\b|nama\s*barang|\d+[.)]?\s)", nxt, re.IGNORECASE):
+                break
+            if re.search(r"[:=]\s*\S", nxt) and re.match(r"^[A-Za-z. /]{2,25}\s*[:=]", nxt):
+                break
+            parts.append(_clean_right_column(nxt))
+        address = ", ".join(part for part in parts if part) or None
+    result["customer_address"] = address
+
+    # Amount in words.
+    idx = label_index(r"\bterbilang\s*[:=]")
+    words = None
+    if idx is not None:
+        chunk = [re.sub(r".*terbilang\s*[:=]\s*", "", lines[idx], flags=re.IGNORECASE)]
+        for nxt in lines[idx + 1:idx + 4]:
+            if re.match(rf"^(?:pembayaran|{_RIGHT_COLUMN_LABELS})\b", nxt, re.IGNORECASE) or not nxt:
+                break
+            chunk.append(nxt)
+        cleaned = [_clean_right_column(part) for part in chunk]
+        words = re.sub(r"\s+", " ", " ".join(part for part in cleaned if part)).strip()
+        words = re.sub(r"[,\s-]+$", "", words) or None
+    result["amount_in_words"] = words
+
+    # Bank transfer block.
+    idx = label_index(r"pembayaran\s+dapat\s+di\s*transfer")
+    holder = bank = None
+    block = lines[idx + 1:idx + 6] if idx is not None else []
+    for line in [*block, *lines]:
+        line = _clean_right_column(line)
+        if not bank and re.match(r"^(?:BNI|BCA|BRI|BTN|BSI|CIMB|Mandiri|Permata|Danamon|Maybank|OCBC|Panin)\b", line, re.IGNORECASE):
+            bank = re.split(r"\s+total\b", line, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        elif not holder and re.match(r"^(?:PT|CV|UD)\b", line, re.IGNORECASE):
+            holder = line
+    account = None
+    for line in block or lines:
+        found = re.search(r"No\.?\s*Rek(?:ening)?\s*[:=]?\s*([0-9][0-9 .-]{5,25})", line, re.IGNORECASE)
+        if found:
+            account = re.sub(r"[^0-9-]", "", found.group(1).strip()) or None  # keep as text, keep zeros
+            break
+    result.update({"bank_name": bank, "bank_account_holder": holder, "bank_account_number": account})
+
+    # Contacts (confirmation block).
+    joined = "\n".join(lines)
+    email = re.search(r"E-?m(?:a|@)(?:i|l){1,2}\s*[:=]\s*([\w.+-]+@[\w-]+(?:\.[\w-]+)+)", joined, re.IGNORECASE)
+    fax = re.search(r"\bFax\s*[:=]?\s*(\+?\d[\d ()-]{5,20}\d)", joined, re.IGNORECASE)
+    wa = re.search(r"\bWA\s*[:=]?\s*(\+?\d[\d ()/-]{7,40}\d)", joined, re.IGNORECASE)
+    result.update({
+        "contact_email": email.group(1) if email else None,
+        "contact_fax": re.sub(r"\s+", " ", fax.group(1)).strip() if fax else None,
+        "contact_whatsapp": re.sub(r"\s+", " ", wa.group(1)).strip() if wa else None,
+    })
+
+    # Place/date and signer.
+    date_value = place = None
+    for line in lines:
+        found = re.search(r"([A-Z][A-Za-z]{2,})\s*,\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})", line)
+        if found and (parsed := _normalize_document_date(found.group(2))):
+            place, date_value = found.group(1), parsed
+            break
+    if not date_value:
+        for line in lines:
+            found = re.search(r"\b(?:tanggal|tgl|date)\s*(?:invoice)?\s*[:=]\s*(\d{1,2}[ ./-][A-Za-z0-9]+[ ./-]\d{4})", line, re.IGNORECASE)
+            if found and (parsed := _normalize_document_date(found.group(1))):
+                date_value = parsed
+                break
+    result["invoice_date"] = date_value
+    result["signer_place"] = place
+    signer_name = signer_title = None
+    for i, line in enumerate(lines):
+        if re.match(r"^(?:Direktur|Director|Manager|Manajer|Kepala|General\s+Manager|Finance)\b", line, re.IGNORECASE):
+            signer_title = re.sub(r"\s+", " ", line).strip(" .,:;|_")
+            for prev in reversed(lines[max(0, i - 3):i]):
+                if re.fullmatch(r"[A-Za-z][A-Za-z.'-]+(?: [A-Za-z][A-Za-z.'-]+){1,4}", prev) and not re.match(r"^(?:PT|CV|UD)\b", prev):
+                    signer_name = prev
+                    break
+            break
+    result.update({"signer_name": signer_name, "signer_title": signer_title})
+    return result
+
+
 def extract_specialized_metadata(text: str, document_type: str) -> dict[str, Any]:
     """Extract type-specific fields without inventing values absent from OCR."""
     normalized = re.sub(r"\s+", " ", text).strip()
@@ -387,9 +662,16 @@ def extract_specialized_metadata(text: str, document_type: str) -> dict[str, Any
         return candidate
 
     if document_type == "invoice":
+        items, unparsed_items, item_lines = _parse_invoice_items(text)
+        details = _extract_invoice_details(text)
+        # Item rows ('Invoice Number : IV...') are references, never the main invoice number.
+        header_text = re.sub(
+            r"\s+", " ",
+            "\n".join(line for i, line in enumerate(text.splitlines()) if i not in item_lines),
+        ).strip()
         invoice_matches = list(re.finditer(
-            r"(?:no\.?\s*invo(?:ice|lee)|invo(?:ice|lee)\s*no\.?)\s*[:#=+-]?\s*([A-Z0-9][A-Z0-9./-]{3,})",
-            normalized,
+            r"(?:no\.?\s*invo(?:ice|lee)|invo(?:ice|lee)\s*no(?![A-Za-z])\.?)\s*[:#=+-]?\s*([A-Z0-9][A-Z0-9./-]{3,})",
+            header_text,
             re.IGNORECASE,
         ))
 
@@ -481,6 +763,20 @@ def extract_specialized_metadata(text: str, document_type: str) -> dict[str, Any
             "currency": "IDR"
             if re.search(r"\b(?:I[D0]R|1DR|RP|RUPIAH)\b", normalized, re.IGNORECASE)
             else None,
+            "invoice_date": details["invoice_date"],
+            "customer_address": details["customer_address"],
+            "items": items,
+            "items_unparsed": unparsed_items,
+            "amount_in_words": details["amount_in_words"],
+            "bank_name": details["bank_name"],
+            "bank_account_holder": details["bank_account_holder"],
+            "bank_account_number": details["bank_account_number"],
+            "contact_email": details["contact_email"],
+            "contact_fax": details["contact_fax"],
+            "contact_whatsapp": details["contact_whatsapp"],
+            "signer_name": details["signer_name"],
+            "signer_title": details["signer_title"],
+            "signer_place": details["signer_place"],
         }
 
     if document_type == "bukti_fisik":
@@ -523,7 +819,7 @@ def analyze_text(text: str, document_type: str = "surat_jalan") -> dict[str, Any
     required_terms = DOCUMENT_TERMS.get(document_type, DOCUMENT_TERMS["surat_jalan"])
     matched_terms = [term for term in required_terms if term in lowered]
     number_patterns = (
-        r"(?:no\.?\s*invo(?:ice|lee)|invo(?:ice|lee)\s*no\.?)\s*[:#=+-]?\s*([A-Z0-9][A-Z0-9./-]{3,})",
+        r"(?:no\.?\s*invo(?:ice|lee)|invo(?:ice|lee)\s*no(?![A-Za-z])\.?)\s*[:#=+-]?\s*([A-Z0-9][A-Z0-9./-]{3,})",
         r"(?:surat\s*jalan|delivery\s*(?:note|order)|weighing\s*slip|dispatch)\s*(?:no(?:mor)?\.?)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9./-]{2,})",
         r"(?:no(?:mor)?\.?\s*)?(?:sj|do|dn)\s*[:#-]?\s*([A-Z0-9][A-Z0-9./-]{2,})",
         r"(?:no(?:mor)?\.?|nomor)\s*(?:surat\s*jalan)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9./-]{2,})",
@@ -1370,8 +1666,15 @@ def _apply_coordinate_fields(result: dict[str, Any], fields: dict[str, dict[str,
     result["analysis"]["metadata"]["ocr_fields"] = fields
 
     if document_type == "invoice":
-        result["specialized_metadata"].update(values)
-        result["analysis"]["metadata"]["fields"].update(values)
+        # A coordinate miss (None) must not erase a value already read from the text layer.
+        present = {key: value for key, value in values.items() if value is not None and key != "delivery_cost"}
+        result["specialized_metadata"].update(present)
+        result["analysis"]["metadata"]["fields"].update(present)
+        for key in values:
+            if key == "delivery_cost":
+                continue  # duplicate of delivery_fee
+            result["specialized_metadata"].setdefault(key, None)
+            result["analysis"]["metadata"]["fields"].setdefault(key, None)
         mapping = {
             "document_number": "invoice_number",
             "document_date": "invoice_date",
@@ -1400,8 +1703,11 @@ def _apply_coordinate_fields(result: dict[str, Any], fields: dict[str, dict[str,
             "weight_unit": "weight_unit",
         }
     for legacy_field, coordinate_field in mapping.items():
-        result["document_metadata"][legacy_field] = values.get(coordinate_field)
-        result["analysis"]["document_metadata"][legacy_field] = values.get(coordinate_field)
+        value = values.get(coordinate_field)
+        if document_type == "invoice" and value is None:
+            value = result["document_metadata"].get(legacy_field)
+        result["document_metadata"][legacy_field] = value
+        result["analysis"]["document_metadata"][legacy_field] = value
 
 
 def _box(contour: np.ndarray, page: int) -> dict[str, Any]:
@@ -1617,8 +1923,9 @@ def apply_evidence_scores(result: dict[str, Any], file_metadata: dict[str, Any],
     elif manipulation.get("requires_manual_review") and authenticity < 50:
         # Hanya mencurigakan jika both manual review dibutuhkan AND authenticity rendah
         result["authenticity_status"] = "mencurigakan"
-    elif verification_mark["detected"] is None and authenticity < 60:
-        # Tanda pengesahan tidak terdeteksi dan authenticity rendah -> mencurigakan
+    elif verification_mark["detected"] is None:
+        # Resolution/quality is insufficient to assess the approval area.  Keep
+        # the document out of the "asli" state until a person can inspect it.
         result["authenticity_status"] = "mencurigakan"
     elif result["scores"]["completeness_score"] < 40:
         # Hanya sangat rendah completeness yang jadi mencurigakan
@@ -1650,6 +1957,20 @@ def verify_document(path: Path, document_type: str = "surat_jalan") -> dict[str,
     if not text:
         raise DocumentError("Teks tidak terdeteksi pada dokumen.")
     result = analyze_text(text, document_type)
+    if document_type == "invoice":
+        # Whole-page OCR frequently reads a ruled table as disconnected columns.
+        # Merge only fully evidenced cell rows; the text parser remains the
+        # fallback for borderless tables and other layouts.
+        table_items = _parse_invoice_items_from_table(path)
+        if table_items:
+            existing = {
+                item.get("no"): item
+                for item in result["specialized_metadata"].get("items", [])
+                if isinstance(item, dict) and item.get("no") is not None
+            }
+            existing.update({item["no"]: item for item in table_items})
+            result["specialized_metadata"]["items"] = [existing[key] for key in sorted(existing)]
+            result["analysis"]["metadata"]["fields"]["items"] = result["specialized_metadata"]["items"]
     try:
         coordinate_fields = extract_coordinate_ocr_fields(path, document_type)
     except (DocumentError, OSError, pytesseract.TesseractError, pytesseract.TesseractNotFoundError):

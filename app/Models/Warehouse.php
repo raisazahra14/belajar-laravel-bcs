@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\InventoryMasterDataService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
@@ -24,6 +25,13 @@ class Warehouse extends Model
         'keterangan',
         'is_active',
     ];
+
+    protected static function booted(): void
+    {
+        static::saved(fn (): mixed => InventoryMasterDataService::clearWarehouses());
+        static::deleted(fn (): mixed => InventoryMasterDataService::clearWarehouses());
+        static::restored(fn (): mixed => InventoryMasterDataService::clearWarehouses());
+    }
 
     protected function casts(): array
     {

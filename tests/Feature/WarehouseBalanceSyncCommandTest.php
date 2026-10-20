@@ -202,7 +202,7 @@ class WarehouseBalanceSyncCommandTest extends TestCase
 
         $this->actingAs($admin)->get(route('barang.index'))
             ->assertOk()
-            ->assertSee('Gudang Aktual')
+            ->assertSee('Distribusi Stok per Gudang')
             ->assertSee('Gudang B (7)')
             ->assertSee('Rak Lama A1');
     }

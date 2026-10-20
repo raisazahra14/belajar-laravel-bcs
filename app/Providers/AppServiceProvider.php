@@ -4,8 +4,12 @@ namespace App\Providers;
 
 use App\Models\User;
 use App\Services\NotificationCenterService;
+use Illuminate\Database\Connection;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -25,6 +29,21 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Paginator::useBootstrapFive();
+
+        $slowQueryThreshold = (int) config('database.slow_query_threshold_ms', 500);
+        if ($slowQueryThreshold > 0) {
+            DB::whenQueryingForLongerThan(
+                $slowQueryThreshold,
+                function (Connection $connection, QueryExecuted $event) use ($slowQueryThreshold): void {
+                    Log::warning('Waktu query database kumulatif melewati ambang batas.', [
+                        'connection' => $connection->getName(),
+                        'threshold_ms' => $slowQueryThreshold,
+                        'last_query_ms' => $event->time,
+                        'sql_template' => $event->sql,
+                    ]);
+                },
+            );
+        }
 
         Gate::define('manage-barang', fn (User $user): bool => $user->role === 'admin');
         Gate::define('update-stock', fn (User $user): bool => in_array($user->role, ['admin', 'manager', 'staff'], true));

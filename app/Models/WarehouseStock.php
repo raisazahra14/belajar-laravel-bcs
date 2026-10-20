@@ -18,6 +18,9 @@ class WarehouseStock extends Model
         'warehouse_id',
         'stok',
         'stok_minimum',
+        'zone',
+        'rack_location',
+        'bin_code',
     ];
 
     protected function casts(): array
@@ -26,6 +29,17 @@ class WarehouseStock extends Model
             'stok' => 'integer',
             'stok_minimum' => 'integer',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(function (): void {
+            \App\Services\InventoryAnalyticsService::clearValuationCache();
+        });
+
+        static::deleted(function (): void {
+            \App\Services\InventoryAnalyticsService::clearValuationCache();
+        });
     }
 
     public function barang(): BelongsTo
