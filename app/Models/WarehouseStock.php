@@ -18,6 +18,9 @@ class WarehouseStock extends Model
         'warehouse_id',
         'stok',
         'stok_minimum',
+        'zone',
+        'rack_location',
+        'bin_code',
     ];
 
     protected function casts(): array

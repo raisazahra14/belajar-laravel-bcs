@@ -83,15 +83,19 @@ class LargeScaleStockTransactionSeeder extends Seeder
             ->get()
             ->groupBy('barang_id');
 
+        // Invarian: SUM(warehouse_stocks.stok) == barang.stok. Stok master dialokasikan
+        // sekali ke gudang utama hanya bila barang belum punya saldo; gudang lain = 0.
+        $defaultWarehouseId = Warehouse::where('kode_gudang', Warehouse::DEFAULT_CODE)->value('id') ?? $warehouseIds[0];
         $stocksToInsert = [];
         foreach ($barangList as $b) {
             $existingForBarang = $existingStocks->get($b->id, collect())->keyBy('warehouse_id');
+            $hasAnyBalance = $existingForBarang->isNotEmpty();
             foreach ($warehouseIds as $whId) {
                 if (! $existingForBarang->has($whId)) {
                     $stocksToInsert[] = [
                         'barang_id' => $b->id,
                         'warehouse_id' => $whId,
-                        'stok' => (int) ($b->stok ?: 100),
+                        'stok' => (! $hasAnyBalance && $whId === $defaultWarehouseId) ? (int) $b->stok : 0,
                         'stok_minimum' => 10,
                         'created_at' => $now,
                         'updated_at' => $now,
