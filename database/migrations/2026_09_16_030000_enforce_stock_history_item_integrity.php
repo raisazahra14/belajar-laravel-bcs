@@ -73,6 +73,7 @@ return new class extends Migration
     private function rebuildSqliteTables(bool $strictHistory): void
     {
         $hasAuditFields = Schema::hasColumn('stok_transactions', 'mutation_type');
+        $hasLocationFields = Schema::hasColumn('warehouse_stocks', 'zone');
         $existingIndexNames = collect(Schema::getIndexes('stok_transactions'))->pluck('name');
         $hasSupplierSnapshotIndexes = $existingIndexNames->contains('idx_stok_supplier_created');
         DB::statement('PRAGMA foreign_keys = OFF');
@@ -81,6 +82,11 @@ return new class extends Migration
 
         try {
             $parentDelete = $strictHistory ? 'RESTRICT' : 'CASCADE';
+            $locationColumns = $hasLocationFields ? <<<'SQL'
+                zone VARCHAR(50) NULL,
+                rack_location VARCHAR(100) NULL,
+                bin_code VARCHAR(50) NULL,
+            SQL : '';
             DB::statement("CREATE TABLE warehouse_stocks_integrity_stage (
                 id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                 barang_id INTEGER NOT NULL,
@@ -89,6 +95,7 @@ return new class extends Migration
                 stok_minimum INTEGER NOT NULL DEFAULT 0 CHECK (stok_minimum >= 0),
                 created_at DATETIME NULL,
                 updated_at DATETIME NULL,
+                {$locationColumns}
                 FOREIGN KEY (barang_id) REFERENCES barang (id) ON UPDATE RESTRICT ON DELETE {$parentDelete},
                 FOREIGN KEY (warehouse_id) REFERENCES warehouses (id) ON UPDATE RESTRICT ON DELETE {$parentDelete},
                 UNIQUE (barang_id, warehouse_id)

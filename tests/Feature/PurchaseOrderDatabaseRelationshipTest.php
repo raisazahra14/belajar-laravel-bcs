@@ -81,8 +81,45 @@ class PurchaseOrderDatabaseRelationshipTest extends TestCase
         $this->assertTrue($supplier->purchaseOrders->contains($po));
         $this->assertTrue($warehouse->purchaseOrders->contains($po));
         $this->assertTrue($barang->purchaseOrderItems->contains($item));
+        $this->assertTrue($admin->createdPurchaseOrders->contains($po));
+        $this->assertTrue($manager->approvedPurchaseOrders->contains($po));
 
         // Bersihkan data uji
         $po->delete();
+    }
+
+    public function test_purchase_order_automatically_generates_nomor_po_and_increments_sequence(): void
+    {
+        $user = User::firstOrCreate(
+            ['email' => 'staff_po@example.com'],
+            ['name' => 'Staff PO', 'password' => bcrypt('password'), 'role' => 'staff']
+        );
+        $supplier = Supplier::firstOrCreate(
+            ['kode_supplier' => 'SUP-AUTO-01'],
+            ['nama_supplier' => 'Supplier Auto', 'is_active' => true]
+        );
+        $warehouse = Warehouse::firstOrCreate(
+            ['kode_gudang' => 'GDG-AUTO-01'],
+            ['nama_gudang' => 'Gudang Auto', 'is_active' => true]
+        );
+
+        $po1 = PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'warehouse_id' => $warehouse->id,
+            'tanggal_pesan' => '2026-10-26',
+            'created_by' => $user->id,
+        ]);
+
+        $this->assertMatchesRegularExpression('/^PO-20261026-\d{4}$/', $po1->nomor_po);
+        $this->assertStringEndsWith('0001', $po1->nomor_po);
+
+        $po2 = PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'warehouse_id' => $warehouse->id,
+            'tanggal_pesan' => '2026-10-26',
+            'created_by' => $user->id,
+        ]);
+
+        $this->assertStringEndsWith('0002', $po2->nomor_po);
     }
 }

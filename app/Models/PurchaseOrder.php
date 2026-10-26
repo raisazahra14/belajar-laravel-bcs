@@ -37,13 +37,29 @@ class PurchaseOrder extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::creating(function (self $po): void {
+            if (empty($po->nomor_po)) {
+                $po->nomor_po = static::generateNomorPo($po->tanggal_pesan);
+            }
+        });
+    }
+
     /**
      * Otomatisasi generate format nomor PO: PO-YYYYMMDD-XXXX
      */
-    public static function generateNomorPo(?CarbonInterface $date = null): string
+    public static function generateNomorPo(CarbonInterface|string|null $date = null): string
     {
-        $date = $date ? Carbon::instance($date) : Carbon::today();
-        $dateStr = $date->format('Ymd');
+        if ($date instanceof CarbonInterface) {
+            $carbon = Carbon::instance($date);
+        } elseif (is_string($date) && ! empty($date)) {
+            $carbon = Carbon::parse($date);
+        } else {
+            $carbon = Carbon::today();
+        }
+
+        $dateStr = $carbon->format('Ymd');
         $prefix = "PO-{$dateStr}-";
 
         $latest = static::query()

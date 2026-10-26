@@ -53,4 +53,14 @@ class User extends Authenticatable
     {
         return $this->hasMany(DocumentVerification::class);
     }
+
+    public function createdPurchaseOrders(): HasMany
+    {
+        return $this->hasMany(PurchaseOrder::class, 'created_by');
+    }
+
+    public function approvedPurchaseOrders(): HasMany
+    {
+        return $this->hasMany(PurchaseOrder::class, 'approved_by');
+    }
 }
