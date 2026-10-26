@@ -17,8 +17,12 @@ Dokumen ini menjadi acuan utama perancangan teknis dan fungsional modul Purchase
 | Migration Database PO & Items | [`database/migrations/2026_10_26_100000_create_purchase_orders_and_items_tables.php`](../database/migrations/2026_10_26_100000_create_purchase_orders_and_items_tables.php) |
 | Model Header PO | [`app/Models/PurchaseOrder.php`](../app/Models/PurchaseOrder.php) |
 | Model Rincian Item PO | [`app/Models/PurchaseOrderItem.php`](../app/Models/PurchaseOrderItem.php) |
+| Form Request Buat PO | [`app/Http/Requests/StorePurchaseOrderRequest.php`](../app/Http/Requests/StorePurchaseOrderRequest.php) |
+| Form Request Ubah PO (Draft Only) | [`app/Http/Requests/UpdatePurchaseOrderRequest.php`](../app/Http/Requests/UpdatePurchaseOrderRequest.php) |
+| Form Request Penerimaan Fisik Barang | [`app/Http/Requests/ReceivePurchaseOrderItemRequest.php`](../app/Http/Requests/ReceivePurchaseOrderItemRequest.php) |
 | Unit Test State Machine | [`tests/Unit/PurchaseOrderStateMachineTest.php`](../tests/Unit/PurchaseOrderStateMachineTest.php) |
 | Feature Test Database & Relasi | [`tests/Feature/PurchaseOrderDatabaseRelationshipTest.php`](../tests/Feature/PurchaseOrderDatabaseRelationshipTest.php) |
+| Feature Test Form Request Validations | [`tests/Feature/PurchaseOrderValidationRequestTest.php`](../tests/Feature/PurchaseOrderValidationRequestTest.php) |
 
 ---
 
