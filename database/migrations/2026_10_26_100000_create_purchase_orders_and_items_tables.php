@@ -22,6 +22,11 @@ return new class extends Migration
             $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
+            // Leading index untuk foreign keys dan pencarian
+            $table->index('supplier_id');
+            $table->index('warehouse_id');
+            $table->index('created_by');
+            $table->index('approved_by');
             $table->index(['status', 'tanggal_pesan']);
         });
 
@@ -35,7 +40,9 @@ return new class extends Migration
             $table->decimal('subtotal', 15, 2)->default(0.00);
             $table->timestamps();
 
-            $table->index(['purchase_order_id', 'barang_id']);
+            // Leading index untuk foreign keys
+            $table->index('purchase_order_id');
+            $table->index('barang_id');
         });
     }
 
