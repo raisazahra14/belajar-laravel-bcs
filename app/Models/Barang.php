@@ -100,6 +100,11 @@ class Barang extends Model
         return $this->hasMany(WarehouseStock::class, 'barang_id');
     }
 
+    public function purchaseOrderItems(): HasMany
+    {
+        return $this->hasMany(PurchaseOrderItem::class, 'barang_id');
+    }
+
     public function warehouseStokTransactions(): HasManyThrough
     {
         return $this->hasManyThrough(

@@ -45,6 +45,11 @@ class Warehouse extends Model
         return $this->hasMany(WarehouseStock::class, 'warehouse_id');
     }
 
+    public function purchaseOrders(): HasMany
+    {
+        return $this->hasMany(PurchaseOrder::class, 'warehouse_id');
+    }
+
     public function stokTransactions(): HasManyThrough
     {
         return $this->hasManyThrough(

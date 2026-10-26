@@ -50,6 +50,11 @@ class Supplier extends Model
         return $this->hasMany(StokTransaction::class, 'supplier_id');
     }
 
+    public function purchaseOrders(): HasMany
+    {
+        return $this->hasMany(PurchaseOrder::class, 'supplier_id');
+    }
+
     public function warehouseStocks(): HasManyThrough
     {
         return $this->hasManyThrough(

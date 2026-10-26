@@ -35,6 +35,7 @@ LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python unt
 | [Peta Konsep](./PETA_KONSEP_LOGISTIKKU.md) | Ringkasan cara kerja setiap modul dan hubungan Laravel, database, queue, storage, dan Python. | Aktif. |
 | [ERD](./database/erd.md) | Diagram relasi tabel bisnis, fungsi tabel, FK, dan integritas data. | 15 tabel bisnis/aplikasi. |
 | [Data Dictionary](./data_dictionary.md) | Definisi seluruh tabel, kolom, kunci, indeks, dan aturan data. | 23 tabel, 218 kolom, 24 FK. |
+| [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) | Alur bisnis, status, matriks transisi, hak akses, skema database, dan aturan bisnis Modul Pengadaan (Purchase Order). | Minggu 1. |
 
 ## Peta fitur dan dokumentasinya
 
