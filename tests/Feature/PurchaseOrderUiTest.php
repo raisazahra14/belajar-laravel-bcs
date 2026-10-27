@@ -311,4 +311,221 @@ class PurchaseOrderUiTest extends TestCase
             ->assertRedirect(route('purchase-orders.show', $po))
             ->assertSessionHasErrors('status');
     }
+
+    public function test_manager_can_view_approve_and_reject_modals_on_pending_approval_po(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-1001',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'status' => PurchaseOrderStatus::PENDING_APPROVAL,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 900000,
+            'created_by' => $this->staff->id,
+        ]);
+
+        $po->items()->create([
+            'barang_id' => $this->barangA->id,
+            'jumlah_pesan' => 2,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 450000,
+            'subtotal' => 900000,
+        ]);
+
+        // Manager (bukan pembuat) membuka halaman detail PO
+        $response = $this->actingAs($this->manager)->get(route('purchase-orders.show', $po));
+
+        $response->assertOk()
+            ->assertSee('Setujui Pesanan (Approve)')
+            ->assertSee('id="approvePoModal"', false)
+            ->assertSee('Tolak (Reject)')
+            ->assertSee('id="rejectPoModal"', false)
+            ->assertSee('name="reason"', false)
+            ->assertDontSee('id="goodsReceiptModal"', false);
+
+        // Staff gudang biasa tidak melihat tombol Approve / Reject
+        $staffResponse = $this->actingAs($this->staff)->get(route('purchase-orders.show', $po));
+        $staffResponse->assertOk()
+            ->assertDontSee('Setujui Pesanan (Approve)')
+            ->assertDontSee('Tolak (Reject)');
+    }
+
+    public function test_manager_can_approve_po_via_action(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-1002',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'status' => PurchaseOrderStatus::PENDING_APPROVAL,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 900000,
+            'created_by' => $this->staff->id,
+        ]);
+
+        $po->items()->create([
+            'barang_id' => $this->barangA->id,
+            'jumlah_pesan' => 2,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 450000,
+            'subtotal' => 900000,
+        ]);
+
+        $response = $this->actingAs($this->manager)->post(route('purchase-orders.approve', $po));
+
+        $response->assertRedirect(route('purchase-orders.show', $po))
+            ->assertSessionHas('success');
+
+        $po->refresh();
+        $this->assertSame(PurchaseOrderStatus::APPROVED, $po->status);
+        $this->assertSame($this->manager->id, $po->approved_by);
+    }
+
+    public function test_manager_can_reject_po_with_required_reason(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-1003',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'status' => PurchaseOrderStatus::PENDING_APPROVAL,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 900000,
+            'created_by' => $this->staff->id,
+        ]);
+
+        // Gagal jika alasan kosong
+        $this->actingAs($this->manager)
+            ->post(route('purchase-orders.reject', $po), ['reason' => ''])
+            ->assertSessionHasErrors('reason');
+
+        // Berhasil jika alasan diisi
+        $response = $this->actingAs($this->manager)
+            ->post(route('purchase-orders.reject', $po), [
+                'reason' => 'Harga satuan barang terlalu tinggi dari anggaran pengadaan.',
+            ]);
+
+        $response->assertRedirect(route('purchase-orders.show', $po))
+            ->assertSessionHas('success');
+
+        $po->refresh();
+        $this->assertSame(PurchaseOrderStatus::REJECTED, $po->status);
+        $this->assertStringContainsString('Harga satuan barang terlalu tinggi', $po->catatan);
+    }
+
+    public function test_warehouse_staff_can_view_and_submit_goods_receipt_modal_on_approved_po(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-2001',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'status' => PurchaseOrderStatus::APPROVED,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 1750000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+
+        $item1 = $po->items()->create([
+            'barang_id' => $this->barangA->id,
+            'jumlah_pesan' => 5,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 350000,
+            'subtotal' => 1750000,
+        ]);
+
+        // Halaman Detail menampilkan tombol Terima Barang Fisik dan modal
+        $showResponse = $this->actingAs($this->staff)->get(route('purchase-orders.show', $po));
+        $showResponse->assertOk()
+            ->assertSee('Terima Barang Fisik (Goods Receipt)')
+            ->assertSee('id="goodsReceiptModal"', false)
+            ->assertSee('name="items[0][jumlah_diterima]"', false)
+            ->assertSee('id="btn-receive-all-remaining"', false);
+
+        // Penerimaan fisik sebagian (Partial Goods Receipt: 3 unit dari 5)
+        $receiptResponse = $this->actingAs($this->staff)->post(route('purchase-orders.receive', $po), [
+            'tanggal_terima' => '2026-10-27',
+            'nomor_surat_jalan' => 'SJ-2026-10-9981',
+            'catatan' => 'Kemasan utuh, 3 unit tiba tahap 1',
+            'items' => [
+                [
+                    'purchase_order_item_id' => $item1->id,
+                    'jumlah_diterima' => 3,
+                ],
+            ],
+        ]);
+
+        $receiptResponse->assertRedirect(route('purchase-orders.show', $po))
+            ->assertSessionHas('success');
+
+        $po->refresh();
+        $this->assertSame(PurchaseOrderStatus::PARTIALLY_RECEIVED, $po->status);
+        $item1->refresh();
+        $this->assertEquals(3, $item1->jumlah_diterima);
+        $this->assertEquals(2, $item1->sisa);
+
+        // Penerimaan sisa 2 unit hingga selesai (Completed)
+        $completeResponse = $this->actingAs($this->staff)->post(route('purchase-orders.receive', $po), [
+            'tanggal_terima' => '2026-10-27',
+            'nomor_surat_jalan' => 'SJ-2026-10-9982',
+            'items' => [
+                [
+                    'purchase_order_item_id' => $item1->id,
+                    'jumlah_diterima' => 2,
+                ],
+            ],
+        ]);
+
+        $completeResponse->assertRedirect(route('purchase-orders.show', $po));
+        $po->refresh();
+        $this->assertSame(PurchaseOrderStatus::COMPLETED, $po->status);
+
+        // Pada status COMPLETED dan semua sisa 0, tombol Terima Barang tidak tampil lagi
+        $completedShowResponse = $this->actingAs($this->staff)->get(route('purchase-orders.show', $po));
+        $completedShowResponse->assertOk()
+            ->assertDontSee('id="goodsReceiptModal"', false);
+    }
+
+    public function test_print_pdf_button_is_rendered_and_returns_valid_official_purchase_order_pdf(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-3001',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'status' => PurchaseOrderStatus::APPROVED,
+            'tanggal_pesan' => '2026-10-27',
+            'estimasi_tiba' => '2026-10-31',
+            'total_biaya' => 900000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+            'catatan' => 'Instruksi pengiriman langsung ke dermaga logistik barat.',
+        ]);
+
+        $po->items()->create([
+            'barang_id' => $this->barangA->id,
+            'jumlah_pesan' => 2,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 450000,
+            'subtotal' => 900000,
+        ]);
+
+        // Verifikasi tombol Cetak PDF PO tampil di halaman detail
+        $showResponse = $this->actingAs($this->staff)->get(route('purchase-orders.show', $po));
+        $showResponse->assertOk()
+            ->assertSee('Cetak PDF PO')
+            ->assertSee(route('purchase-orders.pdf', $po));
+
+        // Mengunduh dokumen PDF resmi
+        $pdfResponse = $this->actingAs($this->staff)->get(route('purchase-orders.pdf', $po));
+
+        $pdfResponse->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf')
+            ->assertHeader('Content-Disposition', 'inline; filename="PO-20261027-3001.pdf"');
+
+        $content = $pdfResponse->getContent();
+
+        $this->assertStringStartsWith('%PDF-1.4', $content);
+        $this->assertStringEndsWith('%%EOF', trim($content));
+        $this->assertStringContainsString('PURCHASE ORDER', $content);
+        $this->assertStringContainsString($po->nomor_po, $content);
+        $this->assertStringContainsString($this->supplierA->nama_supplier, $content);
+    }
 }

@@ -19,9 +19,10 @@ Dokumen ini menjadi acuan utama perancangan teknis dan fungsional modul Purchase
 | Model Rincian Item PO | [`app/Models/PurchaseOrderItem.php`](../app/Models/PurchaseOrderItem.php) |
 | Business Service Modul PO | [`app/Services/PurchaseOrderService.php`](../app/Services/PurchaseOrderService.php) |
 | Controller UI & Aksi PO | [`app/Http/Controllers/PurchaseOrderController.php`](../app/Http/Controllers/PurchaseOrderController.php) |
+| Layanan Pembuatan PDF PO | [`app/Services/PurchaseOrderPdfService.php`](../app/Services/PurchaseOrderPdfService.php) |
 | View Daftar PO (Index & Filter) | [`resources/views/purchase-orders/index.blade.php`](../resources/views/purchase-orders/index.blade.php) |
 | View Buat & Edit PO (Form Dinamis) | [`resources/views/purchase-orders/create.blade.php`](../resources/views/purchase-orders/create.blade.php), [`edit.blade.php`](../resources/views/purchase-orders/edit.blade.php), [`partials/form.blade.php`](../resources/views/purchase-orders/partials/form.blade.php) |
-| View Detail PO | [`resources/views/purchase-orders/show.blade.php`](../resources/views/purchase-orders/show.blade.php) |
+| View Detail PO (Role-Based Action UI) | [`resources/views/purchase-orders/show.blade.php`](../resources/views/purchase-orders/show.blade.php) |
 | Form Request Buat PO | [`app/Http/Requests/StorePurchaseOrderRequest.php`](../app/Http/Requests/StorePurchaseOrderRequest.php) |
 | Form Request Ubah PO (Draft Only) | [`app/Http/Requests/UpdatePurchaseOrderRequest.php`](../app/Http/Requests/UpdatePurchaseOrderRequest.php) |
 | Form Request Penerimaan Fisik Barang | [`app/Http/Requests/ReceivePurchaseOrderItemRequest.php`](../app/Http/Requests/ReceivePurchaseOrderItemRequest.php) |

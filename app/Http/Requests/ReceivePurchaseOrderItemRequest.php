@@ -20,6 +20,16 @@ class ReceivePurchaseOrderItemRequest extends FormRequest
                 $this->merge([$field => $value !== '' ? $value : null]);
             }
         }
+
+        if ($this->has('items') && is_array($this->input('items'))) {
+            $filtered = array_values(array_filter($this->input('items'), function ($item) {
+                return is_array($item)
+                    && isset($item['jumlah_diterima'])
+                    && is_numeric($item['jumlah_diterima'])
+                    && (int) $item['jumlah_diterima'] > 0;
+            }));
+            $this->merge(['items' => $filtered]);
+        }
     }
 
     public function getPurchaseOrderItem(): ?PurchaseOrderItem
