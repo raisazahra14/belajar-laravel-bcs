@@ -9,6 +9,8 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -263,6 +265,7 @@ class PurchaseOrderService
     /**
      * Mencatat penerimaan fisik barang (Goods Receipt), menambah saldo warehouse_stocks,
      * mencatat mutasi masuk pada stok_transactions, dan memperbarui status PO secara otomatis.
+     * Dilengkapi proteksi double-submit via atomic lock, deterministik lockForUpdate, dan auto-retry deadlock.
      *
      * @param  array<mixed>  $receivedItems
      *
@@ -276,94 +279,117 @@ class PurchaseOrderService
         ?string $notes = null,
         ?string $documentDate = null,
     ): PurchaseOrder {
-        return DB::transaction(function () use ($po, $receivedItems, $staff, $notes, $documentDate): PurchaseOrder {
-            $lockedPo = PurchaseOrder::with(['items.barang'])->where('id', $po->id)->lockForUpdate()->firstOrFail();
+        $lockKey = "purchase_order:receive:{$po->id}";
+        $lock = Cache::lock($lockKey, 15);
 
-            if (! $lockedPo->status->canReceiveGoods()) {
-                throw InvalidPurchaseOrderTransitionException::guardFailed(
-                    "Penerimaan barang fisik tidak dapat dicatat untuk Purchase Order yang berstatus \"{$lockedPo->status->label()}\"."
-                );
-            }
+        if (! $lock->get()) {
+            throw ValidationException::withMessages([
+                'double_submit' => "Penerimaan barang untuk Purchase Order {$po->nomor_po} sedang diproses oleh sistem. Harap tunggu beberapa saat untuk mencegah pencatatan ganda.",
+            ]);
+        }
 
-            $normalizedItems = $this->normalizeReceivedItems($lockedPo, $receivedItems);
+        try {
+            return DB::transaction(function () use ($po, $receivedItems, $staff, $notes, $documentDate): PurchaseOrder {
+                // 1. Kunci header PO dengan lockForUpdate()
+                $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
 
-            if (empty($normalizedItems)) {
-                throw ValidationException::withMessages([
-                    'items' => 'Minimal harus terdapat 1 barang dengan jumlah diterima lebih dari 0.',
-                ]);
-            }
+                if (! $lockedPo->status->canReceiveGoods()) {
+                    throw InvalidPurchaseOrderTransitionException::guardFailed(
+                        "Penerimaan barang fisik tidak dapat dicatat untuk Purchase Order yang berstatus \"{$lockedPo->status->label()}\"."
+                    );
+                }
 
-            // Validasi over-receipt per item sebelum mutasi
-            foreach ($normalizedItems as $row) {
-                /** @var PurchaseOrderItem $item */
-                $item = $row['item'];
-                $qty = $row['qty'];
+                // 2. Kunci seluruh baris item PO dengan lockForUpdate() terurut deterministik untuk mencegah deadlock
+                $lockedItems = PurchaseOrderItem::with('barang')
+                    ->where('purchase_order_id', $lockedPo->id)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
 
-                if ($qty > $item->sisa) {
-                    $namaBarang = $item->barang?->nama_barang ?? "Item #{$item->id}";
+                $normalizedItems = $this->normalizeReceivedItems($lockedPo, $receivedItems, $lockedItems);
+
+                if (empty($normalizedItems)) {
                     throw ValidationException::withMessages([
-                        'jumlah_diterima' => "Jumlah barang yang diterima untuk {$namaBarang} ({$qty}) melebihi sisa pesanan yang belum tiba ({$item->sisa}).",
+                        'items' => 'Minimal harus terdapat 1 barang dengan jumlah diterima lebih dari 0.',
                     ]);
                 }
-            }
 
-            // Eksekusi penambahan stok dan audit transaksi mutasi masuk
-            $tanggal = $documentDate ?? now()->toDateString();
-            foreach ($normalizedItems as $row) {
-                /** @var PurchaseOrderItem $item */
-                $item = $row['item'];
-                $qty = $row['qty'];
+                // 3. Validasi pencegahan over-receipt per item sebelum mutasi
+                foreach ($normalizedItems as $row) {
+                    /** @var PurchaseOrderItem $item */
+                    $item = $row['item'];
+                    $qty = $row['qty'];
 
-                // 1. Tambahkan saldo stok ke warehouse_stocks dan catat stok_transactions jenis masuk
-                $this->stockAdjustmentService->adjust(
-                    barang: $item->barang_id,
-                    type: 'masuk',
-                    quantity: $qty,
-                    description: "Penerimaan PO #{$lockedPo->nomor_po}".($notes ? " - {$notes}" : ''),
-                    warehouseId: $lockedPo->warehouse_id,
-                    supplierId: $lockedPo->supplier_id,
-                    userId: $staff->id,
-                    metadata: [
-                        'mutation_type' => 'operational',
-                        'reference_type' => 'PO',
-                        'reference_number' => $lockedPo->nomor_po,
-                        'unit_cost' => $item->harga_satuan,
-                        'unit_cost_source' => 'purchase_order',
-                        'document_date' => $tanggal,
-                    ],
-                );
+                    if ($qty > $item->sisa) {
+                        $namaBarang = $item->barang?->nama_barang ?? "Item #{$item->id}";
+                        throw ValidationException::withMessages([
+                            'jumlah_diterima' => "Jumlah barang yang diterima untuk {$namaBarang} ({$qty}) melebihi sisa pesanan yang belum tiba ({$item->sisa}).",
+                        ]);
+                    }
+                }
 
-                // 2. Akumulasi jumlah_diterima pada item PO
-                $item->jumlah_diterima += $qty;
-                $item->save();
-            }
+                // 4. Eksekusi penambahan stok dan audit transaksi mutasi masuk (dengan lock konsisten)
+                $tanggal = $documentDate ?? now()->toDateString();
+                foreach ($normalizedItems as $row) {
+                    /** @var PurchaseOrderItem $item */
+                    $item = $row['item'];
+                    $qty = $row['qty'];
 
-            // 3. Update status PO otomatis menjadi PARTIALLY_RECEIVED atau COMPLETED
-            $lines = $lockedPo->items->map(fn (PurchaseOrderItem $it) => [
-                'ordered' => (int) $it->jumlah_pesan,
-                'received' => (int) $it->jumlah_diterima,
-            ])->all();
+                    // Tambahkan saldo stok ke warehouse_stocks dan catat stok_transactions jenis masuk
+                    $this->stockAdjustmentService->adjust(
+                        barang: $item->barang_id,
+                        type: 'masuk',
+                        quantity: $qty,
+                        description: "Penerimaan PO #{$lockedPo->nomor_po}".($notes ? " - {$notes}" : ''),
+                        warehouseId: $lockedPo->warehouse_id,
+                        supplierId: $lockedPo->supplier_id,
+                        userId: $staff->id,
+                        metadata: [
+                            'mutation_type' => 'operational',
+                            'reference_type' => 'PO',
+                            'reference_number' => $lockedPo->nomor_po,
+                            'unit_cost' => $item->harga_satuan,
+                            'unit_cost_source' => 'purchase_order',
+                            'document_date' => $tanggal,
+                        ],
+                    );
 
-            $newStatus = $this->stateMachine->resolveReceivingStatus($lockedPo->status, $lines);
-            $lockedPo->status = $newStatus;
-            $lockedPo->save();
+                    // Akumulasi jumlah_diterima pada item PO
+                    $item->jumlah_diterima += $qty;
+                    $item->save();
+                }
 
-            return $lockedPo->fresh(['items.barang', 'supplier', 'warehouse']);
-        });
+                // 5. Update status PO otomatis menjadi PARTIALLY_RECEIVED atau COMPLETED
+                $lines = $lockedItems->map(fn (PurchaseOrderItem $it) => [
+                    'ordered' => (int) $it->jumlah_pesan,
+                    'received' => (int) $it->jumlah_diterima,
+                ])->all();
+
+                $newStatus = $this->stateMachine->resolveReceivingStatus($lockedPo->status, $lines);
+                $lockedPo->status = $newStatus;
+                $lockedPo->save();
+
+                return $lockedPo->fresh(['items.barang', 'supplier', 'warehouse']);
+            }, 3);
+        } finally {
+            $lock->release();
+        }
     }
 
     /**
      * Normalisasi payload penerimaan barang agar mendukung format tunggal, array items, atau asosiatif.
      *
      * @param  array<mixed>  $receivedItems
+     * @param  Collection<int, PurchaseOrderItem>|null  $lockedItems
      * @return list<array{item: PurchaseOrderItem, qty: int}>
      *
      * @throws ValidationException
      */
-    private function normalizeReceivedItems(PurchaseOrder $po, array $receivedItems): array
+    private function normalizeReceivedItems(PurchaseOrder $po, array $receivedItems, ?Collection $lockedItems = null): array
     {
-        $itemsById = $po->items->keyBy('id');
-        $itemsByBarangId = $po->items->keyBy('barang_id');
+        $items = $lockedItems ?? $po->items;
+        $itemsById = $items->keyBy('id');
+        $itemsByBarangId = $items->keyBy('barang_id');
 
         $result = [];
 

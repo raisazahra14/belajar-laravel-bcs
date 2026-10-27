@@ -62,8 +62,22 @@
     <x-ui.alert type="success" dismissible>{{ session('success') }}</x-ui.alert>
 @endif
 
-@if($errors->any())
-    <x-ui.alert type="danger">{{ $errors->first() }}</x-ui.alert>
+@if(session('error'))
+    <x-ui.alert type="danger" dismissible>{{ session('error') }}</x-ui.alert>
+@endif
+
+@if(session('warning'))
+    <x-ui.alert type="warning" dismissible>{{ session('warning') }}</x-ui.alert>
+@endif
+
+@if(session('info'))
+    <x-ui.alert type="info" dismissible>{{ session('info') }}</x-ui.alert>
+@endif
+
+@if($errors->any() && !session('error'))
+    <x-ui.alert type="danger" dismissible>
+        <strong>Perhatian:</strong> {{ $errors->first() }}
+    </x-ui.alert>
 @endif
 
 <x-ui.card class="mb-4">
@@ -438,8 +452,44 @@ document.addEventListener('DOMContentLoaded', function () {
                 } else {
                     alert('Minimal satu barang harus diisi jumlah penerimaannya (> 0 unit).');
                 }
+                return;
+            }
+
+            // Cegah double submit dari sisi UI
+            const submitBtn = document.getElementById('btn-submit-receipt');
+            if (submitBtn) {
+                if (submitBtn.disabled) {
+                    e.preventDefault();
+                    return;
+                }
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Menyimpan Penerimaan...';
+            }
+
+            const modalContent = receiptForm.closest('.modal-content');
+            if (modalContent) {
+                const dismissBtns = modalContent.querySelectorAll('[data-bs-dismiss="modal"], [data-dismiss="modal"]');
+                dismissBtns.forEach(btn => btn.setAttribute('disabled', 'disabled'));
             }
         });
+    }
+
+    // Cegah double submit pada form aksi modal konfirmasi (Approve, Reject, Cancel)
+    ['approvePoModal', 'rejectPoModal', 'cancelPoModal'].forEach(function (modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            const form = modal.querySelector('form');
+            if (form) {
+                form.addEventListener('submit', function () {
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    if (submitBtn && !submitBtn.disabled) {
+                        submitBtn.disabled = true;
+                        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Memproses...';
+                    }
+                });
+            }
+        }
+    });
     }
 });
 </script>

@@ -16,12 +16,14 @@ use App\Models\Warehouse;
 use App\Services\PurchaseOrderPdfService;
 use App\Services\PurchaseOrderService;
 use App\Services\PurchaseOrderStateMachine;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class PurchaseOrderController extends Controller
@@ -217,10 +219,17 @@ class PurchaseOrderController extends Controller
                 ->with('success', "Purchase Order {$po->nomor_po} berhasil diajukan untuk persetujuan Manager.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
             if ($request->wantsJson()) {
-                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
             }
 
-            return back()->withErrors(['status' => $e->getMessage()]);
+            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
+        } catch (QueryException $e) {
+            $message = 'Terjadi kepadatan transaksi saat mengajukan Purchase Order. Silakan coba kembali.';
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message, 'error_code' => 'database_conflict'], 409);
+            }
+
+            return back()->with('error', $message);
         }
     }
 
@@ -240,13 +249,20 @@ class PurchaseOrderController extends Controller
 
             return redirect()
                 ->route('purchase-orders.show', $po)
-                ->with('success', "Purchase Order {$po->nomor_po} telah disetujui.");
+                ->with('success', "Purchase Order {$po->nomor_po} telah berhasil disetujui.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
             if ($request->wantsJson()) {
-                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
             }
 
-            return back()->withErrors(['status' => $e->getMessage()]);
+            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
+        } catch (QueryException $e) {
+            $message = 'Terjadi kendala saat menyetujui pesanan pada database. Silakan coba kembali.';
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message, 'error_code' => 'database_conflict'], 409);
+            }
+
+            return back()->with('error', $message);
         }
     }
 
@@ -259,6 +275,7 @@ class PurchaseOrderController extends Controller
             'reason' => ['required', 'string', 'max:1000'],
         ], [
             'reason.required' => 'Catatan alasan penolakan wajib diisi.',
+            'reason.max' => 'Catatan alasan penolakan maksimal 1.000 karakter.',
         ]);
 
         try {
@@ -275,10 +292,17 @@ class PurchaseOrderController extends Controller
                 ->with('success', "Purchase Order {$po->nomor_po} telah ditolak.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
             if ($request->wantsJson()) {
-                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
             }
 
-            return back()->withErrors(['status' => $e->getMessage()]);
+            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
+        } catch (QueryException $e) {
+            $message = 'Terjadi kendala saat menolak pesanan pada database. Silakan coba kembali.';
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message, 'error_code' => 'database_conflict'], 409);
+            }
+
+            return back()->with('error', $message);
         }
     }
 
@@ -291,6 +315,7 @@ class PurchaseOrderController extends Controller
             'reason' => ['required', 'string', 'max:1000'],
         ], [
             'reason.required' => 'Catatan alasan pembatalan wajib diisi.',
+            'reason.max' => 'Catatan alasan pembatalan maksimal 1.000 karakter.',
         ]);
 
         try {
@@ -307,10 +332,17 @@ class PurchaseOrderController extends Controller
                 ->with('success', "Purchase Order {$po->nomor_po} telah dibatalkan.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
             if ($request->wantsJson()) {
-                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
             }
 
-            return back()->withErrors(['status' => $e->getMessage()]);
+            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
+        } catch (QueryException $e) {
+            $message = 'Terjadi kendala saat membatalkan pesanan pada database. Silakan coba kembali.';
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message, 'error_code' => 'database_conflict'], 409);
+            }
+
+            return back()->with('error', $message);
         }
     }
 
@@ -346,13 +378,34 @@ class PurchaseOrderController extends Controller
 
             return redirect()
                 ->route('purchase-orders.show', $po)
-                ->with('success', "Penerimaan barang untuk Purchase Order {$po->nomor_po} berhasil dicatat.");
+                ->with('success', "Penerimaan barang fisik untuk Purchase Order {$po->nomor_po} berhasil dicatat.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
             if ($request->wantsJson()) {
-                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
             }
 
-            return back()->withErrors(['status' => $e->getMessage()]);
+            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()])->withInput();
+        } catch (ValidationException $e) {
+            if ($request->wantsJson()) {
+                throw $e;
+            }
+
+            $errorMessage = $e->validator->errors()->first();
+
+            return back()->with('error', $errorMessage)->withErrors($e->validator)->withInput();
+        } catch (QueryException $e) {
+            $isDeadlock = in_array((string) $e->getCode(), ['40001', '1213'], true)
+                || (isset($e->errorInfo[1]) && in_array((int) $e->errorInfo[1], [1205, 1213], true));
+
+            $friendlyMessage = $isDeadlock
+                ? 'Sistem mendeteksi kepadatan transaksi pada database saat memperbarui saldo stok. Transaksi dibatalkan dengan aman untuk menjaga integritas ledger. Silakan coba kembali beberapa saat lagi.'
+                : 'Terjadi kendala saat menyimpan mutasi stok ke database. Silakan coba beberapa saat lagi.';
+
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $friendlyMessage, 'error_code' => 'database_conflict'], 409);
+            }
+
+            return back()->with('error', $friendlyMessage)->withInput();
         }
     }
 

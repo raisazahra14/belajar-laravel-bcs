@@ -36,6 +36,7 @@ Dokumen ini menjadi acuan utama perancangan teknis dan fungsional modul Purchase
 | Feature Test Logika Bisnis & Transaksi Atomik | [`tests/Feature/PurchaseOrderLogicTest.php`](../tests/Feature/PurchaseOrderLogicTest.php) |
 | Feature Test Antarmuka UI (Index & Form Dinamis) | [`tests/Feature/PurchaseOrderUiTest.php`](../tests/Feature/PurchaseOrderUiTest.php) |
 | Feature Test API Endpoint & Resource | [`tests/Feature/PurchaseOrderApiTest.php`](../tests/Feature/PurchaseOrderApiTest.php) |
+| Feature Test Penanganan Error & Edge-Cases | [`tests/Feature/PurchaseOrderRobustErrorHandlingTest.php`](../tests/Feature/PurchaseOrderRobustErrorHandlingTest.php) |
 
 ---
 
@@ -248,3 +249,23 @@ DB::transaction(function () use ($po, $request) {
     $poLocked->save();
 });
 ```
+
+---
+
+## 9. Penanganan Error & Edge-Cases (Robust Error Handling)
+
+Modul mengimplementasikan perlindungan berlapis untuk menjamin integritas data operasional gudang:
+
+### 9.1 Pencegahan Double Submit
+- **Frontend Layer**: Saat tombol formulir penerimaan barang atau aksi modal ditekan, JavaScript langsung mendisabel tombol pengiriman (`disabled = true`), mengganti label dengan spinner loading, dan menonaktifkan tombol penutup modal.
+- **Backend Atomic Lock**: Pada level server, `PurchaseOrderService::receiveItems` menggunakan `Cache::lock("purchase_order:receive:{$po->id}", 15)->block(0)`. Jika request duplikat datang bersamaan (misal koneksi jaringan lambat atau bypass JavaScript), request kedua langsung ditolak dengan `ValidationException` yang informatif.
+
+### 9.2 Pencegahan Race Condition & Deadlock
+- **Pessimistic Locking**: Baris header `purchase_orders`, `purchase_order_items`, serta `warehouse_stocks` dikunci secara eksklusif menggunakan `lockForUpdate()`.
+- **Urutan Penguncian Deterministik**: Item dikunci secara terurut berdasarkan `id` (`orderBy('id')->lockForUpdate()`). Hal ini mencegah *circular wait* (deadlock AB-BA) ketika dua transaksi berjalan bersamaan.
+- **Automatic Deadlock Retry**: Blok database transaction dikonfigurasi dengan toleransi retry otomatis sebanyak 3 kali (`DB::transaction(..., 3)`).
+
+### 9.3 Pesan Error Ramah Pengguna (User-Friendly Flash Messages)
+- Seluruh error teknis database (`QueryException` dengan kode deadlock 40001/1213/1205), validasi over-receipt, dan pelanggaran transisi status dipetakan ke pesan bahasa Indonesia yang sopan dan solutif.
+- Tampilan Blade `purchase-orders.show` memiliki visual alert khusus untuk `success`, `error`, `warning`, `info`, dan daftar validasi `$errors`.
+
