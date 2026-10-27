@@ -1249,7 +1249,8 @@ OCR_FIELD_LABELS = {
     "surat_jalan": {
         "document_number": r"nomor\s*surat\s*jalan|no\.?\s*surat\s*jalan|no\.?\s*form|delivery\s*(?:note|order)\s*no\.?,?|weighing\s*slip\s*no\.?,?",
         "document_date": r"tanggal(?:\s*dokumen)?|tgl|(?:1st|2nd)?\s*weighing\s*date|date",
-        "purchase_order_number": r"no\.?\s*po|purchase\s*order|no\.?\s*do|delivery\s*order",
+        "purchase_order_number": r"no\.?\s*po|purchase\s*order",
+        "do_number": r"no\.?\s*do|delivery\s*order",
         "vehicle_number": r"no\.?\s*truk|no\.?\s*kendaraan|no\.?\s*polisi|vehicle|truck",
         "sender": r"pengirim|supplier|sender|dikirim\s*oleh",
         "recipient": r"penerima|recipient|consignee|ship\s*to|diterima\s*oleh",
@@ -1694,6 +1695,7 @@ def _apply_coordinate_fields(result: dict[str, Any], fields: dict[str, dict[str,
             "document_number": "document_number",
             "document_date": "document_date",
             "po_number": "purchase_order_number",
+            "do_number": "do_number",
             "vehicle_number": "vehicle_number",
             "sender": "sender",
             "recipient": "recipient",
@@ -1704,7 +1706,7 @@ def _apply_coordinate_fields(result: dict[str, Any], fields: dict[str, dict[str,
         }
     for legacy_field, coordinate_field in mapping.items():
         value = values.get(coordinate_field)
-        if document_type == "invoice" and value is None:
+        if value is None:
             value = result["document_metadata"].get(legacy_field)
         result["document_metadata"][legacy_field] = value
         result["analysis"]["document_metadata"][legacy_field] = value
