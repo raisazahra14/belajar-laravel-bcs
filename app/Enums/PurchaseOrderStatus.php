@@ -78,19 +78,27 @@ enum PurchaseOrderStatus: string
     }
 
     /**
+     * Varian warna badge untuk komponen <x-ui.badge>.
+     */
+    public function badgeVariant(): string
+    {
+        return match ($this) {
+            self::DRAFT => 'secondary',
+            self::PENDING_APPROVAL => 'warning',
+            self::APPROVED => 'info',
+            self::REJECTED => 'danger',
+            self::PARTIALLY_RECEIVED => 'primary',
+            self::COMPLETED => 'success',
+            self::CANCELLED => 'dark',
+        };
+    }
+
+    /**
      * Kelas badge Bootstrap untuk tampilan UI.
      */
     public function badgeClass(): string
     {
-        return match ($this) {
-            self::DRAFT => 'badge-secondary',
-            self::PENDING_APPROVAL => 'badge-warning',
-            self::APPROVED => 'badge-info',
-            self::REJECTED => 'badge-danger',
-            self::PARTIALLY_RECEIVED => 'badge-primary',
-            self::COMPLETED => 'badge-success',
-            self::CANCELLED => 'badge-dark',
-        };
+        return 'badge-' . $this->badgeVariant();
     }
 
     /**
