@@ -2,11 +2,13 @@
 
 namespace App\Services;
 
+use App\DTO\PurchaseOrderData;
 use App\Enums\PurchaseOrderStatus;
 use App\Exceptions\InvalidPurchaseOrderTransitionException;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\User;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -217,7 +219,7 @@ class PurchaseOrderService
             if (! empty($reason)) {
                 $trimmed = trim($reason);
                 $lockedPo->catatan = $lockedPo->catatan
-                    ? $lockedPo->catatan . "\n[Alasan Penolakan: {$trimmed}]"
+                    ? $lockedPo->catatan."\n[Alasan Penolakan: {$trimmed}]"
                     : "[Alasan Penolakan: {$trimmed}]";
             }
             $lockedPo->save();
@@ -249,7 +251,7 @@ class PurchaseOrderService
             if (! empty($reason)) {
                 $trimmed = trim($reason);
                 $lockedPo->catatan = $lockedPo->catatan
-                    ? $lockedPo->catatan . "\n[Alasan Pembatalan: {$trimmed}]"
+                    ? $lockedPo->catatan."\n[Alasan Pembatalan: {$trimmed}]"
                     : "[Alasan Pembatalan: {$trimmed}]";
             }
             $lockedPo->save();
@@ -317,7 +319,7 @@ class PurchaseOrderService
                     barang: $item->barang_id,
                     type: 'masuk',
                     quantity: $qty,
-                    description: "Penerimaan PO #{$lockedPo->nomor_po}" . ($notes ? " - {$notes}" : ''),
+                    description: "Penerimaan PO #{$lockedPo->nomor_po}".($notes ? " - {$notes}" : ''),
                     warehouseId: $lockedPo->warehouse_id,
                     supplierId: $lockedPo->supplier_id,
                     userId: $staff->id,
@@ -403,5 +405,35 @@ class PurchaseOrderService
         }
 
         return $result;
+    }
+
+    /**
+     * Mendapatkan daftar Purchase Order terpaginasi dengan filter pencarian terpusat.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function paginateWithFilters(array $filters, int $perPage = 10): LengthAwarePaginator
+    {
+        return PurchaseOrder::query()
+            ->with([
+                'supplier:id,kode_supplier,nama_supplier',
+                'warehouse:id,kode_gudang,nama_gudang',
+                'creator:id,name',
+                'approver:id,name',
+            ])
+            ->withCount('items')
+            ->filter($filters)
+            ->orderByDesc('tanggal_pesan')
+            ->orderByDesc('id')
+            ->paginate($perPage)
+            ->withQueryString();
+    }
+
+    /**
+     * Membuat PO baru menggunakan DTO PurchaseOrderData.
+     */
+    public function createPOFromDTO(PurchaseOrderData $dto, User $actor): PurchaseOrder
+    {
+        return $this->createPO($dto->toArray(), $actor);
     }
 }

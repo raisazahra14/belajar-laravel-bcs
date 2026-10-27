@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\PurchaseOrderStatus;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -111,5 +112,42 @@ class PurchaseOrder extends Model
         $this->save();
 
         return $this;
+    }
+
+    /**
+     * Scope query filter pencarian nomor PO, supplier, gudang, dan status.
+     *
+     * @param  Builder  $query
+     * @param  array<string, mixed>  $filters
+     * @return Builder
+     */
+    public function scopeFilter($query, array $filters)
+    {
+        $searchTerm = trim((string) ($filters['search'] ?? $filters['nomor_po'] ?? ''));
+
+        return $query
+            ->when($searchTerm !== '', function ($q) use ($searchTerm): void {
+                $q->where(function ($sub) use ($searchTerm): void {
+                    $sub->where('nomor_po', 'like', "%{$searchTerm}%")
+                        ->orWhere('catatan', 'like', "%{$searchTerm}%")
+                        ->orWhereHas('supplier', function ($supplierQuery) use ($searchTerm): void {
+                            $supplierQuery->where('nama_supplier', 'like', "%{$searchTerm}%")
+                                ->orWhere('kode_supplier', 'like', "%{$searchTerm}%");
+                        })
+                        ->orWhereHas('warehouse', function ($warehouseQuery) use ($searchTerm): void {
+                            $warehouseQuery->where('nama_gudang', 'like', "%{$searchTerm}%")
+                                ->orWhere('kode_gudang', 'like', "%{$searchTerm}%");
+                        });
+                });
+            })
+            ->when(! empty($filters['supplier_id']), function ($q) use ($filters): void {
+                $q->where('supplier_id', (int) $filters['supplier_id']);
+            })
+            ->when(! empty($filters['warehouse_id']), function ($q) use ($filters): void {
+                $q->where('warehouse_id', (int) $filters['warehouse_id']);
+            })
+            ->when(! empty($filters['status']), function ($q) use ($filters): void {
+                $q->where('status', $filters['status']);
+            });
     }
 }

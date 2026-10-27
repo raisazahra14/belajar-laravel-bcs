@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Models\PurchaseOrder;
-use App\Models\PurchaseOrderItem;
 
 class PurchaseOrderPdfService
 {
@@ -154,7 +154,7 @@ class PurchaseOrderPdfService
             $commands[] = '50 '.($signY - 54).' m 160 '.($signY - 54).' l 0.5 w S';
 
             $commands[] = "BT /F2 8.5 Tf 410 {$signY} Td (Disetujui Oleh,) Tj ET";
-            $approverName = $po->approver?->name ?? ($po->status === \App\Enums\PurchaseOrderStatus::APPROVED ? 'Manager Logistik' : '(Belum Disetujui)');
+            $approverName = $po->approver?->name ?? ($po->status === PurchaseOrderStatus::APPROVED ? 'Manager Logistik' : '(Belum Disetujui)');
             $commands[] = 'BT /F1 8.5 Tf 410 '.($signY - 50).' Td ('.$this->escape($approverName).') Tj ET';
             $commands[] = '390 '.($signY - 54).' m 520 '.($signY - 54).' l 0.5 w S';
         }

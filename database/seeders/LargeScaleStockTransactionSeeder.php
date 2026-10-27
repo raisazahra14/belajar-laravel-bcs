@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use App\Models\Barang;
 use App\Models\Supplier;
 use App\Models\Warehouse;
-use App\Models\WarehouseStock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +13,7 @@ use RuntimeException;
 class LargeScaleStockTransactionSeeder extends Seeder
 {
     public const DEFAULT_TRANSACTION_COUNT = 10000;
+
     public const TARGET_BARANG_COUNT = 100;
 
     public function run(int $transactionCount = self::DEFAULT_TRANSACTION_COUNT): void
@@ -26,7 +26,7 @@ class LargeScaleStockTransactionSeeder extends Seeder
         $this->command?->info("🚀 Memulai seeding simulasi skala besar ({$transactionCount} data transaksi)...");
 
         // 1. Pastikan Supplier dasar tersedia
-        $this->command?->info("📦 [1/4] Memeriksa ketersediaan supplier...");
+        $this->command?->info('📦 [1/4] Memeriksa ketersediaan supplier...');
         if (Supplier::count() < 5) {
             $suppliersToCreate = [];
             for ($i = 1; $i <= 5; $i++) {
@@ -52,7 +52,7 @@ class LargeScaleStockTransactionSeeder extends Seeder
         $supplierIds = Supplier::pluck('id')->all();
 
         // 2. Pastikan Gudang standar tersedia
-        $this->command?->info("🏢 [2/4] Memeriksa master gudang...");
+        $this->command?->info('🏢 [2/4] Memeriksa master gudang...');
         $warehouses = [
             ['kode' => 'GDG-UTAMA', 'nama' => 'Gudang Pusat Logistik'],
             ['kode' => 'GDG-CAB-1', 'nama' => 'Gudang Distribusi Barat'],
@@ -67,7 +67,7 @@ class LargeScaleStockTransactionSeeder extends Seeder
         $warehouseIds = Warehouse::pluck('id')->all();
 
         // 3. Manfaatkan BarangFactory untuk melengkapi populasi master barang
-        $this->command?->info("🏷️  [3/4] Men-generate master barang dengan BarangFactory...");
+        $this->command?->info('🏷️  [3/4] Men-generate master barang dengan BarangFactory...');
         $currentBarangCount = Barang::count();
         if ($currentBarangCount < self::TARGET_BARANG_COUNT) {
             $needed = self::TARGET_BARANG_COUNT - $currentBarangCount;
@@ -142,7 +142,7 @@ class LargeScaleStockTransactionSeeder extends Seeder
                 'unit_cost_source' => 'purchase_price',
                 'stok_sebelum' => 100,
                 'stok_sesudah' => $jenis === 'masuk' ? 100 + $qty : 100 - $qty,
-                'keterangan' => 'Simulasi mutasi skala besar #' . $i,
+                'keterangan' => 'Simulasi mutasi skala besar #'.$i,
                 'created_at' => $txTime,
                 'updated_at' => $txTime,
             ];

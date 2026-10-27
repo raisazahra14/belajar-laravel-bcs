@@ -14,8 +14,11 @@ use DomainException;
 class InvalidPurchaseOrderTransitionException extends DomainException
 {
     public const NOT_ALLOWED = 'transition_not_allowed';
+
     public const UNAUTHORIZED = 'unauthorized_role';
+
     public const REASON_REQUIRED = 'reason_required';
+
     public const GUARD_FAILED = 'guard_failed';
 
     public function __construct(string $message, public readonly string $errorCode)

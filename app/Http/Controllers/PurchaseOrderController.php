@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\DTO\PurchaseOrderData;
 use App\Enums\PurchaseOrderStatus;
 use App\Exceptions\InvalidPurchaseOrderTransitionException;
 use App\Http\Requests\ReceivePurchaseOrderItemRequest;
 use App\Http\Requests\StorePurchaseOrderRequest;
 use App\Http\Requests\UpdatePurchaseOrderRequest;
+use App\Http\Resources\PurchaseOrderResource;
 use App\Models\Barang;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
@@ -14,16 +16,17 @@ use App\Models\Warehouse;
 use App\Services\PurchaseOrderPdfService;
 use App\Services\PurchaseOrderService;
 use App\Services\PurchaseOrderStateMachine;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class PurchaseOrderController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request, PurchaseOrderService $service): View|AnonymousResourceCollection
     {
         $statusValues = array_map(
             static fn (PurchaseOrderStatus $case): string => $case->value,
@@ -44,38 +47,13 @@ class PurchaseOrderController extends Controller
             'status.in' => 'Filter status Purchase Order tidak valid.',
         ]);
 
-        $searchTerm = trim((string) ($validated['search'] ?? $validated['nomor_po'] ?? ''));
+        $purchaseOrders = $service->paginateWithFilters($validated, 10);
 
-        $purchaseOrders = PurchaseOrder::query()
-            ->with(['supplier:id,kode_supplier,nama_supplier', 'warehouse:id,kode_gudang,nama_gudang', 'creator:id,name', 'approver:id,name'])
-            ->withCount('items')
-            ->when($searchTerm !== '', function (Builder $query) use ($searchTerm): void {
-                $query->where(function (Builder $sub) use ($searchTerm): void {
-                    $sub->where('nomor_po', 'like', "%{$searchTerm}%")
-                        ->orWhere('catatan', 'like', "%{$searchTerm}%")
-                        ->orWhereHas('supplier', function (Builder $supplierQuery) use ($searchTerm): void {
-                            $supplierQuery->where('nama_supplier', 'like', "%{$searchTerm}%")
-                                ->orWhere('kode_supplier', 'like', "%{$searchTerm}%");
-                        })
-                        ->orWhereHas('warehouse', function (Builder $warehouseQuery) use ($searchTerm): void {
-                            $warehouseQuery->where('nama_gudang', 'like', "%{$searchTerm}%")
-                                ->orWhere('kode_gudang', 'like', "%{$searchTerm}%");
-                        });
-                });
-            })
-            ->when(! empty($validated['supplier_id']), function (Builder $query) use ($validated): void {
-                $query->where('supplier_id', (int) $validated['supplier_id']);
-            })
-            ->when(! empty($validated['warehouse_id']), function (Builder $query) use ($validated): void {
-                $query->where('warehouse_id', (int) $validated['warehouse_id']);
-            })
-            ->when(! empty($validated['status']), function (Builder $query) use ($validated): void {
-                $query->where('status', $validated['status']);
-            })
-            ->orderByDesc('tanggal_pesan')
-            ->orderByDesc('id')
-            ->paginate(10)
-            ->withQueryString();
+        if ($request->wantsJson()) {
+            return PurchaseOrderResource::collection($purchaseOrders);
+        }
+
+        $searchTerm = trim((string) ($validated['search'] ?? $validated['nomor_po'] ?? ''));
 
         $suppliers = Supplier::query()
             ->orderBy('nama_supplier')
@@ -122,18 +100,34 @@ class PurchaseOrderController extends Controller
         ));
     }
 
-    public function store(StorePurchaseOrderRequest $request, PurchaseOrderService $service): RedirectResponse
+    public function store(StorePurchaseOrderRequest $request, PurchaseOrderService $service): RedirectResponse|JsonResponse
     {
-        $po = $service->createPO($request->validated(), $request->user());
+        $dto = PurchaseOrderData::fromArray($request->validated());
+        $po = $service->createPOFromDTO($dto, $request->user());
+
+        if ($request->wantsJson()) {
+            $po->load(['items.barang', 'supplier', 'warehouse', 'creator']);
+
+            return (new PurchaseOrderResource($po))
+                ->response()
+                ->setStatusCode(201);
+        }
 
         return redirect()
             ->route('purchase-orders.show', $po)
             ->with('success', "Purchase Order {$po->nomor_po} berhasil dibuat.");
     }
 
-    public function show(Request $request, PurchaseOrder $purchaseOrder, PurchaseOrderStateMachine $stateMachine): View
-    {
+    public function show(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderStateMachine $stateMachine
+    ): View|PurchaseOrderResource {
         $purchaseOrder->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+
+        if ($request->wantsJson()) {
+            return new PurchaseOrderResource($purchaseOrder);
+        }
 
         $user = $request->user();
         $availableTransitions = $user
@@ -190,42 +184,77 @@ class PurchaseOrderController extends Controller
         UpdatePurchaseOrderRequest $request,
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service
-    ): RedirectResponse {
+    ): RedirectResponse|PurchaseOrderResource {
         $po = $service->updatePO($purchaseOrder, $request->validated(), $request->user());
+
+        if ($request->wantsJson()) {
+            $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+
+            return new PurchaseOrderResource($po);
+        }
 
         return redirect()
             ->route('purchase-orders.show', $po)
             ->with('success', "Purchase Order {$po->nomor_po} berhasil diperbarui.");
     }
 
-    public function submit(Request $request, PurchaseOrder $purchaseOrder, PurchaseOrderService $service): RedirectResponse
-    {
+    public function submit(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service
+    ): RedirectResponse|PurchaseOrderResource|JsonResponse {
         try {
             $po = $service->submitPO($purchaseOrder, $request->user());
+
+            if ($request->wantsJson()) {
+                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+
+                return new PurchaseOrderResource($po);
+            }
 
             return redirect()
                 ->route('purchase-orders.show', $po)
                 ->with('success', "Purchase Order {$po->nomor_po} berhasil diajukan untuk persetujuan Manager.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+            }
+
             return back()->withErrors(['status' => $e->getMessage()]);
         }
     }
 
-    public function approve(Request $request, PurchaseOrder $purchaseOrder, PurchaseOrderService $service): RedirectResponse
-    {
+    public function approve(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service
+    ): RedirectResponse|PurchaseOrderResource|JsonResponse {
         try {
             $po = $service->approvePO($purchaseOrder, $request->user());
+
+            if ($request->wantsJson()) {
+                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+
+                return new PurchaseOrderResource($po);
+            }
 
             return redirect()
                 ->route('purchase-orders.show', $po)
                 ->with('success', "Purchase Order {$po->nomor_po} telah disetujui.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+            }
+
             return back()->withErrors(['status' => $e->getMessage()]);
         }
     }
 
-    public function reject(Request $request, PurchaseOrder $purchaseOrder, PurchaseOrderService $service): RedirectResponse
-    {
+    public function reject(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service
+    ): RedirectResponse|PurchaseOrderResource|JsonResponse {
         $validated = $request->validate([
             'reason' => ['required', 'string', 'max:1000'],
         ], [
@@ -235,16 +264,29 @@ class PurchaseOrderController extends Controller
         try {
             $po = $service->rejectPO($purchaseOrder, $request->user(), $validated['reason']);
 
+            if ($request->wantsJson()) {
+                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+
+                return new PurchaseOrderResource($po);
+            }
+
             return redirect()
                 ->route('purchase-orders.show', $po)
                 ->with('success', "Purchase Order {$po->nomor_po} telah ditolak.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+            }
+
             return back()->withErrors(['status' => $e->getMessage()]);
         }
     }
 
-    public function cancel(Request $request, PurchaseOrder $purchaseOrder, PurchaseOrderService $service): RedirectResponse
-    {
+    public function cancel(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service
+    ): RedirectResponse|PurchaseOrderResource|JsonResponse {
         $validated = $request->validate([
             'reason' => ['required', 'string', 'max:1000'],
         ], [
@@ -254,10 +296,20 @@ class PurchaseOrderController extends Controller
         try {
             $po = $service->cancelPO($purchaseOrder, $request->user(), $validated['reason']);
 
+            if ($request->wantsJson()) {
+                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+
+                return new PurchaseOrderResource($po);
+            }
+
             return redirect()
                 ->route('purchase-orders.show', $po)
                 ->with('success', "Purchase Order {$po->nomor_po} telah dibatalkan.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+            }
+
             return back()->withErrors(['status' => $e->getMessage()]);
         }
     }
@@ -266,7 +318,7 @@ class PurchaseOrderController extends Controller
         ReceivePurchaseOrderItemRequest $request,
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service
-    ): RedirectResponse {
+    ): RedirectResponse|PurchaseOrderResource|JsonResponse {
         $validated = $request->validated();
 
         $receivedItems = $validated['items'] ?? [];
@@ -286,10 +338,20 @@ class PurchaseOrderController extends Controller
                 $validated['tanggal_terima'] ?? null
             );
 
+            if ($request->wantsJson()) {
+                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+
+                return new PurchaseOrderResource($po);
+            }
+
             return redirect()
                 ->route('purchase-orders.show', $po)
                 ->with('success', "Penerimaan barang untuk Purchase Order {$po->nomor_po} berhasil dicatat.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->statusCode);
+            }
+
             return back()->withErrors(['status' => $e->getMessage()]);
         }
     }
@@ -300,7 +362,7 @@ class PurchaseOrderController extends Controller
 
         return response($pdfContent, 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="' . $purchaseOrder->nomor_po . '.pdf"',
+            'Content-Disposition' => 'inline; filename="'.$purchaseOrder->nomor_po.'.pdf"',
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, no-store',
         ]);

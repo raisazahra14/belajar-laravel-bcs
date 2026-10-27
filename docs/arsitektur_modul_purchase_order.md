@@ -19,6 +19,10 @@ Dokumen ini menjadi acuan utama perancangan teknis dan fungsional modul Purchase
 | Model Rincian Item PO | [`app/Models/PurchaseOrderItem.php`](../app/Models/PurchaseOrderItem.php) |
 | Business Service Modul PO | [`app/Services/PurchaseOrderService.php`](../app/Services/PurchaseOrderService.php) |
 | Controller UI & Aksi PO | [`app/Http/Controllers/PurchaseOrderController.php`](../app/Http/Controllers/PurchaseOrderController.php) |
+| Controller API REST PO | [`app/Http/Controllers/Api/PurchaseOrderApiController.php`](../app/Http/Controllers/Api/PurchaseOrderApiController.php) |
+| Data Transfer Object (DTO) PO | [`app/DTO/PurchaseOrderData.php`](../app/DTO/PurchaseOrderData.php), [`app/DTO/PurchaseOrderItemData.php`](../app/DTO/PurchaseOrderItemData.php) |
+| API Resource PO | [`app/Http/Resources/PurchaseOrderResource.php`](../app/Http/Resources/PurchaseOrderResource.php), [`app/Http/Resources/PurchaseOrderItemResource.php`](../app/Http/Resources/PurchaseOrderItemResource.php) |
+| Routing API PO | [`routes/api.php`](../routes/api.php) |
 | Layanan Pembuatan PDF PO | [`app/Services/PurchaseOrderPdfService.php`](../app/Services/PurchaseOrderPdfService.php) |
 | View Daftar PO (Index & Filter) | [`resources/views/purchase-orders/index.blade.php`](../resources/views/purchase-orders/index.blade.php) |
 | View Buat & Edit PO (Form Dinamis) | [`resources/views/purchase-orders/create.blade.php`](../resources/views/purchase-orders/create.blade.php), [`edit.blade.php`](../resources/views/purchase-orders/edit.blade.php), [`partials/form.blade.php`](../resources/views/purchase-orders/partials/form.blade.php) |
@@ -31,6 +35,7 @@ Dokumen ini menjadi acuan utama perancangan teknis dan fungsional modul Purchase
 | Feature Test Form Request Validations | [`tests/Feature/PurchaseOrderValidationRequestTest.php`](../tests/Feature/PurchaseOrderValidationRequestTest.php) |
 | Feature Test Logika Bisnis & Transaksi Atomik | [`tests/Feature/PurchaseOrderLogicTest.php`](../tests/Feature/PurchaseOrderLogicTest.php) |
 | Feature Test Antarmuka UI (Index & Form Dinamis) | [`tests/Feature/PurchaseOrderUiTest.php`](../tests/Feature/PurchaseOrderUiTest.php) |
+| Feature Test API Endpoint & Resource | [`tests/Feature/PurchaseOrderApiTest.php`](../tests/Feature/PurchaseOrderApiTest.php) |
 
 ---
 

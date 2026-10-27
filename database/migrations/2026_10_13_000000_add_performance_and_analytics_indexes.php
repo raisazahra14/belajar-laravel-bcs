@@ -7,9 +7,13 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     private const INDEX_STOK_WAREHOUSE_JENIS_CREATED = 'idx_stok_warehouse_jenis_created';
+
     private const INDEX_STOK_BARANG_CREATED = 'idx_stok_barang_created';
+
     private const INDEX_BARANG_KATEGORI_DELETED = 'idx_barang_kategori_deleted_at';
+
     private const INDEX_BARANG_HARGA_BELI_STOK = 'idx_barang_harga_beli_stok';
+
     private const INDEX_WH_STOCKS_WH_STOK = 'idx_warehouse_stocks_wh_stok';
 
     public function up(): void

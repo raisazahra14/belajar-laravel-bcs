@@ -10,6 +10,7 @@ use App\Models\Warehouse;
 use App\Models\WarehouseStock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class AnalyticsPageTest extends TestCase
@@ -409,13 +410,13 @@ class AnalyticsPageTest extends TestCase
             $this->transaction($item, $stock, 'keluar', 2, '2026-09-20 02:00:00');
         }
 
-        \Illuminate\Support\Facades\DB::flushQueryLog();
-        \Illuminate\Support\Facades\DB::enableQueryLog();
+        DB::flushQueryLog();
+        DB::enableQueryLog();
 
         $response = $this->actingAs($admin)->get(route('analytics.index'));
         $response->assertOk();
 
-        $queries = \Illuminate\Support\Facades\DB::getQueryLog();
+        $queries = DB::getQueryLog();
         // Query count for entire analytics dashboard must remain bounded (O(1)) without N+1 per item
         $this->assertLessThanOrEqual(42, count($queries), 'Analytics page query count must remain bounded without N+1 queries.');
 

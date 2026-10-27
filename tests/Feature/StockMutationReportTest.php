@@ -10,6 +10,7 @@ use App\Models\Warehouse;
 use App\Models\WarehouseStock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
@@ -428,15 +429,15 @@ class StockMutationReportTest extends TestCase
             $this->transaction($barang, 'masuk', 5, '2026-09-01 02:00:00');
         }
 
-        \Illuminate\Support\Facades\DB::flushQueryLog();
-        \Illuminate\Support\Facades\DB::enableQueryLog();
+        DB::flushQueryLog();
+        DB::enableQueryLog();
 
         $response = $this->actingAs($admin)->get(route('stock-mutations.index', ['per_page' => 25]));
         $response->assertOk();
         $response->assertSee('Barang N1 1');
         $response->assertSee('Supplier N1 1');
 
-        $queries = \Illuminate\Support\Facades\DB::getQueryLog();
+        $queries = DB::getQueryLog();
         // Query count should be strictly bounded (O(1)) and not grow per item (N+1)
         $this->assertLessThanOrEqual(25, count($queries), 'Query count should not scale with items (N+1 prevented).');
 

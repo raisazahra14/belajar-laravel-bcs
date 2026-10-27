@@ -17,7 +17,9 @@ use InvalidArgumentException;
 class PurchaseOrderStateMachine
 {
     public const ROLE_ADMIN = 'admin';
+
     public const ROLE_MANAGER = 'manager';
+
     public const ROLE_STAFF = 'staff';
 
     /**

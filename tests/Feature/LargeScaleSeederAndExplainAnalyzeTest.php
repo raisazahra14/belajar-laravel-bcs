@@ -42,7 +42,7 @@ class LargeScaleSeederAndExplainAnalyzeTest extends TestCase
             ['nama_gudang' => 'Gudang Utama Pusat', 'is_active' => true]
         );
 
-        $seeder = new LargeScaleStockTransactionSeeder();
+        $seeder = new LargeScaleStockTransactionSeeder;
         $seeder->run(50);
 
         $this->assertGreaterThanOrEqual(50, StokTransaction::count());
@@ -57,7 +57,7 @@ class LargeScaleSeederAndExplainAnalyzeTest extends TestCase
             ['nama_gudang' => 'Gudang Utama Pusat', 'is_active' => true]
         );
 
-        $seeder = new LargeScaleStockTransactionSeeder();
+        $seeder = new LargeScaleStockTransactionSeeder;
         $seeder->run(20);
 
         $this->artisan('db:explain-analyze', ['--iterations' => 1])

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\InventoryAnalyticsService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -73,15 +74,15 @@ class Barang extends Model
         });
 
         static::saved(function (): void {
-            \App\Services\InventoryAnalyticsService::clearValuationCache();
+            InventoryAnalyticsService::clearValuationCache();
         });
 
         static::deleted(function (): void {
-            \App\Services\InventoryAnalyticsService::clearValuationCache();
+            InventoryAnalyticsService::clearValuationCache();
         });
 
         static::restored(function (): void {
-            \App\Services\InventoryAnalyticsService::clearValuationCache();
+            InventoryAnalyticsService::clearValuationCache();
         });
     }
 
@@ -140,6 +141,11 @@ class Barang extends Model
     public function scopeSafeStock(Builder $query): Builder
     {
         return $query->where('stok', '>', self::MINIMUM_STOCK);
+    }
+
+    public function scopeWhereKodeBarangInsensitive(Builder $query, string $code): Builder
+    {
+        return $query->whereRaw('LOWER(kode_barang) = ?', [mb_strtolower($code)]);
     }
 
     public function isLowStock(): bool

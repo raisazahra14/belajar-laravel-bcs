@@ -2,8 +2,6 @@
 
 namespace App\Http\Requests;
 
-use App\Models\Supplier;
-use App\Models\Warehouse;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 

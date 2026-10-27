@@ -4,11 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StockMutationReportRequest;
 use App\Models\Barang;
-use App\Models\Supplier;
-use App\Models\Warehouse;
+use App\Services\InventoryMasterDataService;
 use App\Services\StockMutationExportService;
 use App\Services\StockMutationReportService;
-use App\Services\InventoryMasterDataService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;

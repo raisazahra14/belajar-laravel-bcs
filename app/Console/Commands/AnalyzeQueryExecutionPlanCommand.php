@@ -2,9 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Barang;
-use App\Models\StokTransaction;
-use App\Models\WarehouseStock;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -70,10 +67,10 @@ class AnalyzeQueryExecutionPlanCommand extends Command
                 'description' => 'Agregasi total item, total stok, dan total valuasi per kategori barang aktif',
                 'index_name' => 'idx_barang_kategori_deleted_at',
                 'table' => 'barang',
-                'query_with_index' => "SELECT kategori, COUNT(*) as total_item, SUM(stok) as total_stok, SUM(stok * harga_beli) as total_nilai FROM barang WHERE deleted_at IS NULL GROUP BY kategori",
+                'query_with_index' => 'SELECT kategori, COUNT(*) as total_item, SUM(stok) as total_stok, SUM(stok * harga_beli) as total_nilai FROM barang WHERE deleted_at IS NULL GROUP BY kategori',
                 'query_without_index' => $driver === 'mysql'
-                    ? "SELECT kategori, COUNT(*) as total_item, SUM(stok) as total_stok, SUM(stok * harga_beli) as total_nilai FROM barang IGNORE INDEX (idx_barang_kategori_deleted_at, idx_barang_harga_beli_stok) WHERE deleted_at IS NULL GROUP BY kategori"
-                    : "SELECT kategori, COUNT(*) as total_item, SUM(stok) as total_stok, SUM(stok * harga_beli) as total_nilai FROM barang WHERE deleted_at IS NULL GROUP BY kategori",
+                    ? 'SELECT kategori, COUNT(*) as total_item, SUM(stok) as total_stok, SUM(stok * harga_beli) as total_nilai FROM barang IGNORE INDEX (idx_barang_kategori_deleted_at, idx_barang_harga_beli_stok) WHERE deleted_at IS NULL GROUP BY kategori'
+                    : 'SELECT kategori, COUNT(*) as total_item, SUM(stok) as total_stok, SUM(stok * harga_beli) as total_nilai FROM barang WHERE deleted_at IS NULL GROUP BY kategori',
             ],
             '4. Rekap Mutasi Gudang & Jenis' => [
                 'description' => 'Agregasi mutasi per jenis pada gudang tertentu',
@@ -124,7 +121,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
 
             $diffMs = round($avgWithoutMs - $avgWithMs, 3);
             $improvementPct = $avgWithoutMs > 0 ? round(($diffMs / $avgWithoutMs) * 100, 2) : 0;
-            $speedup = $avgWithMs > 0 ? round($avgWithoutMs / $avgWithMs, 2) . 'x' : '1.0x';
+            $speedup = $avgWithMs > 0 ? round($avgWithoutMs / $avgWithMs, 2).'x' : '1.0x';
 
             $results[$label] = [
                 'name' => $label,
@@ -139,8 +136,8 @@ class AnalyzeQueryExecutionPlanCommand extends Command
                 'plan_with' => $planWith,
             ];
 
-            $this->line("   - Tanpa Index : {$avgWithoutMs} ms (Key: " . ($planWithout['key'] ?? 'NONE') . " | Rows: " . ($planWithout['rows'] ?? 'ALL') . ")");
-            $this->line("   - Dengan Index: {$avgWithMs} ms (Key: " . ($planWith['key'] ?? 'INDEX') . " | Rows: " . ($planWith['rows'] ?? '-') . ")");
+            $this->line("   - Tanpa Index : {$avgWithoutMs} ms (Key: ".($planWithout['key'] ?? 'NONE').' | Rows: '.($planWithout['rows'] ?? 'ALL').')');
+            $this->line("   - Dengan Index: {$avgWithMs} ms (Key: ".($planWith['key'] ?? 'INDEX').' | Rows: '.($planWith['rows'] ?? '-').')');
             $verdict = $improvementPct >= 0 ? 'lebih cepat' : 'lebih lambat';
             $sign = $improvementPct >= 0 ? '+' : '';
             $message = "   -> Efisiensi: {$speedup} ({$sign}{$improvementPct}%, {$verdict})";
@@ -149,6 +146,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
 
         if ($this->option('json')) {
             $this->line(json_encode($results, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
             return self::SUCCESS;
         }
 
@@ -159,9 +157,9 @@ class AnalyzeQueryExecutionPlanCommand extends Command
         foreach ($results as $r) {
             $tableData[] = [
                 'Query' => $r['name'],
-                'Sebelum Index (ms)' => $r['time_without_index_ms'] . ' ms',
-                'Sesudah Index (ms)' => $r['time_with_index_ms'] . ' ms',
-                'Peningkatan' => ($r['improvement_pct'] >= 0 ? '+' : '') . $r['improvement_pct'] . '% (' . $r['speedup'] . ')',
+                'Sebelum Index (ms)' => $r['time_without_index_ms'].' ms',
+                'Sesudah Index (ms)' => $r['time_with_index_ms'].' ms',
+                'Peningkatan' => ($r['improvement_pct'] >= 0 ? '+' : '').$r['improvement_pct'].'% ('.$r['speedup'].')',
                 'Key Sebelum' => $r['plan_without']['key'] ?? 'NULL/ALL',
                 'Key Sesudah' => $r['plan_with']['key'] ?? $r['target_index'],
                 'Rows Scan Sebelum' => $r['plan_without']['rows'] ?? 'N/A',
@@ -201,6 +199,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
                 $explain = DB::select("EXPLAIN {$sql}");
                 if (! empty($explain)) {
                     $row = (array) $explain[0];
+
                     return [
                         'type' => $row['type'] ?? null,
                         'key' => $row['key'] ?? null,
@@ -213,6 +212,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
                 $explain = DB::select("EXPLAIN QUERY PLAN {$sql}");
                 if (! empty($explain)) {
                     $row = (array) $explain[0];
+
                     return [
                         'type' => 'SEARCH/SCAN',
                         'key' => str_contains($row['detail'] ?? '', 'USING INDEX') ? 'INDEX' : null,

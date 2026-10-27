@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\InventoryAnalyticsService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -34,11 +35,11 @@ class WarehouseStock extends Model
     protected static function booted(): void
     {
         static::saved(function (): void {
-            \App\Services\InventoryAnalyticsService::clearValuationCache();
+            InventoryAnalyticsService::clearValuationCache();
         });
 
         static::deleted(function (): void {
-            \App\Services\InventoryAnalyticsService::clearValuationCache();
+            InventoryAnalyticsService::clearValuationCache();
         });
     }
 

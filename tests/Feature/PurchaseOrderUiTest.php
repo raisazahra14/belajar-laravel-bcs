@@ -16,13 +16,21 @@ class PurchaseOrderUiTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $manager;
+
     private User $staff;
+
     private Supplier $supplierA;
+
     private Supplier $supplierB;
+
     private Warehouse $warehouseA;
+
     private Warehouse $warehouseB;
+
     private Barang $barangA;
+
     private Barang $barangB;
 
     protected function setUp(): void

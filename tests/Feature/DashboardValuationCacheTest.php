@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Barang;
 use App\Models\StokTransaction;
-use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
 use App\Services\InventoryAnalyticsService;

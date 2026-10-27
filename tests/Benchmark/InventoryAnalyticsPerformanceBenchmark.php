@@ -3,7 +3,6 @@
 namespace Tests\Benchmark;
 
 use App\Models\Barang;
-use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
@@ -13,7 +12,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -28,14 +26,19 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
     use RefreshDatabase;
 
     private const TRANSACTION_VOLUME = 10000;
+
     private const BARANG_COUNT = 500;
+
     private const WAREHOUSE_COUNT = 3;
 
     private User $user;
+
     /** @var array<int, int> */
     private array $barangIds = [];
+
     /** @var array<int, int> */
     private array $warehouseIds = [];
+
     /** @var array<int, int> */
     private array $warehouseStockIds = [];
 
@@ -54,7 +57,7 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
 
     public function test_10000_row_inventory_analytics_benchmark(): void
     {
-        fwrite(STDOUT, PHP_EOL . "=== RUNNING 10,000-ROW DATABASE PERFORMANCE BENCHMARK ===" . PHP_EOL);
+        fwrite(STDOUT, PHP_EOL.'=== RUNNING 10,000-ROW DATABASE PERFORMANCE BENCHMARK ==='.PHP_EOL);
 
         $results = [
             'environment' => [
@@ -85,8 +88,8 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
         // 4. Key End-to-End Analytics Queries on 10,000 Rows
         $results['benchmarks']['key_queries'] = $this->benchmarkKeyQueries();
 
-        fwrite(STDOUT, PHP_EOL . "=== BENCHMARK COMPLETED ===" . PHP_EOL);
-        fwrite(STDOUT, json_encode($results, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+        fwrite(STDOUT, PHP_EOL.'=== BENCHMARK COMPLETED ==='.PHP_EOL);
+        fwrite(STDOUT, json_encode($results, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES).PHP_EOL);
 
         $this->assertGreaterThanOrEqual(self::TRANSACTION_VOLUME, DB::table('stok_transactions')->count());
         $this->assertGreaterThan(0, $results['benchmarks']['caching_comparison']['warm_cache']['speedup_multiplier']);
@@ -119,6 +122,7 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
                     ->where('created_at', '>=', $startDate)
                     ->count();
             }
+
             return $count;
         };
 
@@ -130,7 +134,7 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
         // 1. Measure WITH INDEX
         $withIndexPlan = [];
         if ($driver === 'sqlite') {
-            $withIndexPlan = DB::select("EXPLAIN QUERY PLAN SELECT * FROM stok_transactions WHERE barang_id = ? AND created_at >= ? AND created_at <= ?", [$sampleBarangIds[0], $startDate, $endDate]);
+            $withIndexPlan = DB::select('EXPLAIN QUERY PLAN SELECT * FROM stok_transactions WHERE barang_id = ? AND created_at >= ? AND created_at <= ?', [$sampleBarangIds[0], $startDate, $endDate]);
         }
         $withIndexTimes = [];
         for ($i = 0; $i < 10; $i++) {
@@ -153,7 +157,7 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
         // Measure WITHOUT INDEX
         $withoutIndexPlan = [];
         if ($driver === 'sqlite') {
-            $withoutIndexPlan = DB::select("EXPLAIN QUERY PLAN SELECT * FROM stok_transactions WHERE barang_id = ? AND created_at >= ? AND created_at <= ?", [$sampleBarangIds[0], $startDate, $endDate]);
+            $withoutIndexPlan = DB::select('EXPLAIN QUERY PLAN SELECT * FROM stok_transactions WHERE barang_id = ? AND created_at >= ? AND created_at <= ?', [$sampleBarangIds[0], $startDate, $endDate]);
         }
         $withoutIndexTimes = [];
         for ($i = 0; $i < 10; $i++) {
@@ -184,8 +188,8 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
             'iterations' => 10,
             'with_index_avg_ms' => $avgWith,
             'without_index_avg_ms' => $avgWithout,
-            'improvement_percentage' => $improvement . '%',
-            'speedup_factor' => $avgWith > 0 ? round($avgWithout / $avgWith, 2) . 'x faster' : 'N/A',
+            'improvement_percentage' => $improvement.'%',
+            'speedup_factor' => $avgWith > 0 ? round($avgWithout / $avgWith, 2).'x faster' : 'N/A',
         ];
     }
 
@@ -254,8 +258,8 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
                 'query_count' => $queriesWith,
                 'memory_used_kb' => round($memoryWith, 2),
             ],
-            'query_reduction' => ($queriesWithout - $queriesWith) . ' queries eliminated (' . round((($queriesWithout - $queriesWith) / $queriesWithout) * 100, 1) . '%)',
-            'time_improvement' => round((($durationWithout - $durationWith) / $durationWithout) * 100, 2) . '%',
+            'query_reduction' => ($queriesWithout - $queriesWith).' queries eliminated ('.round((($queriesWithout - $queriesWith) / $queriesWithout) * 100, 1).'%)',
+            'time_improvement' => round((($durationWithout - $durationWith) / $durationWithout) * 100, 2).'%',
         ];
     }
 
@@ -300,7 +304,7 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
                 'status' => 'Cache Hit (Served from Memory/Store)',
                 'execution_time_ms' => round($durationWarm, 3),
                 'query_count' => $queriesWarm,
-                'speedup_multiplier' => $speedup . 'x faster',
+                'speedup_multiplier' => $speedup.'x faster',
             ],
         ];
     }
@@ -394,10 +398,10 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
             $suppliers[] = [
                 'kode_supplier' => sprintf('SUP-%03d', $i),
                 'nama_supplier' => sprintf('Supplier Mitra %03d', $i),
-                'contact_person' => 'Person ' . $i,
-                'telepon' => '0812345678' . $i,
-                'email' => 'supplier' . $i . '@example.com',
-                'alamat' => 'Jl. Industri No. ' . $i,
+                'contact_person' => 'Person '.$i,
+                'telepon' => '0812345678'.$i,
+                'email' => 'supplier'.$i.'@example.com',
+                'alamat' => 'Jl. Industri No. '.$i,
                 'is_active' => true,
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -420,7 +424,7 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
                 'daily_usage_estimate' => 5,
                 'lead_time_days' => 7,
                 'satuan' => 'Unit',
-                'lokasi' => 'Rak-' . ($i % 20),
+                'lokasi' => 'Rak-'.($i % 20),
                 'created_at' => $now->subDays($i % 60),
             ];
         }
@@ -471,7 +475,7 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
                 'unit_cost_source' => 'purchase_price',
                 'stok_sebelum' => 100,
                 'stok_sesudah' => $jenis === 'masuk' ? 100 + $qty : 100 - $qty,
-                'keterangan' => 'Benchmark transaction #' . $i,
+                'keterangan' => 'Benchmark transaction #'.$i,
                 'created_at' => $now->subHours($i % (90 * 24)),
                 'updated_at' => $now,
             ];
@@ -481,7 +485,7 @@ class InventoryAnalyticsPerformanceBenchmark extends TestCase
                 $txData = [];
             }
         }
-        if (!empty($txData)) {
+        if (! empty($txData)) {
             DB::table('stok_transactions')->insert($txData);
         }
     }

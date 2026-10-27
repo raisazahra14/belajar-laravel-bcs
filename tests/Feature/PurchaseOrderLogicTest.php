@@ -6,7 +6,6 @@ use App\Enums\PurchaseOrderStatus;
 use App\Exceptions\InvalidPurchaseOrderTransitionException;
 use App\Models\Barang;
 use App\Models\PurchaseOrder;
-use App\Models\PurchaseOrderItem;
 use App\Models\StokTransaction;
 use App\Models\Supplier;
 use App\Models\User;
@@ -22,12 +21,19 @@ class PurchaseOrderLogicTest extends TestCase
     use RefreshDatabase;
 
     private PurchaseOrderService $service;
+
     private User $admin;
+
     private User $manager;
+
     private User $staff;
+
     private Supplier $supplier;
+
     private Warehouse $warehouse;
+
     private Barang $barangA;
+
     private Barang $barangB;
 
     protected function setUp(): void

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Supplier;
 use App\Models\Warehouse;
+use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -128,7 +129,7 @@ class StockMutationExportService
     /** @param array<string,mixed> $report @param array<string,mixed> $filters */
     public function pdf(array $report, array $filters): string
     {
-        $rows = ($report['rows'] instanceof \Illuminate\Support\Collection)
+        $rows = ($report['rows'] instanceof Collection)
             ? $report['rows']->values()
             : collect($report['rows'])->values();
         $maxPdfRows = (int) config('reports.max_pdf_rows', 1000);

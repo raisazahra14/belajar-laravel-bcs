@@ -2,7 +2,6 @@
 
 namespace App\Http\Requests;
 
-use App\Enums\PurchaseOrderStatus;
 use App\Models\Barang;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;

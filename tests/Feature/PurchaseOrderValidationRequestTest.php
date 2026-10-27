@@ -21,12 +21,19 @@ class PurchaseOrderValidationRequestTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $staff;
+
     private Supplier $activeSupplier;
+
     private Supplier $inactiveSupplier;
+
     private Warehouse $activeWarehouse;
+
     private Warehouse $inactiveWarehouse;
+
     private Barang $barangA;
+
     private Barang $barangB;
 
     protected function setUp(): void

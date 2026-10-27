@@ -2,13 +2,15 @@
 
 namespace App\Enums;
 
+use App\Services\PurchaseOrderStateMachine;
+
 /**
  * Siklus hidup status Purchase Order (PO).
  *
  * Nilai string disimpan apa adanya di kolom `purchase_orders.status`.
  * Aturan transisi di enum ini hanya menjawab "apakah perpindahan status
  * valid secara alur bisnis". Aturan peran, alasan wajib, dan guard lain
- * dikelola oleh {@see \App\Services\PurchaseOrderStateMachine}.
+ * dikelola oleh {@see PurchaseOrderStateMachine}.
  */
 enum PurchaseOrderStatus: string
 {
@@ -98,7 +100,7 @@ enum PurchaseOrderStatus: string
      */
     public function badgeClass(): string
     {
-        return 'badge-' . $this->badgeVariant();
+        return 'badge-'.$this->badgeVariant();
     }
 
     /**

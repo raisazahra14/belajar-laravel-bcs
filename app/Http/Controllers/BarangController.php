@@ -31,8 +31,7 @@ class BarangController extends Controller
         InventoryFilterRequest $request,
         InventoryDashboardService $dashboard,
         InventoryMasterDataService $masterData,
-    ): View
-    {
+    ): View {
         $filters = $request->safe()->only(['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort']);
         $barang = $this->filteredInventory($filters)->paginate(5)->withQueryString();
         $inventoryMetrics = Barang::query()->selectRaw(
@@ -116,7 +115,7 @@ class BarangController extends Controller
 
         $code = trim($validated['code']);
         $barang = Barang::query()
-            ->whereRaw('LOWER(kode_barang) = ?', [mb_strtolower($code)])
+            ->whereKodeBarangInsensitive($code)
             ->first();
 
         if (! $barang) {

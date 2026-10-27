@@ -10,6 +10,7 @@ use Illuminate\Validation\Rule;
 class ReceivePurchaseOrderItemRequest extends FormRequest
 {
     protected ?PurchaseOrder $resolvedPurchaseOrder = null;
+
     protected ?PurchaseOrderItem $resolvedPurchaseOrderItem = null;
 
     protected function prepareForValidation(): void
@@ -191,6 +192,7 @@ class ReceivePurchaseOrderItemRequest extends FormRequest
                             "items.{$index}.purchase_order_item_id",
                             "Item #{$row['purchase_order_item_id']} tidak termasuk dalam Purchase Order ini."
                         );
+
                         continue;
                     }
 
