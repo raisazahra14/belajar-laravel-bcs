@@ -5,8 +5,8 @@
 ---
 
 ### Informasi Eksekutif & Identitas Magang
-- **Nama Peserta Magang / Engineer**: Software Engineer Intern
-- **Program**: Magang Industri Bersertifikat — MagangHub Kemnaker RI (Durasi Penuh: 6 Bulan)
+- **Nama Peserta Magang / Engineer**: IT Programmer Intern
+- **Program**: MagangHub Kemnaker RI (Durasi Penuh: 6 Bulan)
 - **Unit Kerja / Penempatan**: Tim Engineering & Logistik (`itbcslogistics`)
 - **Nama Aplikasi / Produk**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang & Analitik Logistik Terpadu)
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, MySQL/MariaDB & SQLite, Python 3.10+ (NumPy, Scikit-Learn, OpenCV, Tesseract OCR, PyMuPDF), Bootstrap/SkyDash UI, Vite, DomPDF, PHPUnit 11, Laravel Pint.
@@ -256,9 +256,3 @@ stateDiagram-v2
 
 Seluruh pencapaian yang tertulis dalam portofolio ini merupakan hasil kerja nyata yang telah diselesaikan, terverifikasi oleh 439 test cases otomatis yang lulus 100%, serta siap diajukan sebagai bukti pemenuhan target kompetensi program **MagangHub Kemnaker RI**. Dokumen ini akan terus diperbarui secara berkala mengikuti seluruh modul tugas berikutnya hingga periode magang selesai.
 
-**Disusun Oleh**:  
-Peserta Magang Rekayasa Perangkat Lunak (Software Engineer Intern)  
-
-**Mengetahui / Pembimbing Industri**:  
-Tim Kolaborator Engineering `itbcslogistics`  
-*Sistem Manajemen Inventaris & Logistik Terpadu (LogistikKu) — Oktober 2026*
