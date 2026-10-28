@@ -35,11 +35,43 @@ BROWSERS = (
     Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
 )
 
+BROWSER_FLAGS = (
+    "--headless=new",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--disable-default-apps",
+    "--disable-breakpad",
+    "--disable-crash-reporter",
+    "--no-first-run",
+    "--no-pdf-header-footer",
+)
+
 DIAGRAMS = (
     ("images/tugas-1-2-use-case.svg", "Use Case Diagram Sistem LogistikKu"),
     ("images/tugas-1-2-activity-stok.svg", "Activity Diagram Stok Masuk/Keluar"),
     ("images/tugas-1-2-activity-verifikasi.svg", "Activity Diagram Verifikasi Dokumen"),
 )
+
+REQUIRED_MARKERS = (
+    "SRS-LOGISTIKKU-1.4",
+    "| Versi | 1.4 |",
+    "| Tanggal pembaruan | 5 Oktober 2026 |",
+    "## 12. Matriks Ketertelusuran Kebutuhan",
+    "### 12.3 Bukti eksekusi audit 5 Oktober 2026",
+    "Perlu Uji Produksi",
+)
+
+PAGE_BREAK = r'<div class="page-break"></div>\n\n\1'
+
+PDF_METADATA = {
+    "title": "Software Requirements Specification (SRS) Sistem Inventaris LogistikKu",
+    "author": "Tim LogistikKu",
+    "keywords": "LogistikKu, SRS, inventaris, OCR, prediksi stok, versi 1.4",
+}
+
+RMTREE_ATTEMPTS = 20
+PDF_WAIT_ATTEMPTS = 60
+POLL_INTERVAL = 0.25
 
 CSS = r"""
 @page {
@@ -131,83 +163,14 @@ figure.diagram figcaption {
 }
 """
 
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Render docs/srs.md as an A4 PDF.")
-    parser.add_argument("--output", type=Path, required=True, help="Candidate PDF output path")
-    return parser.parse_args()
-
-
-def browser_path() -> Path:
-    for candidate in BROWSERS:
-        if candidate.is_file():
-            return candidate
-    raise RuntimeError("Microsoft Edge atau Google Chrome tidak ditemukan.")
-
-
-def prepare_markdown(source: str) -> str:
-    required = (
-        "SRS-LOGISTIKKU-1.4",
-        "| Versi | 1.4 |",
-        "| Tanggal pembaruan | 5 Oktober 2026 |",
-        "## 12. Matriks Ketertelusuran Kebutuhan",
-        "### 12.3 Bukti eksekusi audit 5 Oktober 2026",
-        "Perlu Uji Produksi",
-    )
-    missing = [marker for marker in required if marker not in source]
-    if missing:
-        raise RuntimeError("SRS bukan baseline 1.4 yang diharapkan: " + ", ".join(missing))
-
-    # A page break already separates major sections in the PDF. Keeping the
-    # preceding Markdown horizontal rule can create a page containing only a
-    # rule when the prior diagram fills the page.
-    source = re.sub(r"(?m)^---\s*\n(?=\s*<a id=)", "", source)
-    source = re.sub(
-        r"(?m)^(## (?:[1-9]|1[0-3])\. )",
-        r'<div class="page-break"></div>\n\n\1',
-        source,
-    )
-    source = re.sub(
-        r"(?m)^(### 10\.[23] )",
-        r'<div class="page-break"></div>\n\n\1',
-        source,
-    )
-
-    diagram_index = 0
-
-    def replace_diagram(_: re.Match[str]) -> str:
-        nonlocal diagram_index
-        if diagram_index >= len(DIAGRAMS):
-            raise RuntimeError("Jumlah diagram Mermaid pada SRS melebihi kontrak builder.")
-        path, caption = DIAGRAMS[diagram_index]
-        diagram_index += 1
-        return (
-            f'\n\n<figure class="diagram"><img src="{path}" alt="{caption}">'
-            f"<figcaption>{caption}</figcaption></figure>\n\n"
-        )
-
-    source = re.sub(r"(?ms)^```mermaid\s*\n.*?^```\s*$", replace_diagram, source)
-    source = re.sub(r"(?m)^\[Buka render SVG[^\n]*$", "", source)
-    if diagram_index != len(DIAGRAMS):
-        raise RuntimeError(
-            f"SRS memuat {diagram_index} diagram, diharapkan {len(DIAGRAMS)} diagram."
-        )
-    return source
-
-
-def render_html(markdown_source: str) -> str:
-    renderer = mistune.HTMLRenderer(escape=False)
-    markdown = mistune.create_markdown(renderer=renderer, plugins=["table"])
-    body = markdown(markdown_source)
-    base_uri = DOCS.resolve().as_uri() + "/"
-    return f"""<!doctype html>
+HTML_TEMPLATE = """<!doctype html>
 <html lang="id">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <base href="{base_uri}">
   <title>SRS LogistikKu 1.4</title>
-  <style>{CSS}</style>
+  <style>{css}</style>
 </head>
 <body>
 {body}
@@ -216,49 +179,93 @@ def render_html(markdown_source: str) -> str:
 """
 
 
-def attach_source_metadata(output: Path, source: str) -> str:
-    source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest().upper()
-    document = pymupdf.open(output)
-    try:
-        metadata = document.metadata
-        metadata.update(
-            {
-                "title": "Software Requirements Specification (SRS) Sistem Inventaris LogistikKu",
-                "author": "Tim LogistikKu",
-                "subject": f"SRS versi 1.4; source docs/srs.md SHA-256 {source_hash}",
-                "keywords": "LogistikKu, SRS, inventaris, OCR, prediksi stok, versi 1.4",
-            }
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Render docs/srs.md as an A4 PDF.")
+    parser.add_argument("--output", type=Path, required=True, help="Candidate PDF output path")
+    return parser.parse_args()
+
+
+def find_browser() -> Path:
+    if browser := next((path for path in BROWSERS if path.is_file()), None):
+        return browser
+    raise RuntimeError("Microsoft Edge atau Google Chrome tidak ditemukan.")
+
+
+def prepare_markdown(source: str) -> str:
+    if missing := [marker for marker in REQUIRED_MARKERS if marker not in source]:
+        raise RuntimeError(f"SRS bukan baseline 1.4 yang diharapkan: {', '.join(missing)}")
+
+    # Section page breaks make the preceding `---` redundant; keeping it can
+    # produce a page holding only a rule when the prior diagram fills the page.
+    source = re.sub(r"(?m)^---\s*\n(?=\s*<a id=)", "", source)
+    source = re.sub(r"(?m)^(## (?:[1-9]|1[0-3])\. )", PAGE_BREAK, source)
+    source = re.sub(r"(?m)^(### 10\.[23] )", PAGE_BREAK, source)
+
+    diagrams = iter(DIAGRAMS)
+
+    def to_figure(_: re.Match[str]) -> str:
+        if (diagram := next(diagrams, None)) is None:
+            raise RuntimeError("Jumlah diagram Mermaid pada SRS melebihi kontrak builder.")
+        path, caption = diagram
+        return (
+            f'\n\n<figure class="diagram"><img src="{path}" alt="{caption}">'
+            f"<figcaption>{caption}</figcaption></figure>\n\n"
         )
-        document.set_metadata(metadata)
+
+    source, diagram_count = re.subn(r"(?ms)^```mermaid\s*\n.*?^```\s*$", to_figure, source)
+    source = re.sub(r"(?m)^\[Buka render SVG[^\n]*$", "", source)
+    if diagram_count != len(DIAGRAMS):
+        raise RuntimeError(f"SRS memuat {diagram_count} diagram, diharapkan {len(DIAGRAMS)} diagram.")
+    return source
+
+
+def render_html(markdown_source: str) -> str:
+    markdown = mistune.create_markdown(renderer=mistune.HTMLRenderer(escape=False), plugins=["table"])
+    return HTML_TEMPLATE.format(
+        base_uri=f"{DOCS.resolve().as_uri()}/",
+        css=CSS,
+        body=markdown(markdown_source),
+    )
+
+
+def attach_source_metadata(pdf: Path, source: str) -> str:
+    source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest().upper()
+    with pymupdf.open(pdf) as document:
+        document.set_metadata({
+            **document.metadata,
+            **PDF_METADATA,
+            "subject": f"SRS versi 1.4; source docs/srs.md SHA-256 {source_hash}",
+        })
         document.saveIncr()
-    finally:
-        document.close()
     return source_hash
 
 
-def safe_clean_build_dir(*, strict: bool = True) -> None:
-    resolved = BUILD_DIR.resolve()
-    expected_parent = (ROOT / "storage").resolve()
-    if resolved.parent != expected_parent or resolved.name != "pdf-build":
-        raise RuntimeError(f"Direktori build tidak aman: {resolved}")
-    if not resolved.exists():
+def clean_build_dir(*, strict: bool = True) -> None:
+    build_dir = BUILD_DIR.resolve()
+    if build_dir.parent != (ROOT / "storage").resolve() or build_dir.name != "pdf-build":
+        raise RuntimeError(f"Direktori build tidak aman: {build_dir}")
+    if not build_dir.exists():
         return
-    for attempt in range(20):
+
+    for attempt in range(1, RMTREE_ATTEMPTS + 1):
         try:
-            shutil.rmtree(resolved)
+            shutil.rmtree(build_dir)
             return
         except PermissionError:
-            if attempt == 19:
-                if strict:
-                    raise
-                print(f"WARNING: direktori sementara belum dapat dihapus: {resolved}", file=sys.stderr)
-                return
-            time.sleep(0.25)
+            if attempt < RMTREE_ATTEMPTS:
+                time.sleep(POLL_INTERVAL)
+            elif strict:
+                raise
+            else:
+                print(f"WARNING: direktori sementara belum dapat dihapus: {build_dir}", file=sys.stderr)
+
+
+def is_pdf_written(path: Path) -> bool:
+    return path.is_file() and path.stat().st_size > 0
 
 
 def main() -> int:
-    args = parse_args()
-    output = args.output.resolve()
+    output = parse_args().output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():
         raise RuntimeError(
@@ -266,47 +273,37 @@ def main() -> int:
         )
 
     source = SOURCE.read_text(encoding="utf-8")
-    prepared = prepare_markdown(source)
-    html = render_html(prepared)
+    html = render_html(prepare_markdown(source))
 
-    safe_clean_build_dir()
+    clean_build_dir()
     BUILD_DIR.mkdir(parents=True)
     html_path = BUILD_DIR / "srs-v1.4.html"
-    profile_path = BUILD_DIR / "browser-profile"
     html_path.write_text(html, encoding="utf-8")
 
     command = [
-        str(browser_path()),
-        "--headless=new",
-        "--disable-gpu",
-        "--disable-extensions",
-        "--disable-default-apps",
-        "--disable-breakpad",
-        "--disable-crash-reporter",
-        "--no-first-run",
-        "--no-pdf-header-footer",
-        f"--user-data-dir={profile_path}",
+        str(find_browser()),
+        *BROWSER_FLAGS,
+        f"--user-data-dir={BUILD_DIR / 'browser-profile'}",
         f"--print-to-pdf={output}",
         html_path.resolve().as_uri(),
     ]
 
     try:
-        completed = subprocess.run(command, check=False, timeout=120)
-        for _ in range(60):
-            if output.is_file() and output.stat().st_size > 0:
+        result = subprocess.run(command, check=False, timeout=120)
+        for _ in range(PDF_WAIT_ATTEMPTS):
+            if is_pdf_written(output):
                 break
-            time.sleep(0.25)
-        if completed.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
-            raise RuntimeError(
-                f"Browser gagal membuat PDF (exit code {completed.returncode})."
-            )
+            time.sleep(POLL_INTERVAL)
+        if result.returncode != 0 or not is_pdf_written(output):
+            raise RuntimeError(f"Browser gagal membuat PDF (exit code {result.returncode}).")
+
         source_hash = attach_source_metadata(output, source)
         print(f"PDF_CANDIDATE={output}")
         print(f"PDF_BYTES={output.stat().st_size}")
         print(f"SOURCE_SHA256={source_hash}")
         return 0
     finally:
-        safe_clean_build_dir(strict=False)
+        clean_build_dir(strict=False)
 
 
 if __name__ == "__main__":
