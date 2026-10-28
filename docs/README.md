@@ -35,7 +35,8 @@ LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python unt
 | [Peta Konsep](./PETA_KONSEP_LOGISTIKKU.md) | Ringkasan cara kerja setiap modul dan hubungan Laravel, database, queue, storage, dan Python. | Aktif. |
 | [ERD](./database/erd.md) | Diagram relasi tabel bisnis, fungsi tabel, FK, dan integritas data. | 15 tabel bisnis/aplikasi. |
 | [Data Dictionary](./data_dictionary.md) | Definisi seluruh tabel, kolom, kunci, indeks, dan aturan data. | 23 tabel, 218 kolom, 24 FK. |
-| [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) | Alur bisnis, status, matriks transisi, hak akses, skema database, dan aturan bisnis Modul Pengadaan (Purchase Order). | Minggu 1. |
+| [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) | Alur bisnis, status, matriks transisi, hak akses, skema database, dan aturan bisnis Modul Pengadaan (Purchase Order). | Modul Pengadaan. |
+| [Portofolio Penutupan Magang](./PORTOFOLIO_PENUTUPAN_MAGANG.md) | Rekapitulasi komprehensif pencapaian rekayasa perangkat lunak, milestone, metrik pengujian regresi, dan kontribusi bisnis. | Laporan Akhir Magang. |
 
 ## Peta fitur dan dokumentasinya
 
@@ -51,6 +52,7 @@ LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python unt
 | Analitik | Fast/Slow/Dead Stock, valuasi, tren, rekonsiliasi, ringkasan otomatis | [SRS 4.5](./srs.md#45-dashboard-analitik-laporan-dan-notifikasi) |
 | OCR | Upload privat, queue, OCR, metadata, skor, audit, retry/reprocess | [SRS 4.6](./srs.md#46-verifikasi-dokumen-ocr) |
 | Prediksi | Analisis satu/semua barang, fallback, proses, rekomendasi, notifikasi | [SRS 4.7](./srs.md#47-prediksi-stok) |
+| Pengadaan | Siklus Purchase Order (PO), approval Manager, Goods Receipt multi-gudang, sinkronisasi stok, dan cetak PDF | [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) |
 
 ## Hak akses ringkas
 

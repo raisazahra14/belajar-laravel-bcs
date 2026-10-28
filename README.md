@@ -1,6 +1,6 @@
 # LogistikKu
 
-LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transaksi stok, laporan, verifikasi dokumen, dan prediksi kebutuhan stok. Aplikasi dibangun dengan Laravel 12 dan menggunakan Python untuk pemrosesan OCR serta prediksi.
+LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transaksi stok, pengadaan barang (Purchase Order & Goods Receipt), laporan, verifikasi dokumen, dan prediksi kebutuhan stok. Aplikasi dibangun dengan Laravel 12 dan menggunakan Python untuk pemrosesan OCR serta prediksi.
 
 > Proyek ini ditujukan untuk pengembangan dan evaluasi lokal. Sebelum dipakai di produksi, ganti seluruh akun demo, nonaktifkan mode debug, dan sesuaikan konfigurasi database, queue, storage, serta web server.
 
@@ -56,6 +56,19 @@ LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transak
 - Pembalikan transaksi untuk Admin dan Manager.
 - Laporan mutasi stok dengan filter tanggal, supplier, gudang, dan kategori.
 - Export laporan mutasi ke CSV, XLSX, dan PDF.
+
+### Pengadaan dan Purchase Order (PO)
+
+- Pembuatan Purchase Order (PO) multi-item dengan kalkulasi subtotal dan total biaya dinamis secara *real-time*.
+- Penomoran PO otomatis berurut per tanggal dengan format `PO-YYYYMMDD-XXXX`.
+- Siklus hidup 7 status pesanan berbasis state machine terpusat: `Draft`, `Menunggu Persetujuan` (Pending Approval), `Disetujui` (Approved), `Ditolak` (Rejected), `Diterima Sebagian` (Partially Received), `Selesai` (Completed), dan `Dibatalkan` (Cancelled).
+- Pemisahan tugas (*Separation of Duty*): Manager dilarang menyetujui atau menolak PO yang dibuat oleh dirinya sendiri.
+- Penerimaan barang fisik (*Goods Receipt*) bertahap atau penuh langsung dialokasikan ke gudang tujuan fisik.
+- Sinkronisasi otomatis: penerimaan fisik langsung menambah saldo gudang (`warehouse_stocks`) dan membukukan mutasi stok masuk (`stok_transactions`) secara atomik.
+- Validasi pencegahan *over-receipt* (total kuantitas diterima tidak boleh melampaui kuantitas dipesan).
+- Perlindungan konkurensi data: *pessimistic locking* (`lockForUpdate`), penguncian berurutan deterministik anti-*deadlock*, dan *atomic cache lock* pencegah *double submit*.
+- Cetak dokumen resmi Purchase Order dalam format PDF siap cetak berstandar profesional.
+- Endpoint internal REST API berstandar DTO dan API Resource untuk interoperabilitas modul pengadaan.
 
 ### Analitik dan notifikasi
 
@@ -382,10 +395,21 @@ Direktori `bootstrap/cache` dan `storage` harus dapat ditulis oleh pengguna pros
 | Menjalankan prediksi dan menyetujui restock | Ya | Ya | Tidak |
 | Upload dan melihat verifikasi dokumen sendiri | Ya | Ya | Ya |
 | Melihat semua verifikasi dokumen | Ya | Tidak | Tidak |
+| Melihat daftar dan detail Purchase Order | Ya | Ya | Ya |
+| Membuat dan mengubah draft Purchase Order | Ya | Tidak | Ya (pembuat) |
+| Mengajukan (submit) Purchase Order | Ya | Tidak | Ya (pembuat) |
+| Menyetujui dan menolak Purchase Order | Tidak | Ya* | Tidak |
+| Mencatat penerimaan fisik barang (Goods Receipt) | Ya | Tidak | Ya |
+| Membatalkan Purchase Order (cancel) | Ya | Ya | Ya** |
+| Mencetak dokumen PDF Purchase Order | Ya | Ya | Ya |
 | CRUD barang, supplier, dan gudang | Ya | Tidak | Tidak |
 | Import/export inventaris dan Tong Sampah | Ya | Tidak | Tidak |
 | Analitik bisnis | Ya | Tidak | Tidak |
 | Kelola pengguna | Ya | Tidak | Tidak |
+
+Catatan hak akses modul pengadaan:
+- `*` Manager hanya dapat menyetujui atau menolak PO yang diajukan oleh pengguna lain (prinsip *Separation of Duty*; tidak boleh menyetujui PO buatannya sendiri).
+- `**` Staff Gudang hanya berwenang membatalkan PO yang dibuat oleh dirinya sendiri saat masih berstatus `Draft` atau `Rejected`.
 
 Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, validasi request, dan pemeriksaan kepemilikan data.
 
@@ -406,6 +430,53 @@ Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, v
 3. Service mengunci data yang relevan dan menjalankan perubahan dalam transaksi database.
 4. Saldo barang, saldo gudang, serta snapshot sebelum/sesudah diperbarui secara konsisten.
 5. Transaksi tersimpan pada `stok_transactions` dan tampil pada riwayat/laporan.
+
+### Alur Purchase Order dan penerimaan barang (Goods Receipt)
+
+```text
+[Draft] -------------------------> [Menunggu Persetujuan] ------------> [Disetujui] ------------> [Diterima Sebagian / Selesai]
+   |                                       |                                   |                              ^
+   | (Cancel)                              | (Reject / Withdraw)               | (Cancel)                     | (Goods Receipt bertahap)
+   v                                       v                                   v                              |
+[Dibatalkan]                           [Ditolak / Draft]                   [Dibatalkan]         ------------------
+```
+
+1. **Pembuatan PO (Draft)**:
+   - Staff Gudang atau Admin memilih supplier aktif, gudang tujuan aktif, tanggal pesan, serta estimasi tanggal tiba.
+   - Menginput item-item pesanan barang secara dinamis (barang, kuantitas pesan, harga beli satuan). Subtotal per item dan total akumulasi biaya pesanan dikalkulasi secara otomatis oleh sistem.
+   - Sistem menghasilkan nomor pesanan otomatis dengan format `PO-YYYYMMDD-XXXX` yang tersusun berurutan per tanggal.
+   - Data tersimpan dalam status `Draft` dan masih dapat disunting atau disesuaikan oleh pembuat.
+
+2. **Pengajuan PO (Submit)**:
+   - Pembuat PO atau Admin mengajukan pesanan pembelian.
+   - Sistem memvalidasi guard bisnis: PO minimal harus memiliki 1 item barang.
+   - Status pesanan berpindah dari `Draft` ke `Menunggu Persetujuan` (*Pending Approval*).
+
+3. **Peninjauan dan Keputusan Manager (Approval / Rejection)**:
+   - Pengguna dengan peran Manager meninjau data PO pada halaman detail `/purchase-orders/{id}`.
+   - **Persetujuan (Approve)**: Manager menyetujui pesanan, status berpindah ke `Disetujui` (*Approved*), dan identitas penyetuju dicatat pada sistem.
+   - **Penolakan (Reject)**: Manager menolak pesanan dengan wajib menyertakan alasan penolakan. Status berubah menjadi `Ditolak` (*Rejected*). Pembuat PO dapat melakukan revisi (*Revise*) untuk mengembalikan PO ke mode `Draft` dan memperbaikinya tanpa mengulang input dari nol.
+   - **Separation of Duty**: Berdasarkan prinsip tata kelola dan kontrol internal, Manager yang merangkap sebagai pembuat PO diblokir oleh sistem agar tidak dapat menyetujui atau menolak pesanannya sendiri.
+
+4. **Penerimaan Fisik di Gudang (Goods Receipt) & Sinkronisasi Stok**:
+   - Setelah PO berstatus `Disetujui`, supplier mengirimkan barang ke gudang fisik tujuan.
+   - Staff Gudang atau Admin membuka modal pencatatan penerimaan barang pada halaman detail PO.
+   - Kuantitas fisik yang diterima diinput per baris item. Sistem memvalidasi kuantitas untuk mencegah *over-receipt* (total diterima tidak boleh melebihi sisa yang dipesan).
+   - Seluruh proses berjalan secara atomik di dalam satu database transaction:
+     - Saldo fisik pada tabel `warehouse_stocks` untuk gudang tujuan bertambah seketika.
+     - Riwayat mutasi stok masuk dibukukan pada buku besar `stok_transactions` dan `stok_histories`.
+     - Kuantitas `jumlah_diterima` pada masing-masing item PO diperbarui.
+     - State machine secara otomatis menentukan status akhir PO:
+       - `Diterima Sebagian` (*Partially Received*) jika masih ada item yang belum diterima lengkap.
+       - `Selesai` (*Completed*) jika seluruh kuantitas item telah diterima 100%.
+
+5. **Cetak Dokumen PDF & Pembatalan**:
+   - Dokumen fisik Purchase Order resmi berstandar profesional dapat dicetak atau diunduh kapan saja melalui tombol **Cetak PDF**.
+   - PO berstatus `Draft`, `Menunggu Persetujuan`, atau `Disetujui` (sebelum ada penerimaan barang) dapat dibatalkan menjadi `Dibatalkan` (*Cancelled*) dengan wajib mencantumkan alasan pembatalan.
+
+6. **Integritas dan Proteksi Konkurensi**:
+   - **Pencegahan Double Submit**: Menggunakan *atomic cache lock* 15 detik pada level service dan penguncian tombol formulir di sisi UI frontend.
+   - **Pencegahan Deadlock**: Menggunakan *pessimistic locking* (`lockForUpdate`) dengan urutan penguncian item deterministik berdasarkan `id` barang (`orderBy('id')`) serta toleransi *deadlock auto-retry* 3 kali.
 
 ### Alur verifikasi dokumen
 
@@ -571,6 +642,8 @@ Gunakan template dari aplikasi, ukuran maksimum 5 MiB, header yang benar, katego
 | [SRS](docs/srs.md) | Kebutuhan, use case, activity diagram, dan kriteria penerimaan |
 | [SRS PDF](docs/SRS_Sistem_Inventaris_LogistikKu.pdf) | Versi PDF dokumen kebutuhan |
 | [Peta konsep](docs/PETA_KONSEP_LOGISTIKKU.md) | Ringkasan modul dan alur Laravel-Python |
+| [Arsitektur Modul Purchase Order](docs/arsitektur_modul_purchase_order.md) | Spesifikasi teknis, state machine, DTO, API Resource, dan mitigasi konkurensi modul PO |
+| [Portofolio Penutupan Magang](docs/PORTOFOLIO_PENUTUPAN_MAGANG.md) | Laporan komprehensif pencapaian proyek magang, rekayasa perangkat lunak, metrik pengujian, dan dampak bisnis |
 | [ERD](docs/database/erd.md) | Relasi tabel dan aturan database |
 | [Data dictionary](docs/data_dictionary.md) | Penjelasan tabel, kolom, constraint, dan indeks |
 | [Dokumentasi Python](python/README.md) | Cara kerja script OCR dan prediksi |
