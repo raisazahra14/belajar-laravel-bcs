@@ -11,39 +11,39 @@
 - **Nama Aplikasi / Produk**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang & Analitik Logistik Terpadu)
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, MySQL/MariaDB & SQLite, Python 3.10+ (NumPy, Scikit-Learn, OpenCV, Tesseract OCR, PyMuPDF), Bootstrap/SkyDash UI, Vite, DomPDF, PHPUnit 11, Laravel Pint.
 - **Periode Pelaksanaan**: **Agustus 2026 s/d Januari/Februari 2027 (Total Durasi 6 Bulan)**
-- **Status Evaluasi Saat Ini**: **Laporan Capaian Tengah Periode (Bulan ke-1 s/d Bulan ke-3) — 100% SELESAI & LULUS UJI REGRESI (439/439 Tests PASS)**
-- **Sifat Dokumen**: **Living Portfolio Document** (Akan terus diperbarui secara berkala hingga evaluasi akhir penutupan Bulan ke-6).
+- **Status Evaluasi Saat Ini**: **Capaian Progres s/d Bulan ke-3 — 100% SELESAI & LULUS UJI REGRESI (439/439 Tests PASS)**
+- **Sifat Dokumen**: **Living Portfolio Document** (File dokumen ini akan terus diperbarui secara berkala mengikuti penugasan modul baru hingga periode magang berakhir).
 
 ---
 
 ## 1. Ringkasan Eksekutif (Executive Summary)
 
-Dokumen ini merupakan **Portofolio Rekayasa Perangkat Lunak Berkala (*Living Portfolio*)** yang disusun sebagai instrumen evaluasi kinerja resmi untuk program **MagangHub Kementerian Ketenagakerjaan Republik Indonesia (Kemnaker RI)** selama 6 (enam) bulan.
+Dokumen ini merupakan **Portofolio Rekayasa Perangkat Lunak Berkala (*Living Portfolio*)** yang disusun sebagai instrumen evaluasi kinerja resmi untuk program **MagangHub Kementerian Ketenagakerjaan Republik Indonesia (Kemnaker RI)** selama 6 (enam) bulan. Dokumen ini merekam secara transparan seluruh implementasi kode, arsitektur sistem, dan pengujian kualitas yang telah diselesaikan.
 
-Pada milestone **Evaluasi Tengah Periode (Bulan ke-1 hingga Bulan ke-3 / Agustus – Oktober 2026)**, peserta magang bersama kolaborator industri (`itbcslogistics`) telah berhasil mentransformasi aplikasi internal **LogistikKu** dari sistem inventaris dasar menjadi platform rantai pasok dan pergudangan terpadu (*Enterprise Logistics Platform*).
+> **Catatan Pembaruan Dokumen**:  
+> Portofolio ini merangkum seluruh capaian modul yang telah tuntas dikerjakan hingga **Bulan ke-3 (Agustus – Oktober 2026)**. File ini akan terus diperbarui secara bertahap mengikuti arahan tugas dan modul berikutnya dari mentor industri (`itbcslogistics`) sampai seluruh periode magang 6 bulan selesai.
 
-### Capaian Inti Paruh Waktu (Bulan 1 s/d 3):
+### Ringkasan Realisasi Capaian (Bulan 1 s/d 3):
 1. **Bulan 1 (Agustus 2026)**: Fondasi *Clean Code* (FormRequest, DB::transaction, Seeder 50 data), fitur bisnis lapangan (Upload Foto, Export PDF/Excel, Soft Deletes & Trash), kontrol hak akses 3 role (Admin, Manager, Staff), RESTful API berotentikasi Sanctum, jembatan integrasi Laravel–Python untuk deteksi keaslian dokumen via OCR Tesseract & ELA, serta Batch Import massal Excel dengan Upsert otomatis (GitHub Issue #1 & #2).
 2. **Bulan 2 (September s/d Awal Oktober 2026)**: Penyusunan spesifikasi formal SRS (v1.1 - v1.4) berstandar industri dengan diagram UML/Activity, restrukturisasi skema relasional multi-gudang dan multi-supplier, implementasi analitik bisnis canggih (mutasi periodik, klasifikasi FSN Fast/Slow/Dead Stock, valuasi aset inventaris), serta uji beban dan benchmarking 10.000 data transaksi dengan optimasi composite indexing dan caching agregasi (GitHub Issue #4, #5, dan #7).
 3. **Bulan 3 (Oktober 2026)**: Pembangunan modul pengadaan terpadu (*Purchase Order & Goods Receipt Multi-Gudang*) berbasis *State Machine* 7 status, penegakan tata kelola *Separation of Duty*, refactoring arsitektur bersih (*Zero Raw SQL*, DTO, API Resource, standardisasi PSR-12 Laravel Pint), mitigasi konkurensi tingkat enterprise (*pessimistic locking*, penguncian deterministik anti-deadlock, *atomic cache lock* anti-double submit), serta pengujian regresi penuh (**439 automated tests 100% HIJAU** tanpa regresi) (GitHub Issue #9).
 
 ---
 
-## 2. Peta Jalan 6 Bulan Penuh (Master Timeline 6-Month Journey)
+## 2. Peta Jalan Capaian Sistem (Timeline & Milestone)
 
 ```text
 +--------------------------------------------------------------------------------------------------------------------+
-|                         PETA JALAN RESMI 6 BULAN MAGANGHUB KEMNAKER RI (LOGISTIKKU)                                |
+|                         PETA JALAN CAPAIAN MAGANGHUB KEMNAKER RI (LOGISTIKKU)                                      |
 +--------------------------------------------------------------------------------------------------------------------+
-|  [TEREALISASI 100% - EVALUASI TENGAH PERIODE (MID-TERM)]                                                           |
+|  [CAPAIAN YANG TELAH SELESAI DIKERJAKAN (BULAN 1 S/D 3)]                                                           |
 |  • BULAN 1 (Agustus 2026)   : Clean Code Dasar, RESTful API & Integrasi Python OCR Keaslian Dokumen                |
 |  • BULAN 2 (September 2026) : SRS Resmi, Multi-Gudang, Analitik Bisnis & Uji Beban 10.000 Transaksi (Benchmark)   |
 |  • BULAN 3 (Oktober 2026)   : Modul Pengadaan (Purchase Order & Goods Receipt), Concurrency & 439 Tests Green      |
 +--------------------------------------------------------------------------------------------------------------------+
-|  [RENCANA KERJA LANJUTAN MENUJU BULAN KE-6 (UPCOMING SECOND HALF)]                                                 |
-|  • BULAN 4 (November 2026)  : Modul Distribusi & Pengiriman (Delivery Order, Surat Jalan & Dispatching Multi-Armada) |
-|  • BULAN 5 (Desember 2026)  : Notifikasi Real-Time (WebSockets), Audit Logging Terdistribusi, & Multi-Cabang       |
-|  • BULAN 6 (Januari 2027)   : Containerization (Docker), CI/CD Deployment, Security Hardening & Laporan Final Akhir|
+|  CATATAN PEMBARUAN BERKALA (LIVING DOCUMENT):                                                                      |
+|  Dokumen ini merangkum seluruh tugas yang telah tuntas diselesaikan sampai dengan Bulan ke-3.                      |
+|  File ini akan terus diperbarui secara berkala mengikuti arahan modul tugas baru hingga periode magang berakhir.   |
 +--------------------------------------------------------------------------------------------------------------------+
 ```
 
@@ -106,7 +106,7 @@ Pada milestone **Evaluasi Tengah Periode (Bulan ke-1 hingga Bulan ke-3 / Agustus
 
 ---
 
-### 3.3 BULAN KE-3 (Oktober 2026): Modul Pengadaan (Purchase Order & Goods Receipt) & Penutupan Paruh Waktu
+### 3.3 BULAN KE-3 (Oktober 2026): Modul Pengadaan (Purchase Order & Goods Receipt)
 *Berdasarkan Arahan Resmi GitHub Issue #9*
 
 - **Minggu 1: Arsitektur Modul, State Machine, & Skema PO**
@@ -252,37 +252,9 @@ stateDiagram-v2
 
 ---
 
-## 6. Prospek & Rencana Kerja Lanjutan (Bulan ke-4 s/d Bulan ke-6)
-
-Sebagai komitmen untuk menyelesaikan seluruh masa magang 6 bulan secara maksimal, berikut adalah proyeksi modul dan target kerja lanjutan untuk paruh kedua masa magang:
-
-```text
-+--------------------------------------------------------------------------------------------------------------------+
-|                         RENCANA MODUL LANJUTAN MENUJU EVALUASI AKHIR BULAN KE-6                                    |
-+--------------------------------------------------------------------------------------------------------------------+
-| BULAN 4 (November 2026) : MODUL DISTRIBUSI & PENGIRIMAN (OUTBOUND & DISPATCHING)                                  |
-| • Pembuatan Delivery Order (DO) otomatis dari pengeluaran stok.                                                    |
-| • Surat Jalan digital terstandarisasi dengan QR Code pelacakan dokumen.                                            |
-| • Pemetaan armada pengiriman dan integrasi multi-ekspedisi logistik.                                               |
-+--------------------------------------------------------------------------------------------------------------------+
-| BULAN 5 (Desember 2026) : REAL-TIME MONITORING, AUDIT TERDISTRIBUSI & INTEGRASI MULTI-CABANG                       |
-| • Integrasi event-driven WebSockets / Pusher untuk notifikasi live pergerakan stok antar-gudang.                   |
-| • Audit logging terdistribusi untuk melacak setiap perubahan data krusial per sesi pengguna.                       |
-| • Dukungan multi-cabang regional (Branch Office Architecture).                                                     |
-+--------------------------------------------------------------------------------------------------------------------+
-| BULAN 6 (Januari 2027)  : SECURITY HARDENING, DOCKER DEPLOYMENT & PENUTUPAN AKHIR MAGANG                           |
-| • Kontainerisasi aplikasi menggunakan Docker & Docker Compose (Nginx, PHP-FPM, MySQL, Redis, Python Worker).       |
-| • Pipeline CI/CD otomatis di GitHub Actions (Linting, Testing, Auto-Deploy Staging).                               |
-| • Security Hardening: proteksi CSRF ketat, header keamanan HTTP, audit penetrasi dasar.                            |
-| • Penyusunan Laporan Penutupan Akhir 6 Bulan & Serah Terima Sistem (Final Project Handover).                       |
-+--------------------------------------------------------------------------------------------------------------------+
-```
-
----
-
 ### Pernyataan Penutupan & Pengesahan
 
-Seluruh pencapaian yang tertulis dalam portofolio paruh waktu ini merupakan hasil kerja nyata, terverifikasi oleh 439 test cases otomatis yang lulus 100%, serta siap diajukan sebagai bukti pemenuhan target kompetensi **Evaluasi Tengah Periode (Triwulan I / Bulan 1–3) Program MagangHub Kemnaker RI**. Dokumen ini akan terus diperbarui hingga penutupan resmi di Bulan ke-6.
+Seluruh pencapaian yang tertulis dalam portofolio ini merupakan hasil kerja nyata yang telah diselesaikan, terverifikasi oleh 439 test cases otomatis yang lulus 100%, serta siap diajukan sebagai bukti pemenuhan target kompetensi program **MagangHub Kemnaker RI**. Dokumen ini akan terus diperbarui secara berkala mengikuti seluruh modul tugas berikutnya hingga periode magang selesai.
 
 **Disusun Oleh**:  
 Peserta Magang Rekayasa Perangkat Lunak (Software Engineer Intern)  
