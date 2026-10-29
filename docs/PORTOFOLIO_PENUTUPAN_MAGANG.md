@@ -11,7 +11,7 @@
 - **Nama Aplikasi / Produk**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang & Analitik Logistik Terpadu)
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, MySQL/MariaDB & SQLite, Python 3.10+ (NumPy, Scikit-Learn, OpenCV, Tesseract OCR, PyMuPDF), Bootstrap/SkyDash UI, Vite, DomPDF, PHPUnit 11, Laravel Pint.
 - **Periode Pelaksanaan**: **Agustus 2026 s/d Januari/Februari 2027 (Total Durasi 6 Bulan)**
-- **Status Evaluasi Saat Ini**: **Capaian Progres s/d Bulan ke-3 — 100% SELESAI & LULUS UJI REGRESI (439/439 Tests PASS)**
+- **Status Evaluasi Saat Ini**: **Capaian Progres s/d Bulan ke-3 — 100% SELESAI & LULUS UJI REGRESI (464/464 Tests PASS, 4.953 Assertions)**
 - **Sifat Dokumen**: **Living Portfolio Document** (File dokumen ini akan terus diperbarui secara berkala mengikuti penugasan modul baru hingga periode magang berakhir).
 
 ---
@@ -26,7 +26,7 @@ Dokumen ini merupakan **Portofolio Rekayasa Perangkat Lunak Berkala (*Living Por
 ### Ringkasan Realisasi Capaian (Bulan 1 s/d 3):
 1. **Bulan 1 (Agustus 2026)**: Fondasi *Clean Code* (FormRequest, DB::transaction, Seeder 50 data), fitur bisnis lapangan (Upload Foto, Export PDF/Excel, Soft Deletes & Trash), kontrol hak akses 3 role (Admin, Manager, Staff), RESTful API berotentikasi Sanctum, jembatan integrasi Laravel–Python untuk deteksi keaslian dokumen via OCR Tesseract & ELA, serta Batch Import massal Excel dengan Upsert otomatis (GitHub Issue #1 & #2).
 2. **Bulan 2 (September s/d Awal Oktober 2026)**: Penyusunan spesifikasi formal SRS (v1.1 - v1.4) berstandar industri dengan diagram UML/Activity, restrukturisasi skema relasional multi-gudang dan multi-supplier, implementasi analitik bisnis canggih (mutasi periodik, klasifikasi FSN Fast/Slow/Dead Stock, valuasi aset inventaris), serta uji beban dan benchmarking 10.000 data transaksi dengan optimasi composite indexing dan caching agregasi (GitHub Issue #4, #5, dan #7).
-3. **Bulan 3 (Oktober 2026)**: Pembangunan modul pengadaan terpadu (*Purchase Order & Goods Receipt Multi-Gudang*) berbasis *State Machine* 7 status, penegakan tata kelola *Separation of Duty*, refactoring arsitektur bersih (*Zero Raw SQL*, DTO, API Resource, standardisasi PSR-12 Laravel Pint), mitigasi konkurensi tingkat enterprise (*pessimistic locking*, penguncian deterministik anti-deadlock, *atomic cache lock* anti-double submit), serta pengujian regresi penuh (**439 automated tests 100% HIJAU** tanpa regresi) (GitHub Issue #9).
+3. **Bulan 3 (Oktober 2026)**: Pembangunan modul pengadaan terpadu (*Purchase Order & Goods Receipt Multi-Gudang*) berbasis *State Machine* 7 status, penegakan tata kelola *Separation of Duty* (Maker-Checker approval), entitas dokumen penerimaan barang fisik mandiri (Goods Receipt Note / GRN) dengan cetak PDF resmi, jejak audit riwayat status PO (`PurchaseOrderStatusHistory`), sistem notifikasi terpadu dan peringatan otomatis PO terlambat (*overdue*), integrasi *Smart Restock* dari modul prediksi stok AI, *Three-Way Matching* (PO vs GRN vs Dokumen OCR Tesseract), *Vendor Performance Dashboard* untuk melacak *on-time delivery* dan *fulfillment rate*, seeder data demo skala besar (>50 data per entitas), serta pengujian regresi penuh (**464 automated tests 100% HIJAU, 4.953 assertions**) (GitHub Issue #9).
 
 ---
 
@@ -39,7 +39,7 @@ Dokumen ini merupakan **Portofolio Rekayasa Perangkat Lunak Berkala (*Living Por
 |  [CAPAIAN YANG TELAH SELESAI DIKERJAKAN (BULAN 1 S/D 3)]                                                           |
 |  • BULAN 1 (Agustus 2026)   : Clean Code Dasar, RESTful API & Integrasi Python OCR Keaslian Dokumen                |
 |  • BULAN 2 (September 2026) : SRS Resmi, Multi-Gudang, Analitik Bisnis & Uji Beban 10.000 Transaksi (Benchmark)   |
-|  • BULAN 3 (Oktober 2026)   : Modul Pengadaan (Purchase Order & Goods Receipt), Concurrency & 439 Tests Green      |
+|  • BULAN 3 (Oktober 2026)   : Modul Pengadaan (Purchase Order & GRN), Three-Way Matching, Vendor Analytics & 464 Tests Green |
 +--------------------------------------------------------------------------------------------------------------------+
 |  CATATAN PEMBARUAN BERKALA (LIVING DOCUMENT):                                                                      |
 |  Dokumen ini merangkum seluruh tugas yang telah tuntas diselesaikan sampai dengan Bulan ke-3.                      |
@@ -133,8 +133,32 @@ Dokumen ini merupakan **Portofolio Rekayasa Perangkat Lunak Berkala (*Living Por
     - *Atomic Distributed Lock* berdurasi 15 detik via `Cache::lock("purchase_order:receive:{$po->id}", 15)->get()` untuk mencegah insiden mutasi ganda (*double submit*).
     - *Pessimistic Locking* (`lockForUpdate()`) dengan pengurutan penguncian item deterministik berdasarkan ID barang (`orderBy('id')`) serta toleransi *auto-retry deadlock* 3 kali.
     - Penanganan pesan flash ramah pengguna (*user-friendly flash messages*) di antarmuka Blade.
-  - **Pengujian Regresi Menyeluruh**:
-    - Eksekusi `php artisan test` menghasilkan **439 Tests PASSED (4.798 assertions) — 100% HIJAU tanpa regresi**.
+- **Pengembangan Ekosistem Lanjutan & Otomasi Cerdas Modul Pengadaan (Saran A & B)**
+  - **Entitas Dokumen Penerimaan Barang Fisik Mandiri (GRN)**:
+    - Pembuatan skema tabel `goods_receipts` dan `goods_receipt_items`.
+    - Satu PO dapat menerima beberapa kali pengiriman barang (*multi-stage delivery*), masing-masing menerbitkan dokumen resmi berformat `GRN-YYYYMMDD-XXXX`.
+    - Dilengkapi pencatatan nomor Surat Jalan vendor, foto bukti fisik, catatan kondisi barang, dan cetak PDF resmi via `GoodsReceiptPdfService.php`.
+  - **Jejak Audit Kronologis Status PO (`PurchaseOrderStatusHistory`)**:
+    - Skema tabel `purchase_order_status_histories` mencatat setiap transisi status lengkap dengan aktor pengubah, stempel waktu, alasan penolakan/pembatalan, dan metadata transaksi.
+    - Ditampilkan sebagai linimasa interaktif (*visual audit timeline*) pada kartu detail PO.
+  - **Pusat Notifikasi Siklus Hidup PO**:
+    - Terintegrasi dengan navbar notification drawer via `NotificationCenterService`.
+    - Memberi peringatan otomatis kepada Manager/Admin saat ada PO baru berstatus `Pending Approval`, dan notifikasi kepada pembuat PO saat disetujui, ditolak, atau barang diterima.
+  - **Peringatan Otomatis PO Terlambat (Overdue) & Scheduler Harian**:
+    - Command `php artisan po:check-overdue --notify` mendeteksi PO berstatus `Approved` atau `Partially Received` yang telah melewati `estimasi_tiba`.
+    - Badge visual merah `Terlambat`, banner peringatan di halaman detail, dan filter cepat pada tabel index PO.
+  - **Integrasi Prediksi Stok ke PO (Smart Restock)**:
+    - Menghubungkan modul prediksi Machine Learning (`/prediksi-stok`) dengan pembuatan PO: tombol "Buat PO dari Rekomendasi" otomatis mengisi supplier rekanan, gudang defisit, kuantitas kebutuhan restock, harga beli master, dan estimasi tanggal tiba.
+  - **Pencocokan Tiga Arah (Three-Way Matching: PO vs GRN vs Dokumen OCR Tesseract)**:
+    - `ThreeWayMatchingService.php` mencocokkan data PO sistem, kuantitas fisik tiba pada GRN, dan invoice/surat jalan hasil ekstraksi OCR Tesseract.
+    - Mendeteksi *overbilling*, *price discrepancy*, dan *partial delivery* secara visual dengan *deep linking* dua arah.
+  - **Dashboard Analitik Kinerja Rekanan (Vendor Performance & Lead Time Tracking)**:
+    - `SupplierPerformanceService.php` menghitung *On-Time Delivery Rate (%)*, *Average Delay Days*, *Fulfillment Rate (%)*, dan skor komposit performa.
+    - Halaman executive dashboard di `/suppliers/performance` dan kartu scorecard audit vendor di `/suppliers/{supplier}/performance`.
+  - **Generator Data Demo Skala Besar (`ProcurementDemoDataSeeder`)**:
+    - Menyuplai >50 data uji realistis per entitas: 80 Purchase Orders (semua 7 status, termasuk overdue), 52 Goods Receipts mandiri, 83 Dokumen Verifikasi OCR, dan >200 entri audit trail.
+  - **Hasil Pengujian Regresi Menyeluruh**:
+    - Eksekusi `php artisan test` menghasilkan **464 Tests PASSED (4.953 assertions) — 100% HIJAU tanpa regresi**.
   - Pembaruan dokumentasi operasional pengguna pada `README.md` dan `docs/README.md`.
 
 ---
@@ -220,12 +244,18 @@ stateDiagram-v2
 |---|:---:|:---:|:---:|:---:|:---:|---|
 | Buat & Edit Draft PO | ✅ | ❌ | ✅ | ✅ | — | Hanya diizinkan pada status `Draft` |
 | Ajukan (Submit) PO | ✅ | ❌ | ✅ | ✅ | — | Wajib memiliki minimal 1 item barang |
-| Setujui (Approve) PO | ❌ | ✅ | ❌ | ❌ dilarang | — | **Separation of Duty**: Approver ≠ Creator |
-| Tolak (Reject) PO | ❌ | ✅ | ❌ | ❌ dilarang | ✅ | Wajib menyertakan catatan alasan penolakan |
+| Setujui (Approve) PO | ✅* | ✅* | ❌ | ❌ dilarang | — | **Separation of Duty (Maker-Checker)**: Approver ≠ Creator |
+| Tolak (Reject) PO | ✅* | ✅* | ❌ | ❌ dilarang | ✅ | Wajib menyertakan catatan alasan penolakan |
 | Revisi PO Ditolak | ✅ | ❌ | ✅ | ✅ | — | Mengembalikan status ke `Draft` untuk perbaikan |
 | Terima Barang (Goods Receipt) | ✅ | ❌ | ✅ | — | — | Dilarang *over-receipt*, PO wajib Approved/Partial |
+| Terbitkan & Cetak PDF GRN | ✅ | ✅ | ✅ | — | — | Dokumen Berita Acara Penerimaan Barang resmi |
+| Three-Way Matching (PO/GRN/OCR) | ✅ | ✅ | ✅ | — | — | Verifikasi kuantitas fisik vs tagihan invoice |
+| Vendor Performance Analytics | ✅ | ✅ | ✅ | — | — | Dashboard metrik ketepatan waktu & pemenuhan |
 | Batalkan (Cancel) PO | ✅ | ✅ | ❌ | ✅ (saat draft) | ✅ | Wajib menyertakan catatan alasan pembatalan |
 | Cetak Dokumen PDF PO | ✅ | ✅ | ✅ | ✅ | — | Dokumen resmi siap kirim ke vendor/supplier |
+
+> **Catatan Pengendalian Internal (*Maker-Checker Rule*)**:  
+> Tanda `*` menunjukkan bahwa Admin dan Manager memiliki wewenang untuk menyetujui atau menolak PO, dengan syarat ketat bahwa penyetuju **bukan** pengguna yang membuat PO tersebut (`approver_id !== created_by`). Prinsip ini mencegah *fraud* dan memastikan independensi verifikasi anggaran pengadaan.
 
 ---
 
@@ -238,15 +268,15 @@ stateDiagram-v2
   Perintah Uji     : php artisan test
   Framework Test   : PHPUnit 11.5
   Konfigurasi DB   : SQLite in-memory (:memory:)
-  Total Test Cases : 439 PASSED (100% HIJAU)
-  Total Assertions : 4.798 Assertions Terverifikasi
-  Waktu Eksekusi   : ~126 Detik
+  Total Test Cases : 464 PASSED (100% HIJAU)
+  Total Assertions : 4.953 Assertions Terverifikasi
+  Waktu Eksekusi   : ~130 Detik
   Status Kualitas  : ZERO REGRESSION (Semua modul dari Bulan 1 - 3 teruji sempurna)
 ========================================================================================
 ```
 
 - **Unit Tests (`tests/Unit/`)**: Pengujian logika State Machine PO, pemetaan metadata OCR, dan validasi kontrak integrasi Python.
-- **Feature Tests (`tests/Feature/`)**: Pengujian integrasi end-to-end mencakup database, form request, service layer, proteksi konkurensi (atomic lock, deadlock recovery), UI responsif, analitik bisnis, dan benchmark performa.
+- **Feature Tests (`tests/Feature/`)**: Pengujian integrasi end-to-end mencakup database, form request, service layer, proteksi konkurensi (atomic lock, deadlock recovery), UI responsif, analitik bisnis, Three-Way Matching OCR, Vendor Performance Dashboard, dan benchmark performa.
 - **Standar Kode (PSR-12)**: 100% berkas PHP terformat rapi sesuai standar resmi Laravel Pint.
 - **Keamanan Kueri**: 100% bebas dari query mentah (*Zero Raw SQL*), mengeliminasi risiko injeksi SQL secara menyeluruh.
 
@@ -254,5 +284,5 @@ stateDiagram-v2
 
 ### Pernyataan Penutupan & Pengesahan
 
-Seluruh pencapaian yang tertulis dalam portofolio ini merupakan hasil kerja nyata yang telah diselesaikan, terverifikasi oleh 439 test cases otomatis yang lulus 100%, serta siap diajukan sebagai bukti pemenuhan target kompetensi program **MagangHub Kemnaker RI**. Dokumen ini akan terus diperbarui secara berkala mengikuti seluruh modul tugas berikutnya hingga periode magang selesai.
+Seluruh pencapaian yang tertulis dalam portofolio ini merupakan hasil kerja nyata yang telah diselesaikan, terverifikasi oleh 464 test cases otomatis yang lulus 100%, serta siap diajukan sebagai bukti pemenuhan target kompetensi program **MagangHub Kemnaker RI**. Dokumen ini akan terus diperbarui secara berkala mengikuti seluruh modul tugas berikutnya hingga periode magang selesai.
 

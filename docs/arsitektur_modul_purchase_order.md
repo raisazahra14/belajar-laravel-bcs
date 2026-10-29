@@ -50,6 +50,11 @@ Dokumen ini menjadi acuan utama perancangan teknis dan fungsional modul Purchase
 | Feature Test API Endpoint & Resource | [`tests/Feature/PurchaseOrderApiTest.php`](../tests/Feature/PurchaseOrderApiTest.php) |
 | Feature Test Penanganan Error & Edge-Cases | [`tests/Feature/PurchaseOrderRobustErrorHandlingTest.php`](../tests/Feature/PurchaseOrderRobustErrorHandlingTest.php) |
 | Feature Test Dokumen GRN & Peringatan Terlambat | [`tests/Feature/GoodsReceiptAndOverdueFeatureTest.php`](../tests/Feature/GoodsReceiptAndOverdueFeatureTest.php) |
+| Layanan Three-Way Matching OCR | [`app/Services/ThreeWayMatchingService.php`](../app/Services/ThreeWayMatchingService.php) |
+| Layanan & Analitik Kinerja Rekanan | [`app/Services/SupplierPerformanceService.php`](../app/Services/SupplierPerformanceService.php) |
+| Controller Dashboard Kinerja Rekanan | [`app/Http/Controllers/SupplierPerformanceController.php`](../app/Http/Controllers/SupplierPerformanceController.php) |
+| Seeder Data Demo Skala Besar (>50 Data) | [`database/seeders/ProcurementDemoDataSeeder.php`](../database/seeders/ProcurementDemoDataSeeder.php) |
+| Feature Test Three-Way Matching & Vendor KPI | [`tests/Feature/ThreeWayMatchingAndSupplierPerformanceTest.php`](../tests/Feature/ThreeWayMatchingAndSupplierPerformanceTest.php) |
 
 ---
 
@@ -432,6 +437,75 @@ Modul analitik ekosistem pengadaan untuk memantau keandalan rekanan supplier sec
 ### 12.2 Halaman & Tampilan
 - **Dashboard Global (`/suppliers/performance`)**: Ringkasan eksekutif rata-rata ketepatan waktu, rasio pemenuhan, total belanja, serta tabel peringkat supplier dengan filter rating dan pencarian.
 - **Scorecard Audit Vendor (`/suppliers/{supplier}/performance`)**: Analisis mendalam per supplier lengkap dengan riwayat logistik pengiriman fisik (nomor GRN, nomor PO, tanggal terima vs estimasi, dan status tepat waktu/terlambat).
+
+---
+
+## 13. Riwayat Perubahan & Catatan Rilis Modul (Changelog)
+
+Catatan kronologis evolusi dan peningkatan teknis Modul Pengadaan (*Purchase Order & Goods Receipt*):
+
+### [v1.5.0] — 2026-10-29: Demo Data Seeder Skala Besar (>50 Data per Entitas)
+- **Penambahan Seeder Komprehensif**: `ProcurementDemoDataSeeder.php` dibuat dan didaftarkan pada `DatabaseSeeder.php` untuk memasok data pengujian realistis bagi seluruh fitur pengadaan.
+- **Volume Data Baru**:
+  - `purchase_orders`: 80 record melingkupi seluruh 7 status siklus hidup (termasuk pesanan berstatus tepat waktu dan terlambat/overdue).
+  - `goods_receipts`: 52 dokumen Berita Acara Penerimaan Barang resmi (`GRN-YYYYMMDD-XXXX`) lengkap dengan nomor surat jalan dan catatan kondisi.
+  - `document_verifications`: 83 dokumen (termasuk 60 invoice/surat jalan hasil ekstraksi OCR Tesseract untuk pengujian Three-Way Matching).
+  - `purchase_order_status_histories`: >200 entri jejak audit linimasa.
+- **Integritas Stok & Mutasi**: Sinkronisasi saldo fisik `warehouse_stocks` dan pencatatan buku besar `stok_transactions` terintegrasi sempurna tanpa inkonsistensi saldo.
+
+### [v1.4.0] — 2026-10-29: Three-Way Matching OCR & Vendor Performance Dashboard (Saran B)
+- **Pencocokan Tiga Arah (Three-Way Matching)**:
+  - Layanan `ThreeWayMatchingService.php` mencocokkan data PO sistem, kuantitas fisik tiba pada GRN, dan dokumen tagihan vendor hasil pindaian OCR Tesseract.
+  - Deteksi dini *overbilling* (tagihan melebihi fisik tiba), selisih harga per unit (*price discrepancy*), dan penerimaan bertahap (*partially matched*).
+  - Deep linking dua arah antara detail PO dan hasil verifikasi dokumen OCR.
+- **Dashboard Kinerja Rekanan (Vendor Performance)**:
+  - Layanan `SupplierPerformanceService.php` dan `SupplierPerformanceController.php`.
+  - Pelacakan metrik logistik: *On-Time Delivery Rate (%)*, *Average Delay Days*, *Fulfillment Rate (%)*, dan skor komposit performa berbobot.
+  - Antarmuka eksekutif `/suppliers/performance` dan kartu audit per vendor `/suppliers/{supplier}/performance`.
+- **Automated Testing Suite**: Penambahan test `tests/Feature/ThreeWayMatchingAndSupplierPerformanceTest.php` (12 test cases lulus 100%).
+
+### [v1.3.0] — 2026-10-29: Smart Restock Integrasi Modul Prediksi Stok AI (Saran B)
+- **Auto-Generate Purchase Order**: Tombol "Buat PO dari Rekomendasi" pada halaman hasil prediksi restock AI (`/prediksi-stok`).
+- **Otomasi Prefill Form**: Membawa parameter query `from_prediction` untuk mengisi secara instan: supplier rekanan, gudang defisit yang membutuhkan alokasi barang, kuantitas restock rekomendasi, harga beli master, dan estimasi tanggal tiba.
+- **User Experience**: Banner visual biru di formulir pembuatan PO mengonfirmasi asal usul data dari modul prediksi cerdas.
+
+### [v1.2.0] — 2026-10-29: Dokumen GRN Mandiri, Jejak Audit, Notifikasi & Peringatan Overdue (Saran A)
+- **Entitas Dokumen Goods Receipt (GRN)**:
+  - Tabel `goods_receipts` dan `goods_receipt_items` untuk mendukung penerimaan bertahap (*multi-stage delivery*) dengan format unik `GRN-YYYYMMDD-XXXX`.
+  - Ekspor dokumen Berita Acara Penerimaan Barang ke format PDF resmi via `GoodsReceiptPdfService.php`.
+- **Jejak Audit Kronologis Status PO**:
+  - Tabel `purchase_order_status_histories` merekam aktor, stempel waktu, status asal, status tujuan, alasan penolakan/pembatalan, dan metadata transaksi.
+  - Komponen linimasa visual interaktif (*status timeline*) di halaman detail PO.
+- **Pusat Notifikasi Siklus Hidup PO**:
+  - `PurchaseOrderNotification.php` dan `NotificationCenterService.php` mengirimkan notifikasi instan ke dropdown lonceng navbar (`notifications`).
+- **Peringatan Otomatis PO Terlambat (Overdue)**:
+  - Scheduled command `php artisan po:check-overdue --notify` yang menandai PO `Approved`/`Partially Received` yang telah melewati `estimasi_tiba`.
+  - Badge merah `Terlambat`, banner peringatan di halaman detail, dan filter cepat pada tabel index PO.
+- **Automated Testing Suite**: Penambahan test `tests/Feature/GoodsReceiptAndOverdueFeatureTest.php` (13 test cases lulus 100%).
+
+### [v1.1.0] — 2026-10-28: Penguatan Tata Kelola, Otorisasi Policy & Mitigasi Bentrok Nomor PO
+- **Penyelarasan Hak Approve/Reject (Maker-Checker)**:
+  - Memperbarui `PurchaseOrderPolicy.php` dan `PurchaseOrderStateMachine.php` agar Admin dan Manager berhak menyetujui/menolak PO, dengan aturan wajib: `approver_id !== created_by` (*Segregation of Duties*).
+- **Penyelarasan Hak Penerimaan Fisik**:
+  - Standarisasi aksi terima barang fisik eksklusif untuk Admin dan Staff Gudang di FormRequest, Policy, Controller, dan UI.
+- **Pencegahan Bentrok Nomor PO Konkuren**:
+  - Penomoran PO otomatis menggunakan *pessimistic locking* (`lockForUpdate`) atau mekanisme *auto-retry* saat terjadi perlombaan nomor.
+- **Restrukturisasi Alasan Penolakan & Pembatalan**:
+  - Alasan penolakan dan pembatalan dipisahkan dari kolom `catatan` dan dicatat secara terstruktur pada tabel riwayat audit `purchase_order_status_histories`.
+- **Pengamanan Rute PDF**:
+  - Akses unduh PDF PO diikat ke kebijakan otorisasi `viewPdf` pada `PurchaseOrderPolicy`.
+
+### [v1.0.0] — 2026-10-26: Rilis Awal Modul Pengadaan (Roadmap Bulan ke-3 Minggu 1 s/d 4)
+- Perancangan arsitektur awal dan siklus hidup 7 status PO (`PurchaseOrderStateMachine`).
+- Skema dasar `purchase_orders` dan `purchase_order_items`.
+- Pemisahan lapisan bisnis pada `PurchaseOrderService.php` dengan transaksi atomik `DB::transaction()`.
+- Validasi ketat via FormRequest (`StorePurchaseOrderRequest`, `UpdatePurchaseOrderRequest`, `ReceivePurchaseOrderItemRequest`).
+- Antarmuka Blade dinamis: tabel index dengan filter status, formulir penambahan/penghapusan baris item interaktif, dan halaman detail.
+- Layanan cetak PDF resmi `PurchaseOrderPdfService.php`.
+- Proteksi konkurensi: *distributed cache lock* dan *pessimistic locking*.
+- Standarisasi Clean Code: *Zero Raw SQL*, DTO, API Resource, dan kepatuhan PSR-12 via Laravel Pint.
+- Pencapaian test suite awal: 439 test cases berstatus 100% HIJAU.
+
 
 
 

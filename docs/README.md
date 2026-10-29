@@ -1,6 +1,6 @@
 # Indeks Dokumentasi LogistikKu
 
-Folder ini berisi dokumentasi teknis dan fungsional LogistikKu. Seluruh dokumen aktif telah diselaraskan dengan kode dan seluruh migration hingga **5 Oktober 2026**.
+Folder ini berisi dokumentasi teknis dan fungsional LogistikKu. Seluruh dokumen aktif telah diselaraskan dengan kode dan seluruh migration hingga **29 Oktober 2026 (Penyelesaian Bulan ke-3: Modul Pengadaan, GRN, Three-Way Matching & Vendor Analytics)**.
 
 Urutan membaca yang disarankan:
 
@@ -34,8 +34,8 @@ LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python unt
 | [SRS PDF](./SRS_Sistem_Inventaris_LogistikKu.pdf) | Versi SRS yang siap dibaca atau dibagikan. | Dibangkitkan dari SRS versi 1.4. |
 | [Peta Konsep](./PETA_KONSEP_LOGISTIKKU.md) | Ringkasan cara kerja setiap modul dan hubungan Laravel, database, queue, storage, dan Python. | Aktif. |
 | [ERD](./database/erd.md) | Diagram relasi tabel bisnis, fungsi tabel, FK, dan integritas data. | 15 tabel bisnis/aplikasi. |
-| [Data Dictionary](./data_dictionary.md) | Definisi seluruh tabel, kolom, kunci, indeks, dan aturan data. | 23 tabel, 218 kolom, 24 FK. |
-| [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) | Alur bisnis, status, matriks transisi, hak akses, skema database, dan aturan bisnis Modul Pengadaan (Purchase Order). | Modul Pengadaan. |
+| [Data Dictionary](./data_dictionary.md) | Definisi seluruh tabel, kolom, kunci, indeks, dan aturan data. | 28 tabel, 268 kolom, 38 FK. |
+| [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) | Alur bisnis, status, matriks transisi, hak akses, skema database, GRN, Three-Way Matching, dan aturan bisnis Modul Pengadaan. | Modul Pengadaan & GRN. |
 | [Portofolio Penutupan Magang](./PORTOFOLIO_PENUTUPAN_MAGANG.md) | Rekapitulasi komprehensif pencapaian rekayasa perangkat lunak, milestone, metrik pengujian regresi, dan kontribusi bisnis. | Laporan Akhir Magang. |
 
 ## Peta fitur dan dokumentasinya
@@ -52,7 +52,7 @@ LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python unt
 | Analitik | Fast/Slow/Dead Stock, valuasi, tren, rekonsiliasi, ringkasan otomatis | [SRS 4.5](./srs.md#45-dashboard-analitik-laporan-dan-notifikasi) |
 | OCR | Upload privat, queue, OCR, metadata, skor, audit, retry/reprocess | [SRS 4.6](./srs.md#46-verifikasi-dokumen-ocr) |
 | Prediksi | Analisis satu/semua barang, fallback, proses, rekomendasi, notifikasi | [SRS 4.7](./srs.md#47-prediksi-stok) |
-| Pengadaan | Siklus Purchase Order (PO), approval Manager, Goods Receipt multi-gudang, sinkronisasi stok, dan cetak PDF | [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) |
+| Pengadaan | Siklus Purchase Order (PO), approval Maker-Checker, Goods Receipt Note (GRN) mandiri, Three-Way Matching OCR, Vendor Performance Dashboard, Smart Restock AI, dan cetak PDF resmi | [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) |
 
 ## Hak akses ringkas
 
@@ -65,15 +65,21 @@ LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python unt
 | Upload dan melihat dokumen sendiri | Ya | Ya | Ya |
 | Melihat seluruh dokumen | Ya | Tidak | Tidak |
 | CRUD master, import/export, analitik, trash, pengguna | Ya | Tidak | Tidak |
+| Membuat dan mengajukan Purchase Order | Ya | Tidak | Ya (pembuat) |
+| Menyetujui/menolak Purchase Order (Maker-Checker) | Ya* | Ya* | Tidak |
+| Mencatat penerimaan fisik barang (Goods Receipt / GRN) | Ya | Tidak | Ya |
+| Three-Way Matching (PO/GRN/OCR) & Vendor Performance | Ya | Ya | Ya |
+
+`*` Catatan Maker-Checker: Admin dan Manager hanya boleh menyetujui/menolak PO yang dibuat oleh pengguna lain.
 
 ## Dokumentasi database
 
 Migration bersih membentuk:
 
-- **23 tabel dan 218 kolom**;
-- **15 tabel bisnis/aplikasi** dengan 176 kolom;
+- **28 tabel dan 268 kolom**;
+- **20 tabel bisnis/aplikasi** dengan 226 kolom;
 - **8 tabel framework/internal** dengan 42 kolom;
-- **24 foreign key**: 10 `CASCADE`, 10 `SET NULL`, dan 4 `RESTRICT` pada penghapusan;
+- **38 foreign key**: 15 `CASCADE`, 12 `SET NULL`, dan 11 `RESTRICT` pada penghapusan;
 - saldo unik per pasangan barang-gudang;
 - satu record pelaku per transaksi melalui `stok_transaction_actors`;
 - relasi reversal transaksi, pengelompok transfer, snapshot biaya, dan referensi dokumen.

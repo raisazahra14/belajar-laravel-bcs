@@ -24,6 +24,11 @@ Source migration adalah sumber utama untuk tipe logis, nullable, default, PK, FK
   - [`stock_prediction_notifications`](#stock_prediction_notifications)
   - [`stock_prediction_notification_reads`](#stock_prediction_notification_reads)
   - [`stock_prediction_processes`](#stock_prediction_processes)
+  - [`purchase_orders`](#purchase_orders)
+  - [`purchase_order_items`](#purchase_order_items)
+  - [`purchase_order_status_histories`](#purchase_order_status_histories)
+  - [`goods_receipts`](#goods_receipts)
+  - [`goods_receipt_items`](#goods_receipt_items)
 - [Tabel framework dan internal](#tabel-framework-dan-internal)
 - [Ringkasan constraint dan referential action](#ringkasan-constraint-dan-referential-action)
 - [Ketidaksesuaian hasil audit](#ketidaksesuaian-hasil-audit)
@@ -31,7 +36,7 @@ Source migration adalah sumber utama untuk tipe logis, nullable, default, PK, FK
 
 ## Cakupan dan legenda
 
-Hasil migration bersih memiliki **23 tabel dan 218 kolom**: **15 tabel bisnis/aplikasi dengan 176 kolom** serta **8 tabel framework/internal dengan 42 kolom**. Terdapat 24 FK aktual. Engine, collation, perilaku `CHECK`, dan representasi fisik JSON/timestamp pada MySQL/MariaDB perlu diperiksa di lingkungan target.
+Hasil migration bersih memiliki **28 tabel dan 268 kolom**: **20 tabel bisnis/aplikasi dengan 226 kolom** serta **8 tabel framework/internal dengan 42 kolom**. Terdapat 38 FK aktual. Engine, collation, perilaku `CHECK`, dan representasi fisik JSON/timestamp pada MySQL/MariaDB perlu diperiksa di lingkungan target.
 
 | Istilah | Arti |
 |---|---|
@@ -61,6 +66,9 @@ Tipe di bawah memakai bentuk MySQL/MariaDB yang diharapkan dari Laravel Schema B
 - Barang menjadi induk histori lama, prediksi, notifikasi prediksi, dan state proses prediksi. Sebagian besar relasi prediksi memakai `CASCADE` saat barang dihapus permanen.
 - Pengguna memiliki dokumen verifikasi; verifikasi memiliki audit. Notifikasi Laravel ke pengguna bersifat polymorphic tanpa FK.
 - `stock_prediction_processes.source_transaction_id` adalah referensi logis ke transaksi sumber, bukan FK. Integritasnya tidak dijaga database.
+- `purchase_orders` menyimpan komitmen pesanan pengadaan barang ke supplier untuk gudang tujuan dengan status siklus hidup 7 tahap. Rincian item pesanan disimpan di `purchase_order_items`.
+- `purchase_order_status_histories` mencatat kronologis audit trail perpindahan status PO, user penanggung jawab, stempel waktu, alasan penolakan/pembatalan, serta metadata.
+- Dokumen penerimaan barang fisik di gudang dicatat secara mandiri melalui Berita Acara Penerimaan Barang (`goods_receipts` dan `goods_receipt_items`), yang mengupdate `purchase_order_items.jumlah_diterima`, menambah saldo fisik `warehouse_stocks`, dan membukukan mutasi masuk pada `stok_transactions`.
 
 ## Tabel bisnis dan aplikasi
 
@@ -397,6 +405,101 @@ PK: `id` (AI). UK: `stock_prediction_processes_barang_id_unique` (`barang_id`). 
 
 Aturan penting: status model adalah `waiting`, `processing`, `completed`, atau `failed`, tetapi tidak ada CHECK status di database. `stock_prediction_id` tidak unik, sehingga database mengizinkan banyak process menunjuk prediksi yang sama.
 
+### `purchase_orders`
+
+Fungsi: header dokumen Purchase Order (PO) pengadaan barang ke supplier untuk alokasi gudang fisik.
+
+PK: `id` (AI). UK: `purchase_orders_nomor_po_unique` (`nomor_po`). IDX: `supplier_id`, `warehouse_id`, `created_by`, `approved_by`, `status`, dan komposit (`status`, `tanggal_pesan`). Soft delete: tidak.
+
+| Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
+|---|---|---:|---|---|---|
+| `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas Purchase Order. |
+| `nomor_po` | `varchar(30)` | Tidak | — | UK | Nomor unik PO (`PO-YYYYMMDD-XXXX`). |
+| `supplier_id` | `bigint(20) unsigned` | Tidak | — | FK → `suppliers.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Rekanan supplier tujuan pemesanan. |
+| `warehouse_id` | `bigint(20) unsigned` | Tidak | — | FK → `warehouses.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Gudang tujuan alokasi fisik barang. |
+| `status` | `varchar(30)` | Tidak | `'draft'` | IDX, IDX komposit | Status siklus hidup PO. |
+| `tanggal_pesan` | `date` | Tidak | — | IDX komposit | Tanggal penerbitan PO. |
+| `estimasi_tiba` | `date` | Ya | `NULL` | — | Perkiraan tanggal kedatangan barang. |
+| `total_biaya` | `decimal(15,2)` | Tidak | `0.00` | — | Total akumulasi biaya PO. |
+| `catatan` | `text` | Ya | `NULL` | — | Catatan operasional PO. |
+| `created_by` | `bigint(20) unsigned` | Tidak | — | FK → `users.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Pembuat PO. |
+| `approved_by` | `bigint(20) unsigned` | Ya | `NULL` | FK → `users.id`; delete `SET NULL`, update `RESTRICT`; IDX | Penyetuju PO (Admin/Manager). |
+| `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
+| `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
+
+### `purchase_order_items`
+
+Fungsi: rincian baris barang yang dipesan dalam Purchase Order beserta progres kuantitas fisik yang telah diterima.
+
+PK: `id` (AI). IDX: `purchase_order_id`, `barang_id`. Soft delete: tidak.
+
+| Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
+|---|---|---:|---|---|---|
+| `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas item pesanan. |
+| `purchase_order_id` | `bigint(20) unsigned` | Tidak | — | FK → `purchase_orders.id`; delete `CASCADE`, update `RESTRICT`; IDX | Induk Purchase Order. |
+| `barang_id` | `bigint(20) unsigned` | Tidak | — | FK → `barang.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Barang yang dipesan. |
+| `jumlah_pesan` | `int(10) unsigned` | Tidak | — | — | Kuantitas barang yang dipesan (> 0). |
+| `jumlah_diterima` | `int(10) unsigned` | Tidak | `0` | — | Kuantitas kumulatif barang yang telah diterima fisik. |
+| `harga_satuan` | `decimal(15,2)` | Tidak | `0.00` | — | Harga kesepakatan per unit. |
+| `subtotal` | `decimal(15,2)` | Tidak | `0.00` | — | Subtotal biaya (`jumlah_pesan * harga_satuan`). |
+| `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
+| `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
+
+### `purchase_order_status_histories`
+
+Fungsi: jejak audit kronologis perpindahan status Purchase Order (audit trail).
+
+PK: `id` (AI). IDX: `to_status`, `purchase_order_id`, `user_id`, dan komposit (`purchase_order_id`, `created_at`). Soft delete: tidak.
+
+| Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
+|---|---|---:|---|---|---|
+| `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas jejak status. |
+| `purchase_order_id` | `bigint(20) unsigned` | Tidak | — | FK → `purchase_orders.id`; delete `CASCADE`, update `RESTRICT`; IDX, IDX komposit | Purchase Order terkait. |
+| `from_status` | `varchar(30)` | Ya | `NULL` | — | Status asal sebelum transisi. |
+| `to_status` | `varchar(30)` | Tidak | — | IDX | Status baru setelah transisi. |
+| `user_id` | `bigint(20) unsigned` | Ya | `NULL` | FK → `users.id`; delete `SET NULL`, update `RESTRICT`; IDX | Aktor yang melakukan aksi transisi status. |
+| `reason` | `text` | Ya | `NULL` | — | Catatan/alasan penolakan atau pembatalan. |
+| `metadata` | `json` | Ya | `NULL` | — | Metadata tambahan transisi (IP, user agent, dll). |
+| `created_at` | `timestamp` | Ya | `NULL` | IDX komposit | Waktu pencatatan mutasi status. |
+| `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu pembaruan. |
+
+### `goods_receipts`
+
+Fungsi: dokumen Berita Acara Penerimaan Barang fisik (Goods Receipt Note / GRN) di gudang.
+
+PK: `id` (AI). UK: `goods_receipts_nomor_grn_unique` (`nomor_grn`). IDX: `purchase_order_id`, `warehouse_id`, `received_by`, dan komposit (`purchase_order_id`, `tanggal_terima`). Soft delete: tidak.
+
+| Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
+|---|---|---:|---|---|---|
+| `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas dokumen penerimaan fisik. |
+| `nomor_grn` | `varchar(30)` | Tidak | — | UK | Nomor unik GRN (`GRN-YYYYMMDD-XXXX`). |
+| `purchase_order_id` | `bigint(20) unsigned` | Tidak | — | FK → `purchase_orders.id`; delete `CASCADE`, update `RESTRICT`; IDX, IDX komposit | Purchase Order referensi. |
+| `warehouse_id` | `bigint(20) unsigned` | Tidak | — | FK → `warehouses.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Gudang tempat barang dibongkar/diterima. |
+| `tanggal_terima` | `date` | Tidak | — | IDX komposit | Tanggal fisik barang diterima di gudang. |
+| `nomor_surat_jalan` | `varchar(100)` | Ya | `NULL` | — | Nomor surat jalan dari vendor/ekspedisi. |
+| `foto_surat_jalan` | `varchar(255)` | Ya | `NULL` | — | Path berkas foto fisik bukti surat jalan. |
+| `catatan` | `text` | Ya | `NULL` | — | Catatan operasional penerimaan fisik. |
+| `received_by` | `bigint(20) unsigned` | Tidak | — | FK → `users.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Staf gudang/Admin yang menerima barang. |
+| `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
+| `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
+
+### `goods_receipt_items`
+
+Fungsi: rincian kuantitas barang fisik yang diterima pada setiap dokumen penerimaan (GRN).
+
+PK: `id` (AI). IDX: `goods_receipt_id`, `purchase_order_item_id`, `barang_id`. Soft delete: tidak.
+
+| Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
+|---|---|---:|---|---|---|
+| `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas item penerimaan fisik. |
+| `goods_receipt_id` | `bigint(20) unsigned` | Tidak | — | FK → `goods_receipts.id`; delete `CASCADE`, update `RESTRICT`; IDX | Induk dokumen Goods Receipt. |
+| `purchase_order_item_id` | `bigint(20) unsigned` | Tidak | — | FK → `purchase_order_items.id`; delete `CASCADE`, update `RESTRICT`; IDX | Baris item Purchase Order yang dipenuhi. |
+| `barang_id` | `bigint(20) unsigned` | Tidak | — | FK → `barang.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Barang yang diterima secara fisik. |
+| `jumlah_diterima` | `int(10) unsigned` | Tidak | — | — | Kuantitas fisik yang diterima pada tahap ini. |
+| `catatan_kondisi` | `varchar(255)` | Ya | `NULL` | — | Catatan kondisi fisik barang saat diterima. |
+| `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
+| `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
+
 ## Tabel framework dan internal
 
 Tabel berikut mendukung cache, queue, migration, reset password, dan session Laravel. Tidak ada soft delete atau FK database pada delapan tabel ini. `sessions.user_id` dan `password_reset_tokens.email` adalah referensi logis saja.
@@ -503,20 +606,20 @@ Fungsi: penyimpanan session database. PK: `id`. IDX: `sessions_user_id_index` (`
 
 ### Primary key, unique, dan index
 
-- Semua 23 tabel memiliki PK: **17 PK AI** dan **6 PK non-AI** (`cache.key`, `cache_locks.key`, `job_batches.id`, `notifications.id`, `password_reset_tokens.email`, dan `sessions.id`).
-- UK bisnis: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan `warehouse_stocks(barang_id, warehouse_id)`, `barang.kode_barang`, `document_verification_audits.idempotency_key`, pasangan `stock_predictions(barang_id, process_generation)`, tripel notifikasi prediksi, pasangan receipt prediksi/pengguna, dan `stock_prediction_processes.barang_id`.
+- Semua 28 tabel memiliki PK: **22 PK AI** dan **6 PK non-AI** (`cache.key`, `cache_locks.key`, `job_batches.id`, `notifications.id`, `password_reset_tokens.email`, dan `sessions.id`).
+- UK bisnis: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan `warehouse_stocks(barang_id, warehouse_id)`, `barang.kode_barang`, `purchase_orders.nomor_po`, `goods_receipts.nomor_grn`, `document_verification_audits.idempotency_key`, pasangan `stock_predictions(barang_id, process_generation)`, tripel notifikasi prediksi, pasangan receipt prediksi/pengguna, dan `stock_prediction_processes.barang_id`.
 - UK internal tambahan: `failed_jobs.uuid`.
 - Semua indeks yang tercatat didefinisikan migration dan terbentuk pada migration bersih. Pada MySQL/MariaDB, index FK dapat juga dilayani oleh sisi kiri UK komposit, seperti `warehouse_stocks.barang_id`.
 
 ### Foreign key
 
-Terdapat **24 FK pada skema migration bersih**. Semuanya memakai `ON UPDATE RESTRICT`.
+Terdapat **38 FK pada skema migration bersih**. Semuanya memakai `ON UPDATE RESTRICT`.
 
 | ON DELETE | Jumlah | FK |
 |---|---:|---|
-| `CASCADE` | 10 | `document_verifications.user_id`; `document_verification_audits.document_verification_id`; `stock_predictions.barang_id`; kedua FK `stock_prediction_notifications`; kedua FK `stock_prediction_notification_reads`; `stock_prediction_processes.barang_id`; `stok_histories.barang_id`; `stok_transaction_actors.stok_transaction_id`. |
-| `SET NULL` | 10 | `barang.supplier_id`; `document_verifications.ocr_corrected_by`; `document_verification_audits.user_id`; `stock_predictions.analyzed_by`; `stock_prediction_processes.requested_by`; `stock_prediction_processes.stock_prediction_id`; `stok_transactions.supplier_id`; `stok_transactions.reversal_of_id`; `stok_transactions.reversed_by`; `stok_transaction_actors.user_id`. |
-| `RESTRICT` | 4 | `stok_transactions.barang_id`; `stok_transactions.warehouse_stock_id`; `warehouse_stocks.barang_id`; `warehouse_stocks.warehouse_id`. |
+| `CASCADE` | 15 | `document_verifications.user_id`; `document_verification_audits.document_verification_id`; `goods_receipts.purchase_order_id`; `goods_receipt_items.goods_receipt_id`; `goods_receipt_items.purchase_order_item_id`; `purchase_order_items.purchase_order_id`; `purchase_order_status_histories.purchase_order_id`; `stock_predictions.barang_id`; kedua FK `stock_prediction_notifications`; kedua FK `stock_prediction_notification_reads`; `stock_prediction_processes.barang_id`; `stok_histories.barang_id`; `stok_transaction_actors.stok_transaction_id`. |
+| `SET NULL` | 12 | `barang.supplier_id`; `document_verifications.ocr_corrected_by`; `document_verification_audits.user_id`; `purchase_orders.approved_by`; `purchase_order_status_histories.user_id`; `stock_predictions.analyzed_by`; `stock_prediction_processes.requested_by`; `stock_prediction_processes.stock_prediction_id`; `stok_transactions.supplier_id`; `stok_transactions.reversal_of_id`; `stok_transactions.reversed_by`; `stok_transaction_actors.user_id`. |
+| `RESTRICT` | 11 | `goods_receipts.warehouse_id`; `goods_receipts.received_by`; `goods_receipt_items.barang_id`; `purchase_orders.supplier_id`; `purchase_orders.warehouse_id`; `purchase_orders.created_by`; `purchase_order_items.barang_id`; `stok_transactions.barang_id`; `stok_transactions.warehouse_stock_id`; `warehouse_stocks.barang_id`; `warehouse_stocks.warehouse_id`. |
 
 ### Referensi logis tanpa FK
 

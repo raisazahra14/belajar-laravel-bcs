@@ -399,7 +399,7 @@ Direktori `bootstrap/cache` dan `storage` harus dapat ditulis oleh pengguna pros
 | Melihat daftar dan detail Purchase Order | Ya | Ya | Ya |
 | Membuat dan mengubah draft Purchase Order | Ya | Tidak | Ya (pembuat) |
 | Mengajukan (submit) Purchase Order | Ya | Tidak | Ya (pembuat) |
-| Menyetujui dan menolak Purchase Order | Tidak | Ya* | Tidak |
+| Menyetujui dan menolak Purchase Order | Ya* | Ya* | Tidak |
 | Mencatat penerimaan fisik barang (Goods Receipt) | Ya | Tidak | Ya |
 | Melihat dan mencetak PDF Goods Receipt Note (GRN) | Ya | Ya | Ya |
 | Three-Way Matching (PO vs GRN vs OCR Dokumen) | Ya | Ya | Ya |
@@ -412,7 +412,7 @@ Direktori `bootstrap/cache` dan `storage` harus dapat ditulis oleh pengguna pros
 | Kelola pengguna | Ya | Tidak | Tidak |
 
 Catatan hak akses modul pengadaan:
-- `*` Manager hanya dapat menyetujui atau menolak PO yang diajukan oleh pengguna lain (prinsip *Separation of Duty*; tidak boleh menyetujui PO buatannya sendiri).
+- `*` Admin dan Manager hanya dapat menyetujui atau menolak PO yang diajukan oleh pengguna lain (prinsip *Separation of Duty* / Maker-Checker; tidak boleh menyetujui PO buatannya sendiri).
 - `**` Staff Gudang hanya berwenang membatalkan PO yang dibuat oleh dirinya sendiri saat masih berstatus `Draft` atau `Rejected`.
 
 Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, validasi request, dan pemeriksaan kepemilikan data.
