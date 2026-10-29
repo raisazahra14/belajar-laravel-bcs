@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Use Case LogistikKu versi 1.4</title>
+  <desc id="desc">Hak akses Admin, Manager, dan Staff pada fitur LogistikKu.</desc>
+  <defs><style>.bg{fill:#f7f8fc}.head{fill:#353687}.group{fill:#fff;stroke:#cfd4e5;stroke-width:2}.admin{fill:#fff1f2;stroke:#dc3545}.manager{fill:#fff8e8;stroke:#d88b16}.staff{fill:#eef7ff;stroke:#3576b8}.t{font:700 22px Arial;fill:#20263d}.h{font:700 30px Arial;fill:#fff}.p{font:16px Arial;fill:#4f566b}.role{font:700 20px Arial}.foot{font:14px Arial;fill:#6d7387}</style></defs>
+  <rect class="bg" width="1200" height="760"/><rect class="head" width="1200" height="88"/>
+  <text class="h" x="50" y="55">Use Case Sistem Inventaris LogistikKu</text>
+  <rect class="group staff" x="40" y="125" rx="16" width="1120" height="170"/>
+  <text class="role" x="70" y="163" fill="#225f99">Semua role: Admin, Manager, Staff</text>
+  <text class="p" x="70" y="202">Login/logout • Dashboard dan inventaris • Supplier dan gudang • Stok masuk/keluar</text>
+  <text class="p" x="70" y="238">Transfer antargudang • Riwayat stok • Verifikasi dokumen sendiri • Lihat prediksi • Notifikasi</text>
+  <rect class="group manager" x="40" y="325" rx="16" width="1120" height="145"/>
+  <text class="role" x="70" y="363" fill="#9b6300">Admin dan Manager</text>
+  <text class="p" x="70" y="402">Reversal transaksi • Laporan mutasi dan export • Jalankan prediksi • Terapkan rekomendasi restock</text>
+  <rect class="group admin" x="40" y="500" rx="16" width="1120" height="165"/>
+  <text class="role" x="70" y="538" fill="#a82938">Khusus Admin</text>
+  <text class="p" x="70" y="577">CRUD barang, supplier, gudang, dan pengguna • Import/export inventaris • Tong Sampah</text>
+  <text class="p" x="70" y="613">Analitik bisnis dan valuasi • Lihat seluruh dokumen verifikasi</text>
+  <text class="foot" x="40" y="715">Baseline SRS 1.4 • 5 Oktober 2026 • Akses tetap diperiksa di server melalui middleware, Gate, request, dan ownership.</text>
+</svg>

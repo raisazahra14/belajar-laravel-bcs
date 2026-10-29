@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-20",
+  "environment": {
+    "scope": "local development baseline",
+    "os": "Windows 10.0.26200",
+    "php": "8.2.12",
+    "python": "3.10.7",
+    "node": "24.19.0",
+    "warning": "Hasil ini bukan hasil production/staging dan tidak boleh dipakai sebagai klaim kapasitas produksi."
+  },
+  "http_smoke": {
+    "target": "php artisan serve on 127.0.0.1",
+    "paths": ["/up", "/login"],
+    "vus": 2,
+    "duration_seconds": 10.434,
+    "requests": 27,
+    "failed": 0,
+    "throughput_rps": 2.59,
+    "latency_ms": {"min": 287.271, "mean": 764.989, "p50": 637.024, "p95": 1730.749, "p99": 2101.175, "max": 2101.175},
+    "thresholds": {"max_p95_ms": 1500, "max_error_rate": 0.01},
+    "passed": false,
+    "reason": "p95 melewati ambang; artisan serve adalah server development single-threaded."
+  },
+  "ocr_synthetic": {
+    "samples": 3,
+    "variants": ["clean", "rotated_0_7_degree", "low_contrast_blur"],
+    "latency_ms": {"mean": 8818.731, "p50": 8906.655, "p95": 9821.709, "max": 9821.709},
+    "cer_mean": 0.156285,
+    "wer_mean": 0.310078,
+    "field_accuracy_mean": 0.878788,
+    "thresholds": {"max_cer": 0.2, "min_field_accuracy": 0.75},
+    "passed": true,
+    "warning": "Dataset sintetis; akurasi produksi memerlukan corpus riil berlabel dan teranonimisasi."
+  },
+  "ocr_worker_end_to_end": {
+    "samples": 1,
+    "duration_ms": 19371.053,
+    "queries": 15,
+    "php_memory_delta_kb": 2048,
+    "php_peak_memory_mb": 44,
+    "audit_rows": 3,
+    "notification_rows": 1,
+    "process_status": "selesai",
+    "authenticity_status": "asli",
+    "passed": true,
+    "warning": "Satu sampel hanya memvalidasi alur end-to-end; jalankan minimal tiga sampel untuk percentile."
+  },
+  "prediction_synthetic": {
+    "origins": 16,
+    "horizon_days": 30,
+    "mae": 6.2003,
+    "rmse": 10.379,
+    "mape_pct": 1.6238,
+    "bias": -2.1181,
+    "cold_start_latency_ms": 6720.004,
+    "warm_latency_ms_mean": 3.431,
+    "warm_latency_ms_p95": 5.131,
+    "thresholds": {"max_mape_pct": 25, "max_rmse": 150},
+    "passed": true,
+    "warning": "Dataset sintetis; akurasi produksi memerlukan rolling-origin backtest pada histori OUT riil."
+  },
+  "core_web_vitals": {
+    "status": "BLOCKED_ON_LOCAL_HOST",
+    "browser": "Microsoft Edge headless",
+    "reason": "Lighthouse menghasilkan NO_FCP/timeout pada host Windows lokal; tidak ada angka yang sah.",
+    "next_action": "Ulangi dengan Chrome stable pada CI Linux atau host staging dan asset production build."
+  },
+  "mysql_concurrency": {
+    "status": "NOT_EXECUTED",
+    "reason": "Write benchmark pada database aktif tidak diizinkan dan database disposable belum disediakan.",
+    "next_action": "Gunakan clone dengan nama benchmark/test/staging dan BENCHMARK_MYSQL_ALLOW_WRITES=true."
+  },
+  "production_load_stress_soak_tls": {
+    "status": "NOT_EXECUTED",
+    "reason": "URL target, izin pemilik, deployment production-like, dan observability belum tersedia."
+  }
+}
