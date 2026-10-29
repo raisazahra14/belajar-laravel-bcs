@@ -2,7 +2,10 @@
 @section('content')
 <x-ui.breadcrumb :items="[['label' => 'Supplier']]" />
 <x-ui.page-header title="Supplier" description="Kelola data pemasok barang LogistikKu.">
-    @can('manage-barang')<x-ui.button :href="route('suppliers.create')" icon="ti-plus">Tambah Supplier</x-ui.button>@endcan
+    <div class="page-actions d-flex gap-2">
+        <x-ui.button :href="route('suppliers.performance')" variant="outline-info" icon="ti-bar-chart">Dashboard Performa</x-ui.button>
+        @can('manage-barang')<x-ui.button :href="route('suppliers.create')" icon="ti-plus">Tambah Supplier</x-ui.button>@endcan
+    </div>
 </x-ui.page-header>
 @if(session('success'))<x-ui.alert type="success" dismissible>{{ session('success') }}</x-ui.alert>@endif
 @if($errors->any())<x-ui.alert type="danger">{{ $errors->first() }}</x-ui.alert>@endif

@@ -72,6 +72,18 @@
             <x-ui.button type="submit" icon="ti-search" class="w-100">Terapkan</x-ui.button>
             <x-ui.button :href="route('purchase-orders.index')" variant="outline-secondary" icon="ti-reload" title="Reset Filter">Reset</x-ui.button>
         </div>
+
+        <div class="col-12 mt-2 pt-2 border-top d-flex align-items-center justify-content-between">
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="overdue" name="overdue" value="1" @checked(!empty($overdueOnly))>
+                <label class="form-check-label fw-semibold text-danger" for="overdue">
+                    <i class="ti-alert me-1"></i> Tampilkan Hanya PO Terlambat (Melewati Estimasi Tiba)
+                </label>
+            </div>
+            @if(!empty($overdueOnly))
+                <span class="badge bg-danger">Filter Aktif: PO Terlambat</span>
+            @endif
+        </div>
     </form>
 </x-ui.card>
 
@@ -138,9 +150,16 @@
                         <td class="text-center">{{ number_format($po->items_count, 0, ',', '.') }}</td>
                         <td class="text-end fw-semibold">Rp {{ number_format((float) $po->total_biaya, 0, ',', '.') }}</td>
                         <td>
-                            <x-ui.badge :variant="$po->status->badgeVariant()" data-po-status="{{ $po->status->value }}">
-                                {{ $po->status->label() }}
-                            </x-ui.badge>
+                            <div class="d-flex flex-column gap-1">
+                                <x-ui.badge :variant="$po->status->badgeVariant()" data-po-status="{{ $po->status->value }}">
+                                    {{ $po->status->label() }}
+                                </x-ui.badge>
+                                @if($po->is_overdue)
+                                    <x-ui.badge variant="danger" title="Pesanan telah melewati estimasi tanggal tiba">
+                                        <i class="ti-alert me-1"></i> Terlambat
+                                    </x-ui.badge>
+                                @endif
+                            </div>
                         </td>
                         <td>
                             {{ $po->creator?->name ?? '—' }}

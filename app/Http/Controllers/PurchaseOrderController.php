@@ -10,12 +10,15 @@ use App\Http\Requests\StorePurchaseOrderRequest;
 use App\Http\Requests\UpdatePurchaseOrderRequest;
 use App\Http\Resources\PurchaseOrderResource;
 use App\Models\Barang;
+use App\Models\DocumentVerification;
 use App\Models\PurchaseOrder;
+use App\Models\StockPrediction;
 use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Services\PurchaseOrderPdfService;
 use App\Services\PurchaseOrderService;
 use App\Services\PurchaseOrderStateMachine;
+use App\Services\ThreeWayMatchingService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -41,6 +44,7 @@ class PurchaseOrderController extends Controller
             'supplier_id' => ['nullable', 'integer'],
             'warehouse_id' => ['nullable', 'integer'],
             'status' => ['nullable', 'string', Rule::in($statusValues)],
+            'overdue' => ['nullable', 'boolean'],
         ], [
             'search.max' => 'Kata kunci pencarian maksimal 100 karakter.',
             'nomor_po.max' => 'Pencarian nomor PO maksimal 100 karakter.',
@@ -66,17 +70,19 @@ class PurchaseOrderController extends Controller
             ->get(['id', 'kode_gudang', 'nama_gudang', 'is_active']);
 
         $statuses = PurchaseOrderStatus::cases();
+        $overdueOnly = ! empty($validated['overdue']);
 
         return view('purchase-orders.index', compact(
             'purchaseOrders',
             'suppliers',
             'warehouses',
             'statuses',
-            'searchTerm'
+            'searchTerm',
+            'overdueOnly'
         ));
     }
 
-    public function create(): View
+    public function create(Request $request, PurchaseOrderService $service): View
     {
         $suppliers = Supplier::query()
             ->where('is_active', true)
@@ -94,11 +100,62 @@ class PurchaseOrderController extends Controller
 
         $nextNomorPo = PurchaseOrder::generateNomorPo();
 
+        $defaultSupplierId = null;
+        $defaultWarehouseId = null;
+        $defaultEstimasiTiba = null;
+        $defaultCatatan = null;
+        $initialItems = [];
+        $sourcePrediction = null;
+        $deficitWarehouseName = null;
+
+        $predictionId = $request->integer('from_prediction') ?: $request->integer('prediction_id');
+        if ($predictionId > 0) {
+            $sourcePrediction = StockPrediction::with(['barang.supplier', 'barang.warehouseStocks.warehouse'])->find($predictionId);
+            if ($sourcePrediction && $sourcePrediction->barang) {
+                $smartRestock = $service->prepareSmartRestockData($sourcePrediction);
+                $defaultSupplierId = $smartRestock['supplier_id'];
+                $defaultWarehouseId = $smartRestock['warehouse_id'];
+                $defaultEstimasiTiba = $smartRestock['estimasi_tiba'];
+                $defaultCatatan = $smartRestock['catatan'];
+                $initialItems = $smartRestock['items'];
+                $deficitWarehouseName = $smartRestock['deficit_warehouse_name'];
+            }
+        } elseif ($request->filled('barang_id')) {
+            $barangId = $request->integer('barang_id');
+            $barang = $barangs->firstWhere('id', $barangId);
+            if ($barang) {
+                if ($barang->supplier_id && $suppliers->contains('id', $barang->supplier_id)) {
+                    $defaultSupplierId = $barang->supplier_id;
+                }
+                $initialItems[] = [
+                    'id' => null,
+                    'barang_id' => $barang->id,
+                    'jumlah_pesan' => max(1, $request->integer('jumlah', 1)),
+                    'harga_satuan' => (float) ($barang->harga_beli ?? 0),
+                ];
+            }
+        }
+
+        if ($request->filled('supplier_id') && $suppliers->contains('id', $request->integer('supplier_id'))) {
+            $defaultSupplierId = $request->integer('supplier_id');
+        }
+
+        if ($request->filled('warehouse_id') && $warehouses->contains('id', $request->integer('warehouse_id'))) {
+            $defaultWarehouseId = $request->integer('warehouse_id');
+        }
+
         return view('purchase-orders.create', compact(
             'suppliers',
             'warehouses',
             'barangs',
-            'nextNomorPo'
+            'nextNomorPo',
+            'defaultSupplierId',
+            'defaultWarehouseId',
+            'defaultEstimasiTiba',
+            'defaultCatatan',
+            'initialItems',
+            'sourcePrediction',
+            'deficitWarehouseName'
         ));
     }
 
@@ -123,9 +180,19 @@ class PurchaseOrderController extends Controller
     public function show(
         Request $request,
         PurchaseOrder $purchaseOrder,
-        PurchaseOrderStateMachine $stateMachine
+        PurchaseOrderStateMachine $stateMachine,
+        ThreeWayMatchingService $matchingService
     ): View|PurchaseOrderResource {
-        $purchaseOrder->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+        $purchaseOrder->load([
+            'items.barang',
+            'supplier',
+            'warehouse',
+            'creator',
+            'approver',
+            'statusHistories.user',
+            'goodsReceipts.items.barang',
+            'goodsReceipts.receivedBy',
+        ]);
 
         if ($request->wantsJson()) {
             return new PurchaseOrderResource($purchaseOrder);
@@ -140,7 +207,37 @@ class PurchaseOrderController extends Controller
             )
             : [];
 
-        return view('purchase-orders.show', compact('purchaseOrder', 'availableTransitions'));
+        // Three-Way Matching (PO vs GRN vs Dokumen Verifikasi OCR)
+        $matchingDocuments = $matchingService->findMatchingDocuments($purchaseOrder);
+        $selectedDocId = $request->integer('doc_id');
+        $selectedDocument = $selectedDocId > 0
+            ? $matchingDocuments->firstWhere('id', $selectedDocId)
+            : $matchingDocuments->first();
+
+        $threeWayMatching = $matchingService->match($purchaseOrder, $selectedDocument);
+
+        return view('purchase-orders.show', compact(
+            'purchaseOrder',
+            'availableTransitions',
+            'matchingDocuments',
+            'selectedDocument',
+            'threeWayMatching'
+        ));
+    }
+
+    /**
+     * Endpoint JSON data hasil Three-Way Matching untuk dokumen tertentu.
+     */
+    public function threeWayMatching(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        ThreeWayMatchingService $matchingService
+    ): JsonResponse {
+        $selectedDocId = $request->integer('doc_id');
+        $verification = $selectedDocId > 0 ? DocumentVerification::find($selectedDocId) : null;
+        $result = $matchingService->match($purchaseOrder, $verification);
+
+        return response()->json($result);
     }
 
     public function edit(Request $request, PurchaseOrder $purchaseOrder): View|RedirectResponse
@@ -361,13 +458,20 @@ class PurchaseOrderController extends Controller
             ]];
         }
 
+        $fotoPath = null;
+        if ($request->hasFile('foto_surat_jalan')) {
+            $fotoPath = $request->file('foto_surat_jalan')->store('surat_jalan', 'public');
+        }
+
         try {
             $po = $service->receiveItems(
                 $purchaseOrder,
                 $receivedItems,
                 $request->user(),
                 $validated['catatan'] ?? null,
-                $validated['tanggal_terima'] ?? null
+                $validated['tanggal_terima'] ?? null,
+                $validated['nomor_surat_jalan'] ?? null,
+                $fotoPath
             );
 
             if ($request->wantsJson()) {
@@ -411,6 +515,8 @@ class PurchaseOrderController extends Controller
 
     public function pdf(PurchaseOrder $purchaseOrder, PurchaseOrderPdfService $pdfService): Response
     {
+        $this->authorize('viewPdf', $purchaseOrder);
+
         $pdfContent = $pdfService->make($purchaseOrder);
 
         return response($pdfContent, 200, [

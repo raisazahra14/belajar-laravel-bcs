@@ -10,6 +10,8 @@
                 'jumlah_pesan' => $item->jumlah_pesan,
                 'harga_satuan' => (float) $item->harga_satuan,
             ])->toArray();
+        } elseif (! empty($initialItems) && is_array($initialItems)) {
+            $existingItems = $initialItems;
         } else {
             $existingItems = [
                 [
@@ -51,7 +53,7 @@
                 @foreach($suppliers as $supplier)
                     <option
                         value="{{ $supplier->id }}"
-                        @selected((int) old('supplier_id', $purchaseOrder->supplier_id ?? 0) === $supplier->id)
+                        @selected((int) old('supplier_id', $purchaseOrder->supplier_id ?? ($defaultSupplierId ?? 0)) === $supplier->id)
                     >
                         {{ $supplier->kode_supplier }} — {{ $supplier->nama_supplier }}
                     </option>
@@ -76,7 +78,7 @@
                 @foreach($warehouses as $warehouse)
                     <option
                         value="{{ $warehouse->id }}"
-                        @selected((int) old('warehouse_id', $purchaseOrder->warehouse_id ?? 0) === $warehouse->id)
+                        @selected((int) old('warehouse_id', $purchaseOrder->warehouse_id ?? ($defaultWarehouseId ?? 0)) === $warehouse->id)
                     >
                         {{ $warehouse->kode_gudang }} — {{ $warehouse->nama_gudang }}
                     </option>
@@ -115,7 +117,7 @@
                 class="form-control @error('estimasi_tiba') is-invalid @enderror"
                 id="estimasi_tiba"
                 name="estimasi_tiba"
-                value="{{ old('estimasi_tiba', isset($purchaseOrder->estimasi_tiba) ? $purchaseOrder->estimasi_tiba->format('Y-m-d') : '') }}"
+                value="{{ old('estimasi_tiba', isset($purchaseOrder->estimasi_tiba) ? $purchaseOrder->estimasi_tiba->format('Y-m-d') : ($defaultEstimasiTiba ?? '')) }}"
             >
             @error('estimasi_tiba')
                 <div class="invalid-feedback">{{ $message }}</div>
@@ -133,7 +135,7 @@
                 rows="2"
                 maxlength="2000"
                 placeholder="Spesifikasi tambahan atau instruksi pengiriman..."
-            >{{ old('catatan', $purchaseOrder->catatan ?? '') }}</textarea>
+            >{{ old('catatan', $purchaseOrder->catatan ?? ($defaultCatatan ?? '')) }}</textarea>
             @error('catatan')
                 <div class="invalid-feedback">{{ $message }}</div>
             @enderror

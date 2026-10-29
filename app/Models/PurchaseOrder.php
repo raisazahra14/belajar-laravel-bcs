@@ -66,6 +66,7 @@ class PurchaseOrder extends Model
         $latest = static::query()
             ->where('nomor_po', 'like', "{$prefix}%")
             ->orderByDesc('nomor_po')
+            ->lockForUpdate()
             ->value('nomor_po');
 
         if ($latest) {
@@ -101,6 +102,61 @@ class PurchaseOrder extends Model
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function statusHistories(): HasMany
+    {
+        return $this->hasMany(PurchaseOrderStatusHistory::class, 'purchase_order_id')->orderBy('id', 'asc');
+    }
+
+    public function goodsReceipts(): HasMany
+    {
+        return $this->hasMany(GoodsReceipt::class, 'purchase_order_id')->orderByDesc('id');
+    }
+
+    /**
+     * Memeriksa apakah pesanan ini telah melewati estimasi tanggal tiba (Overdue).
+     */
+    public function getIsOverdueAttribute(): bool
+    {
+        return in_array($this->status, [PurchaseOrderStatus::APPROVED, PurchaseOrderStatus::PARTIALLY_RECEIVED], true)
+            && $this->estimasi_tiba !== null
+            && $this->estimasi_tiba->isPast()
+            && ! $this->estimasi_tiba->isToday();
+    }
+
+    /**
+     * Scope untuk mencari PO yang berstatus aktif namun sudah melewati estimasi tiba.
+     *
+     * @param  Builder  $query
+     * @return Builder
+     */
+    public function scopeOverdue($query)
+    {
+        return $query->whereIn('status', [PurchaseOrderStatus::APPROVED->value, PurchaseOrderStatus::PARTIALLY_RECEIVED->value])
+            ->whereNotNull('estimasi_tiba')
+            ->where('estimasi_tiba', '<', now()->toDateString());
+    }
+
+    /**
+     * Catat riwayat perubahan status PO ke tabel audit trail purchase_order_status_histories.
+     *
+     * @param  array<string, mixed>|null  $metadata
+     */
+    public function recordStatusHistory(
+        ?PurchaseOrderStatus $from,
+        PurchaseOrderStatus $to,
+        ?User $user = null,
+        ?string $reason = null,
+        ?array $metadata = null,
+    ): PurchaseOrderStatusHistory {
+        return $this->statusHistories()->create([
+            'from_status' => $from,
+            'to_status' => $to,
+            'user_id' => $user?->id,
+            'reason' => $reason,
+            'metadata' => $metadata,
+        ]);
     }
 
     /**
@@ -148,6 +204,9 @@ class PurchaseOrder extends Model
             })
             ->when(! empty($filters['status']), function ($q) use ($filters): void {
                 $q->where('status', $filters['status']);
+            })
+            ->when(! empty($filters['overdue']), function ($q): void {
+                $q->overdue();
             });
     }
 }

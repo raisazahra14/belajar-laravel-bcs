@@ -42,10 +42,10 @@ class PurchaseOrderStateMachine
             'roles' => [self::ROLE_ADMIN, self::ROLE_MANAGER], 'creator' => true, 'not_creator' => false, 'action' => 'cancel',
         ],
         'pending_approval->approved' => [
-            'roles' => [self::ROLE_MANAGER], 'creator' => false, 'not_creator' => true, 'action' => 'approve',
+            'roles' => [self::ROLE_ADMIN, self::ROLE_MANAGER], 'creator' => false, 'not_creator' => true, 'action' => 'approve',
         ],
         'pending_approval->rejected' => [
-            'roles' => [self::ROLE_MANAGER], 'creator' => false, 'not_creator' => true, 'action' => 'reject',
+            'roles' => [self::ROLE_ADMIN, self::ROLE_MANAGER], 'creator' => false, 'not_creator' => true, 'action' => 'reject',
         ],
         'pending_approval->draft' => [
             'roles' => [self::ROLE_ADMIN], 'creator' => true, 'not_creator' => false, 'action' => 'withdraw',

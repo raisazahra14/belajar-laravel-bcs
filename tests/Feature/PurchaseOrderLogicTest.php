@@ -169,6 +169,37 @@ class PurchaseOrderLogicTest extends TestCase
         $this->assertSame($this->manager->id, $approved->approved_by);
     }
 
+    public function test_approve_po_allows_admin_when_not_creator(): void
+    {
+        $po = $this->createDraftPO();
+        $this->service->submitPO($po, $this->staff);
+
+        $approved = $this->service->approvePO($po, $this->admin);
+
+        $this->assertSame(PurchaseOrderStatus::APPROVED, $approved->status);
+        $this->assertSame($this->admin->id, $approved->approved_by);
+    }
+
+    public function test_approve_po_enforces_separation_of_duty_admin_cannot_approve_own_po(): void
+    {
+        // Admin membuat PO sendiri
+        $po = $this->service->createPO([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouse->id,
+            'items' => [
+                ['barang_id' => $this->barangA->id, 'jumlah_pesan' => 2, 'harga_satuan' => 1200000],
+            ],
+        ], $this->admin);
+
+        $this->service->submitPO($po, $this->admin);
+
+        // Admin mencoba menyetujui PO buatannya sendiri -> wajib ditolak
+        $this->expectException(InvalidPurchaseOrderTransitionException::class);
+        $this->expectExceptionMessage('tidak boleh menyetujui atau menolak PO miliknya sendiri');
+
+        $this->service->approvePO($po, $this->admin);
+    }
+
     public function test_approve_po_enforces_separation_of_duty_manager_cannot_approve_own_po(): void
     {
         // Manager membuat PO sendiri
@@ -328,6 +359,62 @@ class PurchaseOrderLogicTest extends TestCase
         $this->service->receiveItems($po, [
             ['purchase_order_item_id' => $itemA->id, 'jumlah_diterima' => 2],
         ], $this->staff);
+    }
+
+    public function test_receive_items_fails_for_manager_role(): void
+    {
+        $po = $this->createDraftPO();
+        $this->service->submitPO($po, $this->staff);
+        $this->service->approvePO($po, $this->manager);
+
+        $itemA = $po->items->firstWhere('barang_id', $this->barangA->id);
+
+        $this->expectException(InvalidPurchaseOrderTransitionException::class);
+        $this->expectExceptionMessage('hanya dapat dicatat oleh Admin atau Staff Gudang');
+
+        $this->service->receiveItems($po, [
+            ['purchase_order_item_id' => $itemA->id, 'jumlah_diterima' => 2],
+        ], $this->manager);
+    }
+
+    public function test_po_lifecycle_records_status_histories(): void
+    {
+        $po = $this->createDraftPO();
+        $this->assertDatabaseHas('purchase_order_status_histories', [
+            'purchase_order_id' => $po->id,
+            'from_status' => null,
+            'to_status' => PurchaseOrderStatus::DRAFT->value,
+            'user_id' => $this->staff->id,
+        ]);
+
+        $this->service->submitPO($po, $this->staff);
+        $this->assertDatabaseHas('purchase_order_status_histories', [
+            'purchase_order_id' => $po->id,
+            'from_status' => PurchaseOrderStatus::DRAFT->value,
+            'to_status' => PurchaseOrderStatus::PENDING_APPROVAL->value,
+            'user_id' => $this->staff->id,
+        ]);
+
+        $this->service->approvePO($po, $this->manager);
+        $this->assertDatabaseHas('purchase_order_status_histories', [
+            'purchase_order_id' => $po->id,
+            'from_status' => PurchaseOrderStatus::PENDING_APPROVAL->value,
+            'to_status' => PurchaseOrderStatus::APPROVED->value,
+            'user_id' => $this->manager->id,
+        ]);
+
+        $itemA = $po->items->firstWhere('barang_id', $this->barangA->id);
+        $this->service->receiveItems($po, [
+            ['purchase_order_item_id' => $itemA->id, 'jumlah_diterima' => 2],
+        ], $this->staff, 'Penerimaan batch 1');
+
+        $this->assertDatabaseHas('purchase_order_status_histories', [
+            'purchase_order_id' => $po->id,
+            'from_status' => PurchaseOrderStatus::APPROVED->value,
+            'to_status' => PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
+            'user_id' => $this->staff->id,
+            'reason' => 'Penerimaan batch 1',
+        ]);
     }
 
     private function createDraftPO(): PurchaseOrder

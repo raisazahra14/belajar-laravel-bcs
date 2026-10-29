@@ -102,16 +102,12 @@ class ReceivePurchaseOrderItemRequest extends FormRequest
             return false;
         }
 
-        if (! in_array($user->role, ['admin', 'staff', 'manager'], true)) {
-            return false;
-        }
-
         $po = $this->getPurchaseOrder();
-        if ($po && ! $po->status->canReceiveGoods()) {
-            return false;
+        if ($po) {
+            return $user->can('receive', $po);
         }
 
-        return true;
+        return in_array($user->role, ['admin', 'staff'], true);
     }
 
     public function rules(): array
@@ -147,6 +143,7 @@ class ReceivePurchaseOrderItemRequest extends FormRequest
             // Metadata penerimaan fisik barang
             'tanggal_terima' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
             'nomor_surat_jalan' => ['nullable', 'string', 'max:120'],
+            'foto_surat_jalan' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:5120'],
             'catatan' => ['nullable', 'string', 'max:1000'],
         ];
     }

@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Models\PurchaseOrder;
 use App\Models\User;
+use App\Policies\PurchaseOrderPolicy;
 use App\Services\NotificationCenterService;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\QueryExecuted;
@@ -51,6 +53,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('reverse-stock', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
         Gate::define('run-stock-prediction', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
         Gate::define('approve-restock', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
+        Gate::policy(PurchaseOrder::class, PurchaseOrderPolicy::class);
 
         View::composer('layouts.skydash', function ($view): void {
             $dropdown = auth()->check()

@@ -10,14 +10,17 @@ use App\Http\Controllers\BarangTrashController;
 use App\Http\Controllers\DocumentToolController;
 use App\Http\Controllers\DocumentVerificationController;
 use App\Http\Controllers\DocumentVerificationNotificationController;
+use App\Http\Controllers\GoodsReceiptController;
 use App\Http\Controllers\NotificationCenterController;
 use App\Http\Controllers\PurchaseOrderController;
+use App\Http\Controllers\PurchaseOrderNotificationController;
 use App\Http\Controllers\StockMutationReportController;
 use App\Http\Controllers\StockPredictionController;
 use App\Http\Controllers\StockPredictionNotificationController;
 use App\Http\Controllers\StockTransactionReversalController;
 use App\Http\Controllers\StockTransferController;
 use App\Http\Controllers\SupplierController;
+use App\Http\Controllers\SupplierPerformanceController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
@@ -46,6 +49,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/barang/scanner', [BarangController::class, 'scanner'])->name('barang.scanner');
     Route::get('/barang/scanner/cari', [BarangController::class, 'scanLookup'])->name('barang.scanner.lookup');
     Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
+    Route::get('/suppliers/performance', [SupplierPerformanceController::class, 'index'])->name('suppliers.performance');
+    Route::get('/suppliers/{supplier}/performance', [SupplierPerformanceController::class, 'show'])->name('suppliers.performance.show');
     Route::get('/warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
     Route::middleware('role:admin')->group(function () {
         Route::get('/suppliers/create', [SupplierController::class, 'create'])->name('suppliers.create');
@@ -60,6 +65,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchase-orders/create', [PurchaseOrderController::class, 'create'])->name('purchase-orders.create');
     Route::post('/purchase-orders', [PurchaseOrderController::class, 'store'])->name('purchase-orders.store');
     Route::get('/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'show'])->name('purchase-orders.show');
+    Route::get('/purchase-orders/{purchaseOrder}/three-way-matching', [PurchaseOrderController::class, 'threeWayMatching'])->name('purchase-orders.three-way-matching');
     Route::get('/purchase-orders/{purchaseOrder}/pdf', [PurchaseOrderController::class, 'pdf'])->name('purchase-orders.pdf');
     Route::get('/purchase-orders/{purchaseOrder}/edit', [PurchaseOrderController::class, 'edit'])->name('purchase-orders.edit');
     Route::match(['put', 'patch'], '/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'update'])->name('purchase-orders.update');
@@ -68,6 +74,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/purchase-orders/{purchaseOrder}/reject', [PurchaseOrderController::class, 'reject'])->name('purchase-orders.reject');
     Route::post('/purchase-orders/{purchaseOrder}/cancel', [PurchaseOrderController::class, 'cancel'])->name('purchase-orders.cancel');
     Route::post('/purchase-orders/{purchaseOrder}/receive', [PurchaseOrderController::class, 'receive'])->name('purchase-orders.receive');
+    Route::get('/goods-receipts/{goodsReceipt}', [GoodsReceiptController::class, 'show'])->name('goods-receipts.show');
+    Route::get('/goods-receipts/{goodsReceipt}/pdf', [GoodsReceiptController::class, 'pdf'])->name('goods-receipts.pdf');
     Route::get('/barang/results', [BarangController::class, 'inventoryResults'])->name('barang.results');
     Route::get('/barang/dashboard/activity', [BarangController::class, 'dashboardActivity'])->name('barang.dashboard.activity');
     Route::get('/barang/{barang}/qr-code', [BarangQrCodeController::class, 'show'])->name('barang.qr-code');
@@ -89,6 +97,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/prediksi-stok/analyze-all', [StockPredictionController::class, 'analyzeAll'])->name('stock-predictions.analyze-all');
     Route::post('/prediksi-stok/barang/{barang}', [StockPredictionController::class, 'analyze'])->name('stock-predictions.analyze');
     Route::post('/prediksi-stok/{stockPrediction}/approve', [StockPredictionController::class, 'approve'])->name('stock-predictions.approve');
+    Route::get('/prediksi-stok/{stockPrediction}/create-po', [StockPredictionController::class, 'createPo'])->name('stock-predictions.create-po');
     Route::get('/notifikasi', [NotificationCenterController::class, 'index'])->name('notifications.index');
     Route::get('/notifikasi/feed', [NotificationCenterController::class, 'feed'])->name('notifications.feed');
     Route::patch('/notifikasi/read-all', [NotificationCenterController::class, 'readAll'])->name('notifications.read-all');
@@ -99,6 +108,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/notifikasi-ocr/{notification}', [DocumentVerificationNotificationController::class, 'open'])->name('ocr-notifications.open');
     Route::patch('/notifikasi-ocr/{notification}/read', [DocumentVerificationNotificationController::class, 'read'])->name('ocr-notifications.read');
     Route::patch('/notifikasi-ocr/read-all', [DocumentVerificationNotificationController::class, 'readAll'])->name('ocr-notifications.read-all');
+    Route::get('/notifikasi-po/{notification}', [PurchaseOrderNotificationController::class, 'open'])->name('po-notifications.open');
+    Route::patch('/notifikasi-po/{notification}/read', [PurchaseOrderNotificationController::class, 'read'])->name('po-notifications.read');
     Route::get('/laporan-mutasi-stok', [StockMutationReportController::class, 'index'])
         ->middleware('can:view-stock-reports')
         ->name('stock-mutations.index');

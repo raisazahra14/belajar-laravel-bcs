@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\StockPredictionNotificationRead;
+use App\Notifications\PurchaseOrderNotification;
 use App\Services\NotificationCenterService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -43,7 +44,7 @@ class NotificationCenterController extends Controller
     {
         DB::transaction(function () use ($request): void {
             $request->user()->unreadNotifications()
-                ->where('type', 'document-verification')
+                ->whereIn('type', ['document-verification', 'purchase-order', PurchaseOrderNotification::class])
                 ->update(['read_at' => now()]);
             StockPredictionNotificationRead::query()
                 ->where('user_id', $request->user()->id)

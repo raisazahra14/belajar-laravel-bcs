@@ -6,10 +6,12 @@ use App\Http\Requests\UpdateDocumentMetadataRequest;
 use App\Http\Requests\VerifyDocumentRequest;
 use App\Jobs\ProcessDocumentVerification;
 use App\Models\DocumentVerification;
+use App\Models\PurchaseOrder;
 use App\Services\DocumentMetadataMapper;
 use App\Services\DocumentVerificationAuditService;
 use App\Services\DocumentVerificationResultWriter;
 use App\Services\DocumentVerificationService;
+use App\Services\ThreeWayMatchingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -84,16 +86,33 @@ class DocumentVerificationController extends Controller
             ->with('success', 'Dokumen berhasil diunggah dan masuk antrean.');
     }
 
-    public function show(DocumentVerification $documentVerification, DocumentMetadataMapper $mapper): View
-    {
+    public function show(
+        DocumentVerification $documentVerification,
+        DocumentMetadataMapper $mapper,
+        ThreeWayMatchingService $matchingService
+    ): View {
         $this->authorizeAccess($documentVerification);
 
         $documentVerification->load(['ocrCorrector', 'audits.user']);
+
+        // Cari Purchase Order yang berelasi dengan nomor PO pada dokumen
+        $poNumber = $documentVerification->purchase_order_number;
+        $associatedPo = null;
+        $threeWayMatching = null;
+
+        if (! empty($poNumber)) {
+            $associatedPo = PurchaseOrder::where('nomor_po', trim((string) $poNumber))->first();
+            if ($associatedPo) {
+                $threeWayMatching = $matchingService->match($associatedPo, $documentVerification);
+            }
+        }
 
         return view('verifications.show', [
             'verification' => $documentVerification,
             'mappedMetadata' => $mapper->forVerification($documentVerification),
             'metadataFieldStates' => $this->metadataFieldStates($documentVerification, $mapper),
+            'associatedPo' => $associatedPo,
+            'threeWayMatching' => $threeWayMatching,
         ]);
     }
 

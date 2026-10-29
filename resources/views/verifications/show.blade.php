@@ -48,6 +48,69 @@
     </div>
 </section>
 
+@if(isset($associatedPo) && $associatedPo && isset($threeWayMatching))
+<section class="card mb-4 border-primary" aria-labelledby="three-way-matching-title">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div>
+                <span class="section-eyebrow text-primary">Ekosistem Pengadaan</span>
+                <div class="d-flex align-items-center gap-2 mt-1">
+                    <h2 id="three-way-matching-title" class="h4 mb-0">Three-Way Matching PO & GRN</h2>
+                    <x-ui.badge :variant="$threeWayMatching['status_badge']">
+                        {{ $threeWayMatching['status_label'] }}
+                    </x-ui.badge>
+                </div>
+                <p class="text-muted mb-0">Dokumen ini terhubung secara otomatis dengan Purchase Order <strong>{{ $associatedPo->nomor_po }}</strong>.</p>
+            </div>
+            <div>
+                <a href="{{ route('purchase-orders.show', ['purchaseOrder' => $associatedPo, 'doc_id' => $verification->id]) }}" class="btn btn-primary btn-sm">
+                    <i class="ti-layers-alt me-1"></i> Buka Matriks Three-Way Matching
+                </a>
+            </div>
+        </div>
+
+        @if(!empty($threeWayMatching['discrepancies']))
+            <div class="alert alert-warning py-2 mb-3">
+                <i class="ti-alert me-1"></i>
+                <strong>Ditemukan {{ count($threeWayMatching['discrepancies']) }} selisih:</strong>
+                <ul class="mb-0 mt-1 ps-3 small">
+                    @foreach($threeWayMatching['discrepancies'] as $disc)
+                        <li>{{ $disc }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
+        <div class="row g-2">
+            <div class="col-md-3 col-6">
+                <div class="p-2 border rounded bg-light">
+                    <small class="text-muted d-block">Nomor Purchase Order</small>
+                    <strong class="text-primary">{{ $associatedPo->nomor_po }}</strong>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="p-2 border rounded bg-light">
+                    <small class="text-muted d-block">Supplier Pesanan</small>
+                    <strong>{{ $associatedPo->supplier?->nama_supplier ?? '—' }}</strong>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="p-2 border rounded bg-light">
+                    <small class="text-muted d-block">Status Pesanan PO</small>
+                    <x-ui.badge :variant="$associatedPo->status->badgeVariant()">{{ $associatedPo->status->label() }}</x-ui.badge>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="p-2 border rounded bg-light">
+                    <small class="text-muted d-block">Total Nilai PO</small>
+                    <strong>Rp {{ number_format((float) $associatedPo->total_biaya, 0, ',', '.') }}</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+@endif
+
 <section class="card mb-4" aria-labelledby="next-action-title"><div class="card-body action-guidance">
     <div><span class="section-eyebrow">Langkah berikutnya</span><h2 id="next-action-title">Periksa data yang ditandai</h2><p>{{ $reviewCount > 0 ? $reviewCount.' kolom masih memerlukan pemeriksaan atau input manual.' : 'Semua kolom yang tersedia sudah terisi. Pastikan nilainya sesuai dokumen sumber.' }}</p></div>
     <div class="page-actions"><x-ui.button href="#ocr-data" icon="ti-pencil-alt">Periksa Data OCR</x-ui.button><x-ui.button type="button" variant="outline-primary" icon="ti-reload" data-bs-toggle="modal" data-bs-target="#reprocessOcrModal">Proses Ulang OCR</x-ui.button></div>

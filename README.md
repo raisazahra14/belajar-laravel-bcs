@@ -95,6 +95,7 @@ Verifikasi ini adalah alat bantu pemeriksaan awal, bukan penetapan keaslian huku
 - Analisis satu barang atau semua barang berjalan melalui queue `stock-predictions`.
 - Laravel menyediakan fallback lokal jika proses Python gagal.
 - Admin dan Manager dapat menjalankan analisis serta menerapkan rekomendasi restock.
+- Integrasi **Smart Restock**: tombol "Buat PO dari Rekomendasi" otomatis menyusun draft Purchase Order baru dengan supplier rekanan, gudang yang defisit stok, estimasi tanggal tiba, dan kuantitas barang yang dibutuhkan.
 
 ## Teknologi
 
@@ -400,6 +401,9 @@ Direktori `bootstrap/cache` dan `storage` harus dapat ditulis oleh pengguna pros
 | Mengajukan (submit) Purchase Order | Ya | Tidak | Ya (pembuat) |
 | Menyetujui dan menolak Purchase Order | Tidak | Ya* | Tidak |
 | Mencatat penerimaan fisik barang (Goods Receipt) | Ya | Tidak | Ya |
+| Melihat dan mencetak PDF Goods Receipt Note (GRN) | Ya | Ya | Ya |
+| Three-Way Matching (PO vs GRN vs OCR Dokumen) | Ya | Ya | Ya |
+| Dashboard & Audit Performa Supplier | Ya | Ya | Ya |
 | Membatalkan Purchase Order (cancel) | Ya | Ya | Ya** |
 | Mencetak dokumen PDF Purchase Order | Ya | Ya | Ya |
 | CRUD barang, supplier, dan gudang | Ya | Tidak | Tidak |
@@ -458,25 +462,47 @@ Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, v
    - **Penolakan (Reject)**: Manager menolak pesanan dengan wajib menyertakan alasan penolakan. Status berubah menjadi `Ditolak` (*Rejected*). Pembuat PO dapat melakukan revisi (*Revise*) untuk mengembalikan PO ke mode `Draft` dan memperbaikinya tanpa mengulang input dari nol.
    - **Separation of Duty**: Berdasarkan prinsip tata kelola dan kontrol internal, Manager yang merangkap sebagai pembuat PO diblokir oleh sistem agar tidak dapat menyetujui atau menolak pesanannya sendiri.
 
-4. **Penerimaan Fisik di Gudang (Goods Receipt) & Sinkronisasi Stok**:
+4. **Penerimaan Fisik di Gudang (Goods Receipt Note / GRN) & Sinkronisasi Stok**:
    - Setelah PO berstatus `Disetujui`, supplier mengirimkan barang ke gudang fisik tujuan.
    - Staff Gudang atau Admin membuka modal pencatatan penerimaan barang pada halaman detail PO.
+   - Formulir mendukung pencatatan nomor Surat Jalan/Delivery Order vendor serta unggah berkas fisik bukti Surat Jalan (JPG, PNG, PDF).
    - Kuantitas fisik yang diterima diinput per baris item. Sistem memvalidasi kuantitas untuk mencegah *over-receipt* (total diterima tidak boleh melebihi sisa yang dipesan).
    - Seluruh proses berjalan secara atomik di dalam satu database transaction:
+     - Menerbitkan dokumen Berita Acara Penerimaan Barang resmi dengan nomor urut unik `GRN-YYYYMMDD-XXXX`.
      - Saldo fisik pada tabel `warehouse_stocks` untuk gudang tujuan bertambah seketika.
      - Riwayat mutasi stok masuk dibukukan pada buku besar `stok_transactions` dan `stok_histories`.
      - Kuantitas `jumlah_diterima` pada masing-masing item PO diperbarui.
+     - Setiap penerimaan dapat diunduh dalam format PDF Berita Acara Penerimaan Barang resmi via tombol **Cetak PDF GRN**.
      - State machine secara otomatis menentukan status akhir PO:
        - `Diterima Sebagian` (*Partially Received*) jika masih ada item yang belum diterima lengkap.
        - `Selesai` (*Completed*) jika seluruh kuantitas item telah diterima 100%.
 
-5. **Cetak Dokumen PDF & Pembatalan**:
-   - Dokumen fisik Purchase Order resmi berstandar profesional dapat dicetak atau diunduh kapan saja melalui tombol **Cetak PDF**.
-   - PO berstatus `Draft`, `Menunggu Persetujuan`, atau `Disetujui` (sebelum ada penerimaan barang) dapat dibatalkan menjadi `Dibatalkan` (*Cancelled*) dengan wajib mencantumkan alasan pembatalan.
+5. **Riwayat Audit Status & Cetak Dokumen**:
+   - **Audit Trail Linimasa**: Setiap perpindahan status (pembuatan, pengajuan, persetujuan, penolakan, pembatalan, penerimaan barang) terekam secara kronologis pada tabel `purchase_order_status_histories` dan ditampilkan dalam bentuk linimasa pada kartu detail PO.
+   - **Cetak Dokumen Resmi**: Dokumen fisik Purchase Order resmi berstandar profesional dapat dicetak atau diunduh kapan saja melalui tombol **Cetak PDF PO**.
+   - **Pembatalan Pesanan**: PO berstatus `Draft`, `Menunggu Persetujuan`, atau `Disetujui` (sebelum ada penerimaan barang) dapat dibatalkan menjadi `Dibatalkan` (*Cancelled*) dengan wajib mencantumkan alasan pembatalan.
 
-6. **Integritas dan Proteksi Konkurensi**:
+6. **Notifikasi Terintegrasi & Peringatan PO Terlambat**:
+   - **Pusat Notifikasi**: Terhubung ke dropdown lonceng navbar (`notifications`), memberi tahu Manager/Admin saat ada PO baru yang butuh persetujuan, serta memberi tahu Staf Gudang saat PO disetujui atau ditolak (beserta alasannya).
+   - **Peringatan Otomatis PO Terlambat**: PO `Disetujui` atau `Diterima Sebagian` yang telah melewati `estimasi_tiba` ditandai dengan badge merah `Terlambat`, banner peringatan di halaman detail, filter cepat `Hanya PO Terlambat` di indeks, dan pemberitahuan berkala via cron job harian (`php artisan po:check-overdue --notify`).
+
+7. **Integritas dan Proteksi Konkurensi**:
    - **Pencegahan Double Submit**: Menggunakan *atomic cache lock* 15 detik pada level service dan penguncian tombol formulir di sisi UI frontend.
    - **Pencegahan Deadlock**: Menggunakan *pessimistic locking* (`lockForUpdate`) dengan urutan penguncian item deterministik berdasarkan `id` barang (`orderBy('id')`) serta toleransi *deadlock auto-retry* 3 kali.
+
+8. **Integrasi Prediksi Stok ke PO (Smart Restock)**:
+   - Tombol **Buat PO dari Rekomendasi** pada halaman rekomendasi restock (`/prediksi-stok`) secara otomatis mengisi formulir pembuatan PO: supplier rekanan, gudang defisit yang membutuhkan alokasi, kuantitas rekomendasi, harga beli master barang, dan estimasi tanggal tiba sebelum stok menipis.
+
+9. **Pencocokan Tiga Arah (Three-Way Matching: PO vs GRN vs Dokumen OCR)**:
+   - Mengintegrasikan hasil pindaian berkas fisik vendor (Surat Jalan / Invoice via Tesseract OCR) dengan data pemesanan sistem (PO) dan bukti penerimaan fisik gudang (GRN).
+   - Membandingkan nomor PO, nomor referensi DO/surat jalan, entitas vendor, dan total nilai tagihan finansial.
+   - Matriks perbandingan per baris mendeteksi selisih kuantitas fisik vs tagihan (*overbilling*), selisih harga satuan (*price discrepancy*), dan mencatat status pencocokan secara visual.
+   - Dilengkapi *deep linking* dua arah antara halaman detail PO dan halaman hasil verifikasi OCR.
+
+10. **Dashboard Analitik Kinerja Rekanan (Vendor Performance Dashboard)**:
+    - Melacak ketepatan waktu pengiriman vendor (*On-Time Delivery Rate*) berdasarkan selisih tanggal terima GRN terhadap estimasi tiba PO, rata-rata hari keterlambatan (*average delay days*), dan rasio pemenuhan kuantitas fisik (*fulfillment rate*).
+    - Menghitung skor komposit performa berbobot dan mengklasifikasikan vendor ke dalam peringkat: *Sangat Baik* ($\ge 90\%$), *Baik* ($75\% - 89.9\%$), *Perlu Evaluasi* ($50\% - 74.9\%$), dan *Kritis* ($< 50\%$).
+    - Tersedia ringkasan eksekutif di `/suppliers/performance` dan audit logistik per vendor di `/suppliers/{supplier}/performance`.
 
 ### Alur verifikasi dokumen
 

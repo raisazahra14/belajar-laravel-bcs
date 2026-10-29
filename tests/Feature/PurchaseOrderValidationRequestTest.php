@@ -322,6 +322,25 @@ class PurchaseOrderValidationRequestTest extends TestCase
         $this->assertTrue($validator->errors()->has('status'));
     }
 
+    public function test_receive_request_rejects_manager_authorization(): void
+    {
+        $manager = User::factory()->create(['role' => 'manager']);
+
+        $poApproved = PurchaseOrder::create([
+            'supplier_id' => $this->activeSupplier->id,
+            'warehouse_id' => $this->activeWarehouse->id,
+            'status' => PurchaseOrderStatus::APPROVED,
+            'tanggal_pesan' => '2026-10-26',
+            'created_by' => $this->staff->id,
+        ]);
+
+        $request = new ReceivePurchaseOrderItemRequest;
+        $request->setUserResolver(fn () => $manager);
+        $request->setPurchaseOrder($poApproved);
+
+        $this->assertFalse($request->authorize(), 'Manager tidak boleh menerima barang fisik');
+    }
+
     public function test_receive_request_batch_items_validation(): void
     {
         $po = PurchaseOrder::create([

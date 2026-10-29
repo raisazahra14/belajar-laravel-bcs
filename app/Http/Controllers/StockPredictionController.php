@@ -113,6 +113,17 @@ class StockPredictionController extends Controller
         return redirect()->route('barang.stok', ['id' => $stockPrediction->barang_id, 'jenis' => 'masuk', 'jumlah' => $stockPrediction->recommended_restock, 'prediction_id' => $stockPrediction->id]);
     }
 
+    /**
+     * Mengarahkan rekomendasi restock prediksi ke formulir pembuatan Purchase Order (Smart Restock).
+     */
+    public function createPo(StockPrediction $stockPrediction)
+    {
+        $this->authorize('approve-restock');
+        abort_unless($stockPrediction->recommended_restock > 0, 422, 'Prediksi ini tidak memiliki rekomendasi restock.');
+
+        return redirect()->route('purchase-orders.create', ['from_prediction' => $stockPrediction->id]);
+    }
+
     private function activeProcesses()
     {
         return StockPredictionProcess::query()

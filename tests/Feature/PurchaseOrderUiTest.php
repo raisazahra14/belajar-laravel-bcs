@@ -356,6 +356,35 @@ class PurchaseOrderUiTest extends TestCase
         $staffResponse->assertOk()
             ->assertDontSee('Setujui Pesanan (Approve)')
             ->assertDontSee('Tolak (Reject)');
+
+        // Admin (bukan pembuat) juga melihat tombol Approve / Reject
+        $adminResponse = $this->actingAs($this->admin)->get(route('purchase-orders.show', $po));
+        $adminResponse->assertOk()
+            ->assertSee('Setujui Pesanan (Approve)')
+            ->assertSee('Tolak (Reject)');
+
+        // Admin yang membuat PO miliknya sendiri TIDAK boleh melihat tombol Approve / Reject (Segregation of Duties)
+        $poCreatedByAdmin = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-1009',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'status' => PurchaseOrderStatus::PENDING_APPROVAL,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 450000,
+            'created_by' => $this->admin->id,
+        ]);
+        $poCreatedByAdmin->items()->create([
+            'barang_id' => $this->barangA->id,
+            'jumlah_pesan' => 1,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 450000,
+            'subtotal' => 450000,
+        ]);
+
+        $adminCreatorResponse = $this->actingAs($this->admin)->get(route('purchase-orders.show', $poCreatedByAdmin));
+        $adminCreatorResponse->assertOk()
+            ->assertDontSee('Setujui Pesanan (Approve)')
+            ->assertDontSee('Tolak (Reject)');
     }
 
     public function test_manager_can_approve_po_via_action(): void
@@ -535,5 +564,83 @@ class PurchaseOrderUiTest extends TestCase
         $this->assertStringContainsString('PURCHASE ORDER', $content);
         $this->assertStringContainsString($po->nomor_po, $content);
         $this->assertStringContainsString($this->supplierA->nama_supplier, $content);
+    }
+
+    public function test_pdf_download_is_restricted_by_role_and_rejects_unauthorized_users(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-3002',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'status' => PurchaseOrderStatus::APPROVED,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 450000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+
+        $po->items()->create([
+            'barang_id' => $this->barangA->id,
+            'jumlah_pesan' => 1,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 450000,
+            'subtotal' => 450000,
+        ]);
+
+        // 1. Guest tidak diizinkan -> redirect ke login
+        $guestResponse = $this->get(route('purchase-orders.pdf', $po));
+        $guestResponse->assertRedirect('/login');
+
+        // 2. User dengan peran tidak dikenal / unauthorized -> 403 Forbidden
+        $unauthorizedUser = User::factory()->create(['role' => 'vendor']);
+        $forbiddenResponse = $this->actingAs($unauthorizedUser)->get(route('purchase-orders.pdf', $po));
+        $forbiddenResponse->assertForbidden();
+
+        // 3. Admin & Manager diizinkan
+        $this->actingAs($this->admin)->get(route('purchase-orders.pdf', $po))->assertOk();
+        $this->actingAs($this->manager)->get(route('purchase-orders.pdf', $po))->assertOk();
+    }
+
+    public function test_show_view_renders_status_history_timeline(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-3003',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'status' => PurchaseOrderStatus::APPROVED,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 450000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+
+        $po->recordStatusHistory(
+            from: null,
+            to: PurchaseOrderStatus::DRAFT,
+            user: $this->staff,
+            reason: 'PO dibuat'
+        );
+
+        $po->recordStatusHistory(
+            from: PurchaseOrderStatus::DRAFT,
+            to: PurchaseOrderStatus::PENDING_APPROVAL,
+            user: $this->staff,
+            reason: 'Diajukan ke Manager'
+        );
+
+        $po->recordStatusHistory(
+            from: PurchaseOrderStatus::PENDING_APPROVAL,
+            to: PurchaseOrderStatus::APPROVED,
+            user: $this->manager,
+            reason: 'Disetujui untuk pemenuhan gudang'
+        );
+
+        $response = $this->actingAs($this->manager)->get(route('purchase-orders.show', $po));
+
+        $response->assertOk()
+            ->assertSee('Riwayat Perubahan Status PO')
+            ->assertSee('PO dibuat')
+            ->assertSee('Diajukan ke Manager')
+            ->assertSee('Disetujui untuk pemenuhan gudang');
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreSupplierRequest;
 use App\Http\Requests\UpdateSupplierRequest;
 use App\Models\Supplier;
+use App\Services\SupplierPerformanceService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -55,7 +56,7 @@ class SupplierController extends Controller
             ->with('success', 'Supplier berhasil ditambahkan.');
     }
 
-    public function show(Supplier $supplier): View
+    public function show(Supplier $supplier, SupplierPerformanceService $performanceService): View
     {
         $barang = $supplier->barang()->orderBy('nama_barang')->paginate(10, ['*'], 'barang_page')->withQueryString();
         $transactions = $supplier->stokTransactions()
@@ -63,7 +64,9 @@ class SupplierController extends Controller
             ->latest('created_at')->latest('id')
             ->paginate(10, ['*'], 'transaksi_page')->withQueryString();
 
-        return view('suppliers.show', compact('supplier', 'barang', 'transactions'));
+        $performanceMetrics = $performanceService->calculateForSupplier($supplier);
+
+        return view('suppliers.show', compact('supplier', 'barang', 'transactions', 'performanceMetrics'));
     }
 
     public function edit(Supplier $supplier): View

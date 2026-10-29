@@ -92,15 +92,20 @@ class PurchaseOrderStateMachineTest extends TestCase
         }
     }
 
-    public function test_only_manager_can_approve(): void
+    public function test_manager_and_admin_can_approve_when_not_creator(): void
     {
-        $this->assertSame(S::APPROVED, $this->machine->transition(S::PENDING_APPROVAL, S::APPROVED, 'manager'));
-        $this->assertFalse($this->machine->can(S::PENDING_APPROVAL, S::APPROVED, 'admin'));
+        $this->assertSame(S::APPROVED, $this->machine->transition(S::PENDING_APPROVAL, S::APPROVED, 'manager', false));
+        $this->assertSame(S::APPROVED, $this->machine->transition(S::PENDING_APPROVAL, S::APPROVED, 'admin', false));
+        $this->assertTrue($this->machine->can(S::PENDING_APPROVAL, S::APPROVED, 'manager', false));
+        $this->assertTrue($this->machine->can(S::PENDING_APPROVAL, S::APPROVED, 'admin', false));
         $this->assertFalse($this->machine->can(S::PENDING_APPROVAL, S::APPROVED, 'staff'));
     }
 
     public function test_manager_cannot_approve_own_po(): void
     {
+        $this->assertFalse($this->machine->can(S::PENDING_APPROVAL, S::APPROVED, 'manager', true));
+        $this->assertFalse($this->machine->can(S::PENDING_APPROVAL, S::APPROVED, 'admin', true));
+
         $this->expectExceptionMessage('tidak boleh menyetujui atau menolak PO miliknya sendiri');
         $this->machine->transition(S::PENDING_APPROVAL, S::APPROVED, 'manager', true);
     }

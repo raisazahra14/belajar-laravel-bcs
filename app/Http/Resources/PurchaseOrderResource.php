@@ -84,6 +84,21 @@ class PurchaseOrderResource extends JsonResource
                     'role' => $this->resource->approver?->role,
                 ];
             }),
+            'status_histories' => $this->whenLoaded('statusHistories', function () {
+                return $this->resource->statusHistories->map(fn ($history) => [
+                    'id' => $history->id,
+                    'from_status' => $history->from_status?->value,
+                    'to_status' => $history->to_status?->value,
+                    'user' => $history->user ? [
+                        'id' => $history->user->id,
+                        'name' => $history->user->name,
+                        'role' => $history->user->role,
+                    ] : null,
+                    'reason' => $history->reason,
+                    'metadata' => $history->metadata,
+                    'created_at' => $history->created_at?->toIso8601String(),
+                ]);
+            }),
             'items_count' => $this->whenCounted('items', $this->resource->items_count),
             'items' => PurchaseOrderItemResource::collection($this->whenLoaded('items')),
             'available_transitions' => $availableTransitions,

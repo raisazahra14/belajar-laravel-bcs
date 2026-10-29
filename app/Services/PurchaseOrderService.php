@@ -5,13 +5,20 @@ namespace App\Services;
 use App\DTO\PurchaseOrderData;
 use App\Enums\PurchaseOrderStatus;
 use App\Exceptions\InvalidPurchaseOrderTransitionException;
+use App\Models\GoodsReceipt;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\StockPrediction;
 use App\Models\User;
+use App\Models\Warehouse;
+use App\Models\WarehouseStock;
+use App\Notifications\PurchaseOrderNotification;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
 
 class PurchaseOrderService
@@ -38,49 +45,77 @@ class PurchaseOrderService
      */
     public function createPO(array $data, User $actor): PurchaseOrder
     {
-        return DB::transaction(function () use ($data, $actor): PurchaseOrder {
-            $itemsData = $data['items'] ?? [];
-            if (empty($itemsData)) {
-                throw ValidationException::withMessages([
-                    'items' => 'Purchase Order wajib memiliki minimal 1 item pesanan.',
-                ]);
+        $maxAttempts = 5;
+        $attempt = 0;
+
+        while ($attempt < $maxAttempts) {
+            $attempt++;
+            try {
+                return DB::transaction(function () use ($data, $actor): PurchaseOrder {
+                    $itemsData = $data['items'] ?? [];
+                    if (empty($itemsData)) {
+                        throw ValidationException::withMessages([
+                            'items' => 'Purchase Order wajib memiliki minimal 1 item pesanan.',
+                        ]);
+                    }
+
+                    $tanggalPesan = $data['tanggal_pesan'] ?? now()->toDateString();
+                    $nomorPo = $data['nomor_po'] ?? PurchaseOrder::generateNomorPo($tanggalPesan);
+
+                    $po = PurchaseOrder::create([
+                        'nomor_po' => $nomorPo,
+                        'supplier_id' => $data['supplier_id'],
+                        'warehouse_id' => $data['warehouse_id'],
+                        'status' => PurchaseOrderStatus::DRAFT,
+                        'tanggal_pesan' => $tanggalPesan,
+                        'estimasi_tiba' => $data['estimasi_tiba'] ?? null,
+                        'total_biaya' => 0.00,
+                        'catatan' => $data['catatan'] ?? null,
+                        'created_by' => $actor->id,
+                    ]);
+
+                    $totalBiaya = 0.00;
+                    foreach ($itemsData as $item) {
+                        $jumlahPesan = (int) $item['jumlah_pesan'];
+                        $hargaSatuan = (float) $item['harga_satuan'];
+                        $subtotal = $jumlahPesan * $hargaSatuan;
+                        $totalBiaya += $subtotal;
+
+                        $po->items()->create([
+                            'barang_id' => $item['barang_id'],
+                            'jumlah_pesan' => $jumlahPesan,
+                            'jumlah_diterima' => 0,
+                            'harga_satuan' => $hargaSatuan,
+                            'subtotal' => $subtotal,
+                        ]);
+                    }
+
+                    $po->update(['total_biaya' => $totalBiaya]);
+
+                    $po->recordStatusHistory(
+                        from: null,
+                        to: PurchaseOrderStatus::DRAFT,
+                        user: $actor,
+                        reason: 'Purchase Order baru dibuat'
+                    );
+
+                    return $po->fresh(['items.barang', 'supplier', 'warehouse', 'creator', 'statusHistories.user']);
+                }, 3);
+            } catch (QueryException $e) {
+                $isUniqueViolation = in_array((string) $e->getCode(), ['23000', '23505'], true)
+                    || (isset($e->errorInfo[1]) && (int) $e->errorInfo[1] === 1062);
+
+                if ($isUniqueViolation && empty($data['nomor_po']) && $attempt < $maxAttempts) {
+                    usleep(random_int(10000, 50000));
+
+                    continue;
+                }
+
+                throw $e;
             }
+        }
 
-            $tanggalPesan = $data['tanggal_pesan'] ?? now()->toDateString();
-            $nomorPo = $data['nomor_po'] ?? PurchaseOrder::generateNomorPo($tanggalPesan);
-
-            $po = PurchaseOrder::create([
-                'nomor_po' => $nomorPo,
-                'supplier_id' => $data['supplier_id'],
-                'warehouse_id' => $data['warehouse_id'],
-                'status' => PurchaseOrderStatus::DRAFT,
-                'tanggal_pesan' => $tanggalPesan,
-                'estimasi_tiba' => $data['estimasi_tiba'] ?? null,
-                'total_biaya' => 0.00,
-                'catatan' => $data['catatan'] ?? null,
-                'created_by' => $actor->id,
-            ]);
-
-            $totalBiaya = 0.00;
-            foreach ($itemsData as $item) {
-                $jumlahPesan = (int) $item['jumlah_pesan'];
-                $hargaSatuan = (float) $item['harga_satuan'];
-                $subtotal = $jumlahPesan * $hargaSatuan;
-                $totalBiaya += $subtotal;
-
-                $po->items()->create([
-                    'barang_id' => $item['barang_id'],
-                    'jumlah_pesan' => $jumlahPesan,
-                    'jumlah_diterima' => 0,
-                    'harga_satuan' => $hargaSatuan,
-                    'subtotal' => $subtotal,
-                ]);
-            }
-
-            $po->update(['total_biaya' => $totalBiaya]);
-
-            return $po->fresh(['items.barang', 'supplier', 'warehouse', 'creator']);
-        });
+        throw new \RuntimeException('Gagal menghasilkan nomor Purchase Order yang unik setelah beberapa kali percobaan.');
     }
 
     /**
@@ -156,6 +191,7 @@ class PurchaseOrderService
     {
         return DB::transaction(function () use ($po, $actor): PurchaseOrder {
             $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
+            $oldStatus = $lockedPo->status;
 
             $newStatus = $this->stateMachine->transition(
                 from: $lockedPo->status,
@@ -168,51 +204,86 @@ class PurchaseOrderService
             $lockedPo->status = $newStatus;
             $lockedPo->save();
 
-            return $lockedPo->fresh(['items.barang']);
+            $lockedPo->recordStatusHistory(
+                from: $oldStatus,
+                to: $newStatus,
+                user: $actor,
+                reason: 'Diajukan untuk persetujuan Manager/Admin'
+            );
+
+            // Notifikasi ke Manager dan Admin yang berwenang meninjau
+            $approvers = User::query()
+                ->whereIn('role', ['manager', 'admin'])
+                ->where('id', '!=', $actor->id)
+                ->get();
+            if ($approvers->isNotEmpty()) {
+                Notification::send($approvers, new PurchaseOrderNotification($lockedPo, 'submitted', $actor));
+            }
+
+            return $lockedPo->fresh(['items.barang', 'statusHistories.user']);
         });
     }
 
     /**
-     * Menyetujui Purchase Order oleh Manager.
+     * Menyetujui Purchase Order oleh Manager atau Admin.
      *
      * @throws InvalidPurchaseOrderTransitionException
      */
-    public function approvePO(PurchaseOrder $po, User $manager): PurchaseOrder
+    public function approvePO(PurchaseOrder $po, User $approver): PurchaseOrder
     {
-        return DB::transaction(function () use ($po, $manager): PurchaseOrder {
+        return DB::transaction(function () use ($po, $approver): PurchaseOrder {
             $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
+            $oldStatus = $lockedPo->status;
 
             $newStatus = $this->stateMachine->transition(
                 from: $lockedPo->status,
                 to: PurchaseOrderStatus::APPROVED,
-                role: $manager->role,
-                actorIsCreator: $lockedPo->created_by === $manager->id,
+                role: $approver->role,
+                actorIsCreator: $lockedPo->created_by === $approver->id,
                 itemCount: $lockedPo->items()->count(),
             );
 
             $lockedPo->status = $newStatus;
-            $lockedPo->approved_by = $manager->id;
+            $lockedPo->approved_by = $approver->id;
             $lockedPo->save();
 
-            return $lockedPo->fresh(['items.barang', 'approver']);
+            $lockedPo->recordStatusHistory(
+                from: $oldStatus,
+                to: $newStatus,
+                user: $approver,
+                reason: 'Disetujui oleh '.$approver->name.' ('.ucfirst($approver->role).')'
+            );
+
+            // Notifikasi ke pembuat PO dan staf gudang
+            $recipients = User::query()
+                ->where('id', $lockedPo->created_by)
+                ->orWhere('role', 'staff')
+                ->get()
+                ->unique('id');
+            if ($recipients->isNotEmpty()) {
+                Notification::send($recipients, new PurchaseOrderNotification($lockedPo, 'approved', $approver));
+            }
+
+            return $lockedPo->fresh(['items.barang', 'approver', 'statusHistories.user']);
         });
     }
 
     /**
-     * Menolak Purchase Order oleh Manager dengan alasan.
+     * Menolak Purchase Order oleh Manager atau Admin dengan catatan alasan.
      *
      * @throws InvalidPurchaseOrderTransitionException
      */
-    public function rejectPO(PurchaseOrder $po, User $manager, ?string $reason = null): PurchaseOrder
+    public function rejectPO(PurchaseOrder $po, User $approver, ?string $reason = null): PurchaseOrder
     {
-        return DB::transaction(function () use ($po, $manager, $reason): PurchaseOrder {
+        return DB::transaction(function () use ($po, $approver, $reason): PurchaseOrder {
             $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
+            $oldStatus = $lockedPo->status;
 
             $newStatus = $this->stateMachine->transition(
                 from: $lockedPo->status,
                 to: PurchaseOrderStatus::REJECTED,
-                role: $manager->role,
-                actorIsCreator: $lockedPo->created_by === $manager->id,
+                role: $approver->role,
+                actorIsCreator: $lockedPo->created_by === $approver->id,
                 reason: $reason,
                 itemCount: $lockedPo->items()->count(),
             );
@@ -226,7 +297,20 @@ class PurchaseOrderService
             }
             $lockedPo->save();
 
-            return $lockedPo->fresh(['items.barang']);
+            $lockedPo->recordStatusHistory(
+                from: $oldStatus,
+                to: $newStatus,
+                user: $approver,
+                reason: $reason ? trim($reason) : null
+            );
+
+            // Notifikasi ke pembuat PO
+            $creator = $lockedPo->creator;
+            if ($creator) {
+                $creator->notify(new PurchaseOrderNotification($lockedPo, 'rejected', $approver, $reason));
+            }
+
+            return $lockedPo->fresh(['items.barang', 'statusHistories.user']);
         });
     }
 
@@ -239,6 +323,7 @@ class PurchaseOrderService
     {
         return DB::transaction(function () use ($po, $actor, $reason): PurchaseOrder {
             $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
+            $oldStatus = $lockedPo->status;
 
             $newStatus = $this->stateMachine->transition(
                 from: $lockedPo->status,
@@ -258,7 +343,14 @@ class PurchaseOrderService
             }
             $lockedPo->save();
 
-            return $lockedPo->fresh(['items.barang']);
+            $lockedPo->recordStatusHistory(
+                from: $oldStatus,
+                to: $newStatus,
+                user: $actor,
+                reason: $reason ? trim($reason) : null
+            );
+
+            return $lockedPo->fresh(['items.barang', 'statusHistories.user']);
         });
     }
 
@@ -278,7 +370,15 @@ class PurchaseOrderService
         User $staff,
         ?string $notes = null,
         ?string $documentDate = null,
+        ?string $nomorSuratJalan = null,
+        ?string $fotoSuratJalan = null,
     ): PurchaseOrder {
+        if (! in_array($staff->role, ['admin', 'staff'], true)) {
+            throw InvalidPurchaseOrderTransitionException::guardFailed(
+                'Penerimaan barang fisik hanya dapat dicatat oleh Admin atau Staff Gudang.'
+            );
+        }
+
         $lockKey = "purchase_order:receive:{$po->id}";
         $lock = Cache::lock($lockKey, 15);
 
@@ -289,9 +389,10 @@ class PurchaseOrderService
         }
 
         try {
-            return DB::transaction(function () use ($po, $receivedItems, $staff, $notes, $documentDate): PurchaseOrder {
+            return DB::transaction(function () use ($po, $receivedItems, $staff, $notes, $documentDate, $nomorSuratJalan, $fotoSuratJalan): PurchaseOrder {
                 // 1. Kunci header PO dengan lockForUpdate()
                 $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
+                $oldStatus = $lockedPo->status;
 
                 if (! $lockedPo->status->canReceiveGoods()) {
                     throw InvalidPurchaseOrderTransitionException::guardFailed(
@@ -359,7 +460,31 @@ class PurchaseOrderService
                     $item->save();
                 }
 
-                // 5. Update status PO otomatis menjadi PARTIALLY_RECEIVED atau COMPLETED
+                // 5. Terbitkan Dokumen Resmi Goods Receipt Note (GRN)
+                $grn = GoodsReceipt::create([
+                    'purchase_order_id' => $lockedPo->id,
+                    'warehouse_id' => $lockedPo->warehouse_id,
+                    'tanggal_terima' => $tanggal,
+                    'nomor_surat_jalan' => $nomorSuratJalan,
+                    'foto_surat_jalan' => $fotoSuratJalan,
+                    'catatan' => $notes,
+                    'received_by' => $staff->id,
+                ]);
+
+                foreach ($normalizedItems as $row) {
+                    /** @var PurchaseOrderItem $item */
+                    $item = $row['item'];
+                    $qty = $row['qty'];
+
+                    $grn->items()->create([
+                        'purchase_order_item_id' => $item->id,
+                        'barang_id' => $item->barang_id,
+                        'jumlah_diterima' => $qty,
+                        'catatan_kondisi' => 'Baik & Lengkap',
+                    ]);
+                }
+
+                // 6. Update status PO otomatis menjadi PARTIALLY_RECEIVED atau COMPLETED
                 $lines = $lockedItems->map(fn (PurchaseOrderItem $it) => [
                     'ordered' => (int) $it->jumlah_pesan,
                     'received' => (int) $it->jumlah_diterima,
@@ -369,7 +494,24 @@ class PurchaseOrderService
                 $lockedPo->status = $newStatus;
                 $lockedPo->save();
 
-                return $lockedPo->fresh(['items.barang', 'supplier', 'warehouse']);
+                $lockedPo->recordStatusHistory(
+                    from: $oldStatus,
+                    to: $newStatus,
+                    user: $staff,
+                    reason: $notes ?: "Penerimaan fisik barang (GRN: {$grn->nomor_grn})",
+                    metadata: [
+                        'goods_receipt_id' => $grn->id,
+                        'nomor_grn' => $grn->nomor_grn,
+                        'nomor_surat_jalan' => $nomorSuratJalan,
+                        'received_items' => collect($normalizedItems)->map(fn ($r) => [
+                            'item_id' => $r['item']->id,
+                            'barang_id' => $r['item']->barang_id,
+                            'qty' => $r['qty'],
+                        ])->all(),
+                    ]
+                );
+
+                return $lockedPo->fresh(['items.barang', 'supplier', 'warehouse', 'statusHistories.user', 'goodsReceipts.items.barang', 'goodsReceipts.receivedBy']);
             }, 3);
         } finally {
             $lock->release();
@@ -461,5 +603,84 @@ class PurchaseOrderService
     public function createPOFromDTO(PurchaseOrderData $dto, User $actor): PurchaseOrder
     {
         return $this->createPO($dto->toArray(), $actor);
+    }
+
+    /**
+     * Menyiapkan data awal pembuatan Purchase Order berdasarkan rekomendasi prediksi stok (Smart Restock).
+     *
+     * @return array{
+     *     supplier_id: ?int,
+     *     warehouse_id: ?int,
+     *     estimasi_tiba: ?string,
+     *     catatan: string,
+     *     items: list<array{id: null, barang_id: int, jumlah_pesan: int, harga_satuan: float}>,
+     *     deficit_warehouse_name: string
+     * }
+     */
+    public function prepareSmartRestockData(StockPrediction $prediction): array
+    {
+        $prediction->loadMissing(['barang.supplier', 'barang.warehouseStocks.warehouse']);
+        $barang = $prediction->barang;
+
+        if (! $barang) {
+            throw new \InvalidArgumentException('Prediksi stok tidak memiliki relasi barang yang valid.');
+        }
+
+        // 1. Supplier rekanan aktif
+        $supplierId = null;
+        if ($barang->supplier_id && $barang->supplier && $barang->supplier->is_active && ! $barang->supplier->trashed()) {
+            $supplierId = $barang->supplier_id;
+        }
+
+        // 2. Gudang tujuan yang defisit (prioritas gudang aktif dengan saldo stok terendah)
+        $deficitWarehouseStock = WarehouseStock::query()
+            ->where('barang_id', $barang->id)
+            ->whereHas('warehouse', fn ($q) => $q->where('is_active', true))
+            ->with('warehouse:id,nama_gudang')
+            ->orderBy('stok', 'asc')
+            ->first();
+
+        if ($deficitWarehouseStock) {
+            $deficitWarehouseId = $deficitWarehouseStock->warehouse_id;
+            $deficitWarehouseName = $deficitWarehouseStock->warehouse?->nama_gudang ?? 'Gudang Terpilih';
+        } else {
+            $firstActiveWarehouse = Warehouse::query()->where('is_active', true)->orderBy('id')->first();
+            $deficitWarehouseId = $firstActiveWarehouse?->id;
+            $deficitWarehouseName = $firstActiveWarehouse?->nama_gudang ?? 'Gudang Utama';
+        }
+
+        // 3. Estimasi kuantitas yang dibutuhkan
+        $recommendedQty = max(1, (int) round((float) $prediction->recommended_restock));
+
+        // 4. Estimasi kedatangan (berdasarkan tanggal perkiraan habis / lead time pengiriman)
+        if ($prediction->predicted_depletion_date) {
+            $depletion = $prediction->predicted_depletion_date;
+            $estimasiTiba = $depletion->isFuture()
+                ? $depletion->format('Y-m-d')
+                : now()->addDays(3)->format('Y-m-d');
+        } else {
+            $estimasiTiba = now()->addDays(7)->format('Y-m-d');
+        }
+
+        // 5. Catatan informatif
+        $catatan = "Auto-generated dari rekomendasi Smart Restock (Prediksi #{$prediction->id}, Status: {$prediction->status}, Defisit di: {$deficitWarehouseName}, Kebutuhan 30 Hari: ".number_format((float) $prediction->predicted_30_day_need, 0, ',', '.')." {$barang->satuan}).";
+
+        $items = [
+            [
+                'id' => null,
+                'barang_id' => $barang->id,
+                'jumlah_pesan' => $recommendedQty,
+                'harga_satuan' => (float) ($barang->harga_beli ?? 0),
+            ],
+        ];
+
+        return [
+            'supplier_id' => $supplierId,
+            'warehouse_id' => $deficitWarehouseId,
+            'estimasi_tiba' => $estimasiTiba,
+            'catatan' => $catatan,
+            'items' => $items,
+            'deficit_warehouse_name' => $deficitWarehouseName,
+        ];
     }
 }
