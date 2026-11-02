@@ -145,6 +145,9 @@ jobs:
           php -l artisan > /dev/null
           echo "PHP syntax check passed."
 
+      - name: Check PHP code style (Laravel Pint)
+        run: php vendor/bin/pint --test
+
       - name: Build optimized Laravel bootstrap
         run: php artisan optimize --no-interaction
 

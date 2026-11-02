@@ -65,7 +65,7 @@ class RepairDuplicatedWarehouseBalances extends Command
                 $mismatch = DB::table('barang')
                     ->leftJoinSub(
                         WarehouseStock::query()->selectRaw('barang_id, SUM(stok) AS total')->groupBy('barang_id'),
-                        'w', 'w.barang_id', '=', 'barang.id'
+                        'w', 'w.barang_id', '=', 'barang.id',
                     )
                     ->whereRaw('barang.stok <> COALESCE(w.total, 0)')->count();
 

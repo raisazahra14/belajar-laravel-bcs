@@ -169,7 +169,7 @@ class AnalyzeQueryExecutionPlanCommand extends Command
 
         $this->table(
             ['Query', 'Sebelum (ms)', 'Sesudah (ms)', 'Peningkatan', 'Key Sebelum', 'Key Sesudah', 'Rows Sblm', 'Rows Ssdh'],
-            $tableData
+            $tableData,
         );
 
         $this->info('[KESIMPULAN] EXECUTION PLAN (berdasarkan hasil pengukuran di atas):');

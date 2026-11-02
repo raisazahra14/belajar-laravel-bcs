@@ -573,13 +573,37 @@ cd python
 python -m unittest discover -s tests -v
 ```
 
-Pemeriksaan gaya PHP opsional:
+Pemeriksaan gaya PHP otomatis (Laravel Pint):
 
 ```bash
 php vendor/bin/pint --test
 ```
 
-PHPUnit menggunakan SQLite in-memory dan driver cache, session, mail, serta queue in-memory sesuai [`phpunit.xml`](phpunit.xml), sehingga tidak mengubah database development.
+Pemeriksaan gaya dan standarisasi Python (Ruff):
+
+```bash
+ruff check .
+ruff format --check .
+```
+
+Aktivasi Pre-commit Hooks:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+### Standar Kualitas Kode & Anti AI-Slop (Clean Code Standard)
+
+Proyek ini menerapkan standarisasi ketat untuk mencegah kode bertele-tele (*AI slop*), kode redundan, maupun celah keamanan:
+
+1. **Zero Raw SQL in Controller**: Seluruh query SQL mentah (`selectRaw`, `whereRaw`, `DB::table`) dilarang di Controller dan wajib dienkapsulasi ke dalam Eloquent Model (Query Scopes) atau Service Layer.
+2. **DTO & API Resource**: Endpoint API mentransformasikan data menggunakan DTO (`PurchaseOrderData`) dan JsonResource (`PurchaseOrderResource`).
+3. **Pessimistic Locking & Deadlock Prevention**: Mutasi persediaan dan Goods Receipt diamankan menggunakan `lockForUpdate()` dengan urutan deterministik (`orderBy('id')`) untuk menangkal *race condition*.
+4. **Proteksi Double-Submit**: Aksi transaksional dilengkapi *atomic cache lock* (`Cache::lock`) dan pembatasan UI tombol dengan `aria-busy`.
+5. **Pre-commit Automated Gate**: Menggunakan [`.pre-commit-config.yaml`](.pre-commit-config.yaml) untuk memvalidasi syntax PHP, format Laravel Pint, dan Ruff sebelum commit diizinkan masuk ke repositori.
+
+PHPUnit menggunakan SQLite in-memory dan driver cache, session, mail, serta queue in-memory sesuai [`phpunit.xml`](phpunit.xml), sehingga tidak mengubah database development. 464 unit & feature tests + 59 Python tests berstatus **100% PASS**.
 
 ## Struktur proyek
 

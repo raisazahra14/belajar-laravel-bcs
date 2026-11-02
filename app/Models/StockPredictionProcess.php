@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 
 class StockPredictionProcess extends Model
 {
@@ -29,5 +30,24 @@ class StockPredictionProcess extends Model
     public function barang()
     {
         return $this->belongsTo(Barang::class);
+    }
+
+    /**
+     * Menghitung status antrean proses aktif.
+     *
+     * @return Collection<string, int>
+     */
+    public static function countActiveStatuses(): Collection
+    {
+        return static::query()
+            ->whereHas('barang')
+            ->whereIn('status', [
+                self::STATUS_WAITING,
+                self::STATUS_PROCESSING,
+                self::STATUS_FAILED,
+            ])
+            ->selectRaw('status, COUNT(*) AS aggregate')
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
     }
 }

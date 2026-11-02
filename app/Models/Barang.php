@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 
 class Barang extends Model
 {
@@ -141,6 +142,49 @@ class Barang extends Model
     public function scopeSafeStock(Builder $query): Builder
     {
         return $query->where('stok', '>', self::MINIMUM_STOCK);
+    }
+
+    /**
+     * Menghitung metrik ringkasan inventaris untuk dashboard.
+     *
+     * @return array{total_jenis: int, total_stok: int, total_kategori: int, stok_menipis: int, tanpa_foto: int}
+     */
+    public static function calculateInventoryMetrics(): array
+    {
+        $metrics = static::query()->selectRaw(
+            'COUNT(*) AS total_jenis,
+             COALESCE(SUM(stok), 0) AS total_stok,
+             COUNT(DISTINCT kategori) AS total_kategori,
+             SUM(CASE WHEN stok <= ? THEN 1 ELSE 0 END) AS stok_menipis,
+             SUM(CASE WHEN foto_barang IS NULL OR foto_barang = ? THEN 1 ELSE 0 END) AS tanpa_foto',
+            [self::MINIMUM_STOCK, '']
+        )->first();
+
+        return [
+            'total_jenis' => (int) ($metrics?->total_jenis ?? 0),
+            'total_stok' => (int) ($metrics?->total_stok ?? 0),
+            'total_kategori' => (int) ($metrics?->total_kategori ?? 0),
+            'stok_menipis' => (int) ($metrics?->stok_menipis ?? 0),
+            'tanpa_foto' => (int) ($metrics?->tanpa_foto ?? 0),
+        ];
+    }
+
+    /**
+     * Memeriksa keterkaitan data barang dengan entitas operasional sebelum dihapus permanen.
+     *
+     * @return array<string, bool>
+     */
+    public function blockingRelations(): array
+    {
+        return [
+            'transaksi stok' => $this->stokTransactions()->exists(),
+            'saldo gudang' => $this->warehouseStocks()->exists(),
+            'histori stok legacy' => DB::table('stok_histories')->where('barang_id', $this->id)->exists(),
+            'item purchase order' => $this->purchaseOrderItems()->exists(),
+            'prediksi stok' => $this->stockPredictions()->exists(),
+            'notifikasi prediksi' => DB::table('stock_prediction_notifications')->where('barang_id', $this->id)->exists(),
+            'proses prediksi' => $this->stockPredictionProcess()->exists(),
+        ];
     }
 
     public function scopeWhereKodeBarangInsensitive(Builder $query, string $code): Builder

@@ -65,7 +65,7 @@ class CheckOverduePurchaseOrdersCommand extends Command
 
         $this->table(
             ['ID', 'Nomor PO', 'Supplier', 'Gudang', 'Status', 'Est. Tiba', 'Keterlambatan'],
-            $tableRows
+            $tableRows,
         );
 
         if ($this->option('notify')) {

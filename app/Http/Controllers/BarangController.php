@@ -34,28 +34,28 @@ class BarangController extends Controller
     ): View {
         $filters = $request->safe()->only(['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort']);
         $barang = $this->filteredInventory($filters)->paginate(5)->withQueryString();
-        $inventoryMetrics = Barang::query()->selectRaw(
-            'COUNT(*) AS total_jenis,
-             COALESCE(SUM(stok), 0) AS total_stok,
-             COUNT(DISTINCT kategori) AS total_kategori,
-             SUM(CASE WHEN stok <= ? THEN 1 ELSE 0 END) AS stok_menipis,
-             SUM(CASE WHEN foto_barang IS NULL OR foto_barang = ? THEN 1 ELSE 0 END) AS tanpa_foto',
-            [Barang::MINIMUM_STOCK, ''],
-        )->first();
-        $totalJenis = (int) ($inventoryMetrics?->total_jenis ?? 0);
-        $totalStok = (int) ($inventoryMetrics?->total_stok ?? 0);
-        $totalKategori = (int) ($inventoryMetrics?->total_kategori ?? 0);
-        $stokMenipis = (int) ($inventoryMetrics?->stok_menipis ?? 0);
-        $latestPredictionIds = StockPrediction::query()->selectRaw('MAX(id)')->groupBy('barang_id');
-        $latestPredictions = StockPrediction::query()->whereIn('id', $latestPredictionIds)->whereHas('barang');
-        $predictionCounts = (clone $latestPredictions)->whereIn('status', [
-            StockPrediction::STATUS_URGENT, StockPrediction::STATUS_RESTOCK, StockPrediction::STATUS_WARNING,
-        ])->selectRaw('status, COUNT(*) AS aggregate')->groupBy('status')->pluck('aggregate', 'status');
+
+        $metrics = Barang::calculateInventoryMetrics();
+        $totalJenis = $metrics['total_jenis'];
+        $totalStok = $metrics['total_stok'];
+        $totalKategori = $metrics['total_kategori'];
+        $stokMenipis = $metrics['stok_menipis'];
+
+        $predictionCounts = StockPrediction::countByStatuses([
+            StockPrediction::STATUS_URGENT,
+            StockPrediction::STATUS_RESTOCK,
+            StockPrediction::STATUS_WARNING,
+        ]);
         $predictedRestockCount = (int) ($predictionCounts[StockPrediction::STATUS_RESTOCK] ?? 0);
         $urgentPredictionCount = (int) ($predictionCounts[StockPrediction::STATUS_URGENT] ?? 0);
-        $predictionWarnings = (clone $latestPredictions)->with('barang')->whereIn('status', [StockPrediction::STATUS_RESTOCK, StockPrediction::STATUS_URGENT])->latest('analyzed_at')->limit(5)->get();
+        $predictionWarnings = StockPrediction::query()
+            ->latestPredictions()
+            ->with('barang')
+            ->whereIn('status', [StockPrediction::STATUS_RESTOCK, StockPrediction::STATUS_URGENT])
+            ->latest('analyzed_at')
+            ->limit(5)
+            ->get();
 
-        // Pilihan kategori untuk dropdown
         $kategori_options = collect(Barang::KATEGORI)->sort()->values();
         $supplier_options = $masterData->suppliers();
         $warehouse_options = $masterData->warehouses();
@@ -63,7 +63,7 @@ class BarangController extends Controller
         $stockActivity = $dashboard->activity(7);
         $attentionItems = $dashboard->attention($request->user(), 6, [
             'low_stock_count' => $stokMenipis,
-            'without_photo_count' => (int) ($inventoryMetrics?->tanpa_foto ?? 0),
+            'without_photo_count' => $metrics['tanpa_foto'],
             'prediction_counts' => $predictionCounts,
         ]);
 
@@ -73,8 +73,15 @@ class BarangController extends Controller
             'totalStok',
             'totalKategori',
             'stokMenipis',
-            'kategori_options', 'predictedRestockCount', 'urgentPredictionCount', 'predictionWarnings',
-            'stockActivity', 'attentionItems', 'filters', 'supplier_options', 'warehouse_options'
+            'kategori_options',
+            'predictedRestockCount',
+            'urgentPredictionCount',
+            'predictionWarnings',
+            'stockActivity',
+            'attentionItems',
+            'filters',
+            'supplier_options',
+            'warehouse_options'
         ));
     }
 

@@ -72,6 +72,15 @@
                     </button>
                 </form>
 
+                @if(config('app.auto_login'))
+                <div class="mt-3">
+                    <a href="{{ route('barang.index', ['auto' => 1]) }}" class="btn btn-outline-secondary w-100 py-2 d-flex align-items-center justify-content-center gap-2">
+                        <i class="ti-bolt" aria-hidden="true"></i>
+                        <span>Langsung Masuk (Auto-Login)</span>
+                    </a>
+                </div>
+                @endif
+
             </div>
             <p class="login-footer">&copy; {{ now()->year }} LogistikKu &middot; Manajemen inventaris dan logistik</p>
         </section>

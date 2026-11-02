@@ -114,16 +114,7 @@ class BarangTrashController extends Controller
     /** @return list<string> */
     private function businessDependencies(Barang $barang): array
     {
-        $checks = [
-            'transaksi stok' => DB::table('stok_transactions')->where('barang_id', $barang->id)->exists(),
-            'saldo gudang' => DB::table('warehouse_stocks')->where('barang_id', $barang->id)->exists(),
-            'histori stok legacy' => DB::table('stok_histories')->where('barang_id', $barang->id)->exists(),
-            'prediksi stok' => DB::table('stock_predictions')->where('barang_id', $barang->id)->exists(),
-            'notifikasi prediksi' => DB::table('stock_prediction_notifications')->where('barang_id', $barang->id)->exists(),
-            'proses prediksi' => DB::table('stock_prediction_processes')->where('barang_id', $barang->id)->exists(),
-        ];
-
-        return array_keys(array_filter($checks));
+        return array_keys(array_filter($barang->blockingRelations()));
     }
 
     /** @param list<string> $dependencies */

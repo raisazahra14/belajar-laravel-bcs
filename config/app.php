@@ -41,6 +41,8 @@ return [
 
     'debug' => (bool) env('APP_DEBUG', false),
 
+    'auto_login' => (bool) env('APP_AUTO_LOGIN', true),
+
     /*
     |--------------------------------------------------------------------------
     | Application URL

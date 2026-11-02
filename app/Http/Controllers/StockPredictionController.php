@@ -17,10 +17,9 @@ class StockPredictionController extends Controller
     public function index(Request $request, StockPredictionPresenter $presenter)
     {
         $focusPredictionId = $request->integer('focus');
-        $ids = StockPrediction::query()->selectRaw('MAX(id)')->groupBy('barang_id');
         $predictions = StockPrediction::with('barang')
             ->when($focusPredictionId > 0, fn ($query) => $query->whereKey($focusPredictionId))
-            ->when($focusPredictionId === 0, fn ($query) => $query->whereIn('id', $ids))
+            ->when($focusPredictionId === 0, fn ($query) => $query->latestPredictions())
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
             ->latest('analyzed_at')->latest('id')->paginate(15)->withQueryString();
         $canRunPrediction = $request->user()->can('run-stock-prediction');
@@ -139,16 +138,7 @@ class StockPredictionController extends Controller
 
     private function activeProcessCounts()
     {
-        return StockPredictionProcess::query()
-            ->whereHas('barang')
-            ->whereIn('status', [
-                StockPredictionProcess::STATUS_WAITING,
-                StockPredictionProcess::STATUS_PROCESSING,
-                StockPredictionProcess::STATUS_FAILED,
-            ])
-            ->selectRaw('status, COUNT(*) AS aggregate')
-            ->groupBy('status')
-            ->pluck('aggregate', 'status');
+        return StockPredictionProcess::countActiveStatuses();
     }
 
     private function sortActiveProcesses($processes)

@@ -21,7 +21,7 @@ class PurchaseOrderData
         $rawItems = $data['items'] ?? [];
         $items = array_map(
             static fn (array $item): PurchaseOrderItemData => PurchaseOrderItemData::fromArray($item),
-            $rawItems
+            $rawItems,
         );
 
         return new self(

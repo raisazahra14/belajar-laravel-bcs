@@ -26,7 +26,7 @@ class PurchaseOrderApiController extends Controller
     {
         $statusValues = array_map(
             static fn (PurchaseOrderStatus $case): string => $case->value,
-            PurchaseOrderStatus::cases()
+            PurchaseOrderStatus::cases(),
         );
 
         $validated = $request->validate([
@@ -74,7 +74,7 @@ class PurchaseOrderApiController extends Controller
     public function update(
         UpdatePurchaseOrderRequest $request,
         PurchaseOrder $purchaseOrder,
-        PurchaseOrderService $service
+        PurchaseOrderService $service,
     ): PurchaseOrderResource {
         $po = $service->updatePO($purchaseOrder, $request->validated(), $request->user());
         $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
@@ -88,7 +88,7 @@ class PurchaseOrderApiController extends Controller
     public function approve(
         Request $request,
         PurchaseOrder $purchaseOrder,
-        PurchaseOrderService $service
+        PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
         try {
             $po = $service->approvePO($purchaseOrder, $request->user());
@@ -109,7 +109,7 @@ class PurchaseOrderApiController extends Controller
     public function reject(
         Request $request,
         PurchaseOrder $purchaseOrder,
-        PurchaseOrderService $service
+        PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
         $validated = $request->validate([
             'reason' => ['required', 'string', 'max:1000'],
@@ -136,7 +136,7 @@ class PurchaseOrderApiController extends Controller
     public function receive(
         ReceivePurchaseOrderItemRequest $request,
         PurchaseOrder $purchaseOrder,
-        PurchaseOrderService $service
+        PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
         $validated = $request->validated();
         $receivedItems = $validated['items'] ?? [];
@@ -154,7 +154,7 @@ class PurchaseOrderApiController extends Controller
                 $receivedItems,
                 $request->user(),
                 $validated['catatan'] ?? null,
-                $validated['tanggal_terima'] ?? null
+                $validated['tanggal_terima'] ?? null,
             );
             $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
 

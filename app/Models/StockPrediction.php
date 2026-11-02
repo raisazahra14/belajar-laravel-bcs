@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 
 class StockPrediction extends Model
 {
@@ -48,5 +50,39 @@ class StockPrediction extends Model
     public function process()
     {
         return $this->hasOne(StockPredictionProcess::class);
+    }
+
+    /**
+     * Scope query untuk mengambil ID prediksi terbaru per barang.
+     */
+    public function scopeLatestPredictionIds(Builder $query): Builder
+    {
+        return $query->selectRaw('MAX(id)')->groupBy('barang_id');
+    }
+
+    /**
+     * Scope query untuk prediksi stok terbaru per barang yang masih memiliki relasi barang aktif.
+     */
+    public function scopeLatestPredictions(Builder $query): Builder
+    {
+        $latestIds = static::query()->latestPredictionIds();
+
+        return $query->whereIn('id', $latestIds)->whereHas('barang');
+    }
+
+    /**
+     * Menghitung agregat jumlah status prediksi stok.
+     *
+     * @param  array<string>  $statuses
+     * @return Collection<string, int>
+     */
+    public static function countByStatuses(array $statuses): Collection
+    {
+        return static::query()
+            ->latestPredictions()
+            ->whereIn('status', $statuses)
+            ->selectRaw('status, COUNT(*) AS aggregate')
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
     }
 }
