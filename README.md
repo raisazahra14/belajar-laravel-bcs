@@ -267,7 +267,22 @@ Jika login tidak muncul:
 
 ## Menjalankan aplikasi
 
-### Cara paling ringkas
+### Menjalankan dengan Docker (Opsional / Containerized Setup)
+
+Bagi penguji atau pengguna yang memiliki Docker di sistem mereka, aplikasi ini sudah mendukung kontainerisasi penuh (PHP 8.2-FPM, Nginx, MySQL 8.0, dan Python Tesseract OCR):
+
+```bash
+docker compose up -d --build
+docker compose exec app php artisan migrate --seed
+```
+
+Buka [http://localhost:8000](http://localhost:8000) pada browser. Seluruh modul inventaris, background queue worker, dan verifikasi dokumen OCR langsung aktif. Untuk menghentikan container:
+
+```bash
+docker compose down
+```
+
+### Cara paling ringkas (Tanpa Docker / PHP Lokal)
 
 Perintah berikut menjalankan server Laravel, queue listener, dan Vite sekaligus:
 
@@ -523,6 +538,35 @@ Histori transaksi keluar -> queue stock-predictions -> Python
 ```
 
 Jika Python gagal, service Laravel menghasilkan fallback sederhana agar proses tetap memberikan hasil yang aman untuk ditinjau.
+
+### Arsitektur kontainer (Docker)
+
+```text
+[ Browser / Client ]
+        │ (Port 8000)
+        ▼
+┌──────────────────┐
+│  logistikku_nginx│ (Nginx Reverse Proxy & Static Assets)
+└────────┬─────────┘
+         │ (FastCGI :9000)
+         ▼
+┌──────────────────┐       (Port 3306)       ┌─────────────────┐
+│  logistikku_app  │ ───────────────────────►│  logistikku_db   │ (MySQL 8.0)
+│  (PHP 8.2-FPM +  │                         └────────┬────────┘
+│  Python Tesseract│                                  │
+└──────────────────┘                                  │
+                                                      │
+┌──────────────────┐                                  │
+│ logistikku_queue │ ─────────────────────────────────┘ (Poll database queue)
+│ (Queue Worker:   │
+│  ML & OCR Job)   │
+└──────────────────┘
+```
+
+1. **`logistikku_nginx`**: Menerima request HTTP dari pengguna, menyajikan aset statis langsung dari `/var/www/public`, dan mem-proxy request PHP ke container aplikasi.
+2. **`logistikku_app`**: Container utama yang menjalankan PHP 8.2-FPM dan memiliki lingkungan runtime Python 3.10 serta Tesseract OCR (dengan model bahasa `ind` dan `eng`) untuk analisis dokumen privat dan prediksi stok.
+3. **`logistikku_db`**: Menjalankan basis data MySQL 8.0 dengan healthcheck otomatis, menyimpan data persisten pada volume Docker `db_data`.
+4. **`logistikku_queue`**: Container terdedikasi yang menjalankan worker Laravel Queue (`php artisan queue:work`) untuk mengeksekusi job asinkronus (OCR dokumen berukuran besar dan analisis prediksi stok) tanpa membebani performa respon antarmuka web.
 
 ### Import barang
 
