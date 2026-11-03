@@ -10,23 +10,24 @@
 - **Unit Kerja / Penempatan**: Tim Engineering & Logistik (`itbcslogistics`)
 - **Nama Aplikasi / Produk**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang & Analitik Logistik Terpadu)
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, MySQL/MariaDB & SQLite, Python 3.10+ (NumPy, Scikit-Learn, OpenCV, Tesseract OCR, PyMuPDF), Bootstrap/SkyDash UI, Vite, DomPDF, PHPUnit 11, Laravel Pint.
-- **Periode Pelaksanaan**: **Agustus 2026 s/d Januari/Februari 2027 (Total Durasi 6 Bulan)**
-- **Status Evaluasi Saat Ini**: **Capaian Progres s/d Bulan ke-3 — 100% SELESAI & LULUS UJI REGRESI (464/464 Tests PASS, 4.953 Assertions)**
-- **Sifat Dokumen**: **Living Portfolio Document** (File dokumen ini akan terus diperbarui secara berkala mengikuti penugasan modul baru hingga periode magang berakhir).
+- **Periode Magang Penuh**: **Agustus 2026 s/d Januari/Februari 2027 (Total Durasi 6 Bulan)**
+- **Periode Pelaporan Saat Ini**: **Periode 3 (Bulan ke-3): 10 Oktober 2026 – 09 November 2026**
+- **Status Evaluasi Saat Ini**: **Capaian Periode 3 — 100% SELESAI & LULUS UJI REGRESI LENGKAP (464/464 Automated Tests PASS, 4.953 Assertions)**
+- **Sifat Dokumen**: **Living Portfolio Document** (File dokumen ini diperbarui secara berkala sebagai rekam jejak formal kompetensi dan deliverables nyata magang).
 
 ---
 
 ## 1. Ringkasan Eksekutif (Executive Summary)
 
-Dokumen ini merupakan **Portofolio Rekayasa Perangkat Lunak Berkala (*Living Portfolio*)** yang disusun sebagai instrumen evaluasi kinerja resmi untuk program **MagangHub Kementerian Ketenagakerjaan Republik Indonesia (Kemnaker RI)** selama 6 (enam) bulan. Dokumen ini merekam secara transparan seluruh implementasi kode, arsitektur sistem, dan pengujian kualitas yang telah diselesaikan.
+Dokumen ini merupakan **Portofolio Rekayasa Perangkat Lunak Berkala (*Living Portfolio*)** yang disusun sebagai instrumen evaluasi kinerja resmi untuk program **MagangHub Kementerian Ketenagakerjaan Republik Indonesia (Kemnaker RI)**. Portofolio ini secara khusus mempertanggungjawabkan pemenuhan seluruh capaian kurikulum resmi **Periode 3 (10 Oktober 2026 – 09 November 2026)** serta roadmap teknis industri dari unit kerja **`itbcslogistics` (GitHub Issue #9)**.
 
-> **Catatan Pembaruan Dokumen**:  
-> Portofolio ini merangkum seluruh capaian modul yang telah tuntas dikerjakan hingga **Bulan ke-3 (Agustus – Oktober 2026)**. File ini akan terus diperbarui secara bertahap mengikuti arahan tugas dan modul berikutnya dari mentor industri (`itbcslogistics`) sampai seluruh periode magang 6 bulan selesai.
+> **Kesesuaian Kurikulum & Capaian Periode 3**:  
+> Seluruh 4 materi kurikulum Kemnaker RI (1 Teori & 3 Praktik) beserta Fokus Pembelajaran Opsional telah dirampungkan 100% secara berstandar industri (*enterprise-grade*) dengan tingkat stabilitas sistem tertinggi (**464 Automated Tests 100% HIJAU tanpa regresi**).
 
-### Ringkasan Realisasi Capaian (Bulan 1 s/d 3):
-1. **Bulan 1 (Agustus 2026)**: Fondasi *Clean Code* (FormRequest, DB::transaction, Seeder 50 data), fitur bisnis lapangan (Upload Foto, Export PDF/Excel, Soft Deletes & Trash), kontrol hak akses 3 role (Admin, Manager, Staff), RESTful API berotentikasi Sanctum, jembatan integrasi Laravel–Python untuk deteksi keaslian dokumen via OCR Tesseract & ELA, serta Batch Import massal Excel dengan Upsert otomatis (GitHub Issue #1 & #2).
-2. **Bulan 2 (September s/d Awal Oktober 2026)**: Penyusunan spesifikasi formal SRS (v1.1 - v1.4) berstandar industri dengan diagram UML/Activity, restrukturisasi skema relasional multi-gudang dan multi-supplier, implementasi analitik bisnis canggih (mutasi periodik, klasifikasi FSN Fast/Slow/Dead Stock, valuasi aset inventaris), serta uji beban dan benchmarking 10.000 data transaksi dengan optimasi composite indexing dan caching agregasi (GitHub Issue #4, #5, dan #7).
-3. **Bulan 3 (Oktober 2026)**: Pembangunan modul pengadaan terpadu (*Purchase Order & Goods Receipt Multi-Gudang*) berbasis *State Machine* 7 status, penegakan tata kelola *Separation of Duty* (Maker-Checker approval), entitas dokumen penerimaan barang fisik mandiri (Goods Receipt Note / GRN) dengan cetak PDF resmi, jejak audit riwayat status PO (`PurchaseOrderStatusHistory`), sistem notifikasi terpadu dan peringatan otomatis PO terlambat (*overdue*), integrasi *Smart Restock* dari modul prediksi stok AI, *Three-Way Matching* (PO vs GRN vs Dokumen OCR Tesseract), *Vendor Performance Dashboard* untuk melacak *on-time delivery* dan *fulfillment rate*, seeder data demo skala besar (>50 data per entitas), serta pengujian regresi penuh (**464 automated tests 100% HIJAU, 4.953 assertions**) (GitHub Issue #9).
+### Ringkasan Realisasi Capaian Periode 1 s/d 3:
+1. **Bulan 1 / Periode 1 (Agustus 2026)**: Fondasi *Clean Code* (FormRequest, DB::transaction, Seeder 50 data), fitur bisnis lapangan (Upload Foto, Export PDF/Excel, Soft Deletes & Trash), kontrol hak akses 3 role (Admin, Manager, Staff), RESTful API berotentikasi Sanctum, jembatan integrasi Laravel–Python untuk deteksi keaslian dokumen via OCR Tesseract & ELA, serta Batch Import massal Excel dengan Upsert otomatis (GitHub Issue #1 & #2).
+2. **Bulan 2 / Periode 2 (September s/d Awal Oktober 2026)**: Penyusunan spesifikasi formal SRS (v1.1 - v1.4) berstandar industri dengan diagram UML/Activity, restrukturisasi skema relasional multi-gudang dan multi-supplier, implementasi analitik bisnis canggih (mutasi periodik, klasifikasi FSN Fast/Slow/Dead Stock, valuasi aset inventaris), serta uji beban dan benchmarking 10.000 data transaksi dengan optimasi composite indexing dan caching agregasi (GitHub Issue #4, #5, dan #7).
+3. **Bulan 3 / Periode 3 (10 Oktober 2026 – 09 November 2026)**: Pembangunan fitur skala penuh (*end-to-end*) **Modul Pengadaan Barang (Purchase Order) & Penerimaan Barang Multi-Gudang (Goods Receipt)** berbasis *State Machine* 7 status, penegakan tata kelola *Separation of Duty* (Maker-Checker approval), entitas dokumen penerimaan barang fisik mandiri (*Goods Receipt Note* / GRN) dengan cetak PDF resmi, jejak audit riwayat status PO (`PurchaseOrderStatusHistory`), sistem notifikasi terpadu dan peringatan otomatis PO terlambat (*overdue*), integrasi *Smart Restock* dari modul prediksi stok AI, *Three-Way Matching* (PO vs GRN vs Dokumen OCR Tesseract), *Vendor Performance Dashboard* untuk melacak *on-time delivery* dan *fulfillment rate*, seeder data demo skala besar (>50 data per entitas), serta pengujian regresi penuh (**464 automated tests 100% HIJAU, 4.953 assertions**) (GitHub Issue #9).
 
 ---
 
@@ -106,60 +107,98 @@ Dokumen ini merupakan **Portofolio Rekayasa Perangkat Lunak Berkala (*Living Por
 
 ---
 
-### 3.3 BULAN KE-3 (Oktober 2026): Modul Pengadaan (Purchase Order & Goods Receipt)
-*Berdasarkan Arahan Resmi GitHub Issue #9*
+### 3.3 BULAN KE-3 / PERIODE 3 (10 Oktober 2026 – 09 November 2026): Modul Pengadaan (Purchase Order & Goods Receipt)
+*Pemenuhan Penuh Kurikulum Kemnaker RI (4 Materi Resmi) & Arahan Teknis GitHub Issue #9 (`itbcslogistics`)*
 
-- **Minggu 1: Arsitektur Modul, State Machine, & Skema PO**
-  - Perancangan siklus hidup status PO 7 tahap: `DRAFT`, `PENDING_APPROVAL`, `APPROVED`, `REJECTED`, `PARTIALLY_RECEIVED`, `COMPLETED`, dan `CANCELLED`.
-  - Pemisahan logika status ke kelas murni `PurchaseOrderStateMachine.php` dan Enum bertipe `PurchaseOrderStatus.php`.
-  - Migrasi skema database `purchase_orders` (nomor otomatis `PO-YYYYMMDD-XXXX`, tanggal, estimasi tiba, total biaya, foreign key) dan `purchase_order_items` (`jumlah_pesan`, `jumlah_diterima`, `harga_satuan`, `subtotal`).
-  - Publikasi dokumen arsitektur teknis pada `docs/arsitektur_modul_purchase_order.md`.
-- **Minggu 2: Validasi Input Ketat, Business Service Atomik, & Test Logika**
-  - FormRequest terdedikasi: `StorePurchaseOrderRequest`, `UpdatePurchaseOrderRequest` (draft-only guard), dan `ReceivePurchaseOrderItemRequest`.
-  - `PurchaseOrderService.php` dengan transaksi atomik `DB::transaction()` untuk kalkulasi biaya dan nomor otomatis.
-  - Aturan kontrol internal ***Separation of Duty***: Manager dilarang menyetujui atau menolak PO yang diajukan oleh dirinya sendiri.
-  - Logika *Goods Receipt*: validasi pencegahan *over-receipt*, otomatisasi penambahan saldo gudang fisik pada `warehouse_stocks`, pencatatan mutasi masuk pada `stok_transactions`, serta pemutakhiran status otomatis.
-  - Automated tests logika pada `PurchaseOrderLogicTest.php` dan `PurchaseOrderStateMachineTest.php`.
-- **Minggu 3: Tampilan Antarmuka UI Dinamis & Cetak Dokumen PDF**
-  - Halaman index PO dengan paginasi, filter pencarian multi-kriteria, dan badge status visual tematik.
-  - Formulir dinamis penambahan dan penghapusan baris item pesanan (*add/remove row*) dengan kalkulasi subtotal instan.
-  - Halaman detail PO dengan tombol aksi role-based (Modal Approve/Reject untuk Manager dan Modal Goods Receipt untuk Staf Gudang).
-  - Layanan cetak PDF resmi berstandar dokumen pengadaan perusahaan via `PurchaseOrderPdfService.php`.
-- **Minggu 4: Refactoring Clean Code, Mitigasi Konkurensi & Finalisasi Pengujian Regresi**
-  - **Zero Raw SQL**: Menghapus seluruh kueri mentah SQL dari Controller, menggantinya dengan Eloquent ORM dan Query Builder berparameter.
-  - **DTO & API Resource**: Penerapan `PurchaseOrderData`, `PurchaseOrderItemData`, serta transformasi respon JSON pada `PurchaseOrderResource`.
-  - **Standarisasi PSR-12**: Pemformatan kode terotomasi menggunakan Laravel Pint (`php vendor/bin/pint --test`) dengan hasil 100% lulus.
-  - **Mitigasi Konkurensi Tingkat Tinggi**:
-    - *Atomic Distributed Lock* berdurasi 15 detik via `Cache::lock("purchase_order:receive:{$po->id}", 15)->get()` untuk mencegah insiden mutasi ganda (*double submit*).
-    - *Pessimistic Locking* (`lockForUpdate()`) dengan pengurutan penguncian item deterministik berdasarkan ID barang (`orderBy('id')`) serta toleransi *auto-retry deadlock* 3 kali.
-    - Penanganan pesan flash ramah pengguna (*user-friendly flash messages*) di antarmuka Blade.
-- **Pengembangan Ekosistem Lanjutan & Otomasi Cerdas Modul Pengadaan (Saran A & B)**
-  - **Entitas Dokumen Penerimaan Barang Fisik Mandiri (GRN)**:
-    - Pembuatan skema tabel `goods_receipts` dan `goods_receipt_items`.
-    - Satu PO dapat menerima beberapa kali pengiriman barang (*multi-stage delivery*), masing-masing menerbitkan dokumen resmi berformat `GRN-YYYYMMDD-XXXX`.
-    - Dilengkapi pencatatan nomor Surat Jalan vendor, foto bukti fisik, catatan kondisi barang, dan cetak PDF resmi via `GoodsReceiptPdfService.php`.
-  - **Jejak Audit Kronologis Status PO (`PurchaseOrderStatusHistory`)**:
-    - Skema tabel `purchase_order_status_histories` mencatat setiap transisi status lengkap dengan aktor pengubah, stempel waktu, alasan penolakan/pembatalan, dan metadata transaksi.
-    - Ditampilkan sebagai linimasa interaktif (*visual audit timeline*) pada kartu detail PO.
-  - **Pusat Notifikasi Siklus Hidup PO**:
-    - Terintegrasi dengan navbar notification drawer via `NotificationCenterService`.
-    - Memberi peringatan otomatis kepada Manager/Admin saat ada PO baru berstatus `Pending Approval`, dan notifikasi kepada pembuat PO saat disetujui, ditolak, atau barang diterima.
-  - **Peringatan Otomatis PO Terlambat (Overdue) & Scheduler Harian**:
-    - Command `php artisan po:check-overdue --notify` mendeteksi PO berstatus `Approved` atau `Partially Received` yang telah melewati `estimasi_tiba`.
-    - Badge visual merah `Terlambat`, banner peringatan di halaman detail, dan filter cepat pada tabel index PO.
-  - **Integrasi Prediksi Stok ke PO (Smart Restock)**:
-    - Menghubungkan modul prediksi Machine Learning (`/prediksi-stok`) dengan pembuatan PO: tombol "Buat PO dari Rekomendasi" otomatis mengisi supplier rekanan, gudang defisit, kuantitas kebutuhan restock, harga beli master, dan estimasi tanggal tiba.
-  - **Pencocokan Tiga Arah (Three-Way Matching: PO vs GRN vs Dokumen OCR Tesseract)**:
-    - `ThreeWayMatchingService.php` mencocokkan data PO sistem, kuantitas fisik tiba pada GRN, dan invoice/surat jalan hasil ekstraksi OCR Tesseract.
-    - Mendeteksi *overbilling*, *price discrepancy*, dan *partial delivery* secara visual dengan *deep linking* dua arah.
-  - **Dashboard Analitik Kinerja Rekanan (Vendor Performance & Lead Time Tracking)**:
-    - `SupplierPerformanceService.php` menghitung *On-Time Delivery Rate (%)*, *Average Delay Days*, *Fulfillment Rate (%)*, dan skor komposit performa.
-    - Halaman executive dashboard di `/suppliers/performance` dan kartu scorecard audit vendor di `/suppliers/{supplier}/performance`.
-  - **Generator Data Demo Skala Besar (`ProcurementDemoDataSeeder`)**:
-    - Menyuplai >50 data uji realistis per entitas: 80 Purchase Orders (semua 7 status, termasuk overdue), 52 Goods Receipts mandiri, 83 Dokumen Verifikasi OCR, dan >200 entri audit trail.
-  - **Hasil Pengujian Regresi Menyeluruh**:
-    - Eksekusi `php artisan test` menghasilkan **464 Tests PASSED (4.953 assertions) — 100% HIJAU tanpa regresi**.
-  - Pembaruan dokumentasi operasional pengguna pada `README.md` dan `docs/README.md`.
+> **Fokus Pembelajaran Opsional Periode 3**:  
+> Perancangan dan implementasi fitur baru skala penuh (*end-to-end*), yaitu **Modul Pengadaan Barang (Purchase Order) & Penerimaan Barang Multi-Gudang (Goods Receipt)**. Mahasiswa magang menyusun arsitektur logika bisnis berbasis *State Machine*, menerapkan validasi `FormRequest` yang ketat, membangun antarmuka UI interaktif multi-peran (Admin, Manager, Staff Gudang), serta melakukan *code refactoring* dan penanganan error komprehensif berstandar industri (*Zero Raw SQL*, *Distributed Cache Lock*, *Pessimistic Locking*).
+
+---
+
+#### 📚 Materi 1 (Teori | Bulan ke-3 | Alokasi: 4–5 Hari): Pembagian Modul Aplikasi, Arsitektur Kode, & Penentuan Logika Bisnis
+*Ekuivalen dengan Target GitHub Roadmap #9: MINGGU 1*
+
+- **Tugas 1.1: Pemetaan Alur Bisnis & Status State-Machine Purchase Order (PO)**
+  - Merancang siklus hidup 7 status pesanan: `DRAFT`, `PENDING_APPROVAL`, `APPROVED`, `REJECTED`, `PARTIALLY_RECEIVED`, `COMPLETED`, dan `CANCELLED`.
+  - Mengisolasi logika transisi status ke kelas independen `PurchaseOrderStateMachine.php` dan Enum bertipe `PurchaseOrderStatus.php` guna menjamin *single source of truth*.
+  - Menetapkan aturan bisnis ketat: PO hanya dapat diajukan jika memiliki minimal 1 item barang, revisi PO ditolak hanya oleh pembuat, dan pembatalan wajib menyertakan alasan.
+- **Tugas 1.2: Perancangan Skema Database (Migrations & Relasi Eloquent)**
+  - Membuat tabel `purchase_orders`: `id`, `nomor_po` (string, unik, format otomatis `PO-YYYYMMDD-XXXX`), `supplier_id` (FK), `warehouse_id` (FK), `status` (string), `tanggal_pesan`, `estimasi_tiba`, `total_biaya` (decimal 15,2), `catatan`, `created_by` (FK), `approved_by` (FK, nullable), `timestamps`.
+  - Membuat tabel `purchase_order_items`: `id`, `purchase_order_id` (FK cascade), `barang_id` (FK), `jumlah_pesan`, `jumlah_diterima` (default 0), `harga_satuan`, `subtotal`, `timestamps`.
+  - Mendefinisikan relasi timbal balik Eloquent pada Model `PurchaseOrder`, `PurchaseOrderItem`, `Supplier`, dan `Warehouse` (`hasMany`, `belongsTo`).
+- **Tugas 1.3: Dokumentasi Arsitektur Modul**
+  - Menyusun dan mempublikasikan dokumen arsitektur formal pada `docs/arsitektur_modul_purchase_order.md`, mencakup diagram alur, kamus status, dan *State Diagram* transisi status.
+
+---
+
+#### 💻 Materi 2 (Praktik | Bulan ke-3 | Alokasi: 4–5 Hari): Coding Fitur Baru Bagian 1 (Logika Validasi Input & Alur Data)
+*Ekuivalen dengan Target GitHub Roadmap #9: MINGGU 2*
+
+- **Tugas 2.1: Validasi Input Ketat dengan FormRequest**
+  - `StorePurchaseOrderRequest`: Memvalidasi keberadaan supplier aktif, gudang aktif, format tanggal pesan, estimasi tiba (>= tanggal pesan), serta array `items` (wajib ada `barang_id` unik tanpa duplikasi baris, `jumlah_pesan` > 0 bilangan bulat, dan `harga_satuan` >= 0 numerik).
+  - `UpdatePurchaseOrderRequest`: Memproteksi integritas data dengan hanya mengizinkan pengubahan data ketika status PO masih berstatus `DRAFT`.
+  - `ReceivePurchaseOrderItemRequest`: Memvalidasi fisik barang yang tiba, memastikan kuantitas diterima valid dan tidak melebihi sisa pesanan (*anti-over-receipt*).
+- **Tugas 2.2: Business Service & Transaksi Database Atomik (`PurchaseOrderService`)**
+  - Memisahkan logika dari Controller (*Thin Controller, Fat Service*) pada `app/Services/PurchaseOrderService.php`.
+  - `createPO()`: Menghasilkan nomor PO otomatis berurut per hari, menghitung subtotal tiap item dan total biaya agregat, dibungkus dalam `DB::transaction()`.
+  - `approvePO()` & `rejectPO()`: Menegakkan prinsip tata kelola **Separation of Duty (Maker-Checker)**—Manager dilarang menyetujui atau menolak PO yang diajukan oleh dirinya sendiri (`approver_id !== created_by`). Penolakan wajib mencantumkan catatan alasan.
+  - `receiveItems()`:
+    - Memvalidasi akumulasi `jumlah_diterima` tidak boleh melampaui `jumlah_pesan`.
+    - Menambah saldo fisik gudang pada tabel `warehouse_stocks` untuk gudang tujuan terkait.
+    - Mencatat mutasi secara otomatis pada tabel `stok_transactions` berjenis `masuk` dengan referensi nomor PO dan snapshot saldo akurat.
+    - Mengubah status PO secara otomatis menjadi `PARTIALLY_RECEIVED` atau `COMPLETED` berdasarkan kalkulasi kumulatif pemenuhan barang.
+- **Tugas 2.3: Automated Test untuk Logika Bisnis**
+  - Menyusun unit dan feature test komprehensif pada `tests/Feature/PurchaseOrderLogicTest.php` dan `tests/Unit/PurchaseOrderStateMachineTest.php` untuk memvalidasi alur status, kalkulasi biaya, dan penambahan stok berjalan benar 100%.
+
+---
+
+#### 🎨 Materi 3 (Praktik | Bulan ke-3 | Alokasi: 3–5 Hari): Coding Fitur Baru Bagian 2 (Integrasi Tampilan Antarmuka / UI)
+*Ekuivalen dengan Target GitHub Roadmap #9: MINGGU 3*
+
+- **Tugas 3.1: Halaman Daftar Purchase Order (Index View)**
+  - Menyediakan tabel daftar PO interaktif dengan paginasi (10 baris per halaman), filter pencarian multi-kriteria (Nomor PO, Supplier, Gudang, dan Status).
+  - Menampilkan badge visual tematik berwarna untuk status PO: `DRAFT` (abu-abu/secondary), `PENDING_APPROVAL` (kuning/warning), `APPROVED` (biru/info), `PARTIALLY_RECEIVED` (cyan/teal), `COMPLETED` (hijau/success), `REJECTED` (merah/danger), dan `CANCELLED` (gelap/dark).
+- **Tugas 3.2: Form Pembuatan PO yang Dinamis (Create / Edit View)**
+  - Form interaktif dengan dropdown Supplier dan Gudang Tujuan yang aktif.
+  - Komponen tabel baris dinamis (*dynamic table rows*): Staf dapat menambah (*add row*) dan menghapus (*remove row*) barang pesanan dengan kalkulasi subtotal dan *grand total* otomatis secara instan tanpa me-refresh halaman.
+- **Tugas 3.3: Halaman Detail PO & Aksi Berbasis Hak Akses (Role-Based Action UI)**
+  - Tampilan detail informatif: informasi umum PO, tabel rincian item, dan ringkasan finansial.
+  - Aksi Manager / Admin: Tombol aksi modal "Setujui Pesanan (*Approve*)" dan "Tolak (*Reject*)" lengkap dengan *guard Separation of Duty*.
+  - Aksi Staf Gudang: Pada PO berstatus `APPROVED` atau `PARTIALLY_RECEIVED`, tampil modal "Terima Barang Fisik (*Goods Receipt*)" dengan input kuantitas tiba per item dan deteksi batas maksimum sisa pesanan.
+- **Tugas 3.4: Cetak Dokumen PDF Resmi Purchase Order**
+  - Menyediakan tombol "Cetak PDF PO" yang memanfaatkan `PurchaseOrderPdfService.php` (`barryvdh/laravel-dompdf`) untuk mengunduh dokumen Purchase Order resmi siap kirim ke vendor/supplier.
+
+---
+
+#### 🛡️ Materi 4 (Praktik | Bulan ke-3 | Alokasi: 4–5 Hari): Pembersihan Kode (Code Refactoring) & Penanganan Error
+*Ekuivalen dengan Target GitHub Roadmap #9: MINGGU 4*
+
+- **Tugas 4.1: Code Refactoring Sesuai Prinsip Clean Code**
+  - **Zero Raw SQL**: Menghapus seluruh kueri SQL mentah dari `PurchaseOrderController`, murni memanfaatkan Eloquent ORM dan Query Builder berparameter.
+  - **Penerapan DTO & API Resource**: Membuat `App\DTO\PurchaseOrderData` dan `App\DTO\PurchaseOrderItemData` untuk *type safety*, serta `App\Http\Resources\PurchaseOrderResource` untuk *content negotiation* format JSON pada endpoint API.
+  - **Standarisasi PSR-12**: Memastikan seluruh berkas kode terformat rapi sesuai panduan gaya resmi melalui Laravel Pint.
+- **Tugas 4.2: Penanganan Error & Skenario Edge-Cases (Robust Error Handling)**
+  - Mencegah insiden *double submit* saat tombol penerimaan barang ditekan berkali-kali secara simultan melalui *Atomic Distributed Lock* 15 detik (`Cache::lock("purchase_order:receive:{$po->id}", 15)`).
+  - Menangani *database deadlock* dan *race condition* dengan penguncian baris pesimistik (`lockForUpdate()`) yang terurut deterministik berdasarkan ID barang (`orderBy('id')`) beserta *auto-retry* 3 kali.
+  - Menampilkan pesan kilat (*user-friendly flash messages*) yang informatif dan ramah pengguna di tampilan antarmuka saat validasi bisnis tidak terpenuhi.
+- **Tugas 4.3: Pengujian Regresi Menyeluruh (Full Test Suite Passing)**
+  - Menjalankan seluruh test suite otomatis: `php artisan test`.
+  - Seluruh test (modul lama Bulan 1–2 + modul baru Purchase Order Bulan 3) lulus **100% PASS (464 Tests, 4.953 Assertions, 0 Regression)**.
+- **Tugas 4.4: Pembaruan Panduan Pengguna & Portofolio Magang**
+  - Memperbarui panduan operasional pada `README.md` dan `docs/README.md`.
+  - Menyusun dan merampungkan portofolio evaluasi ini (`docs/PORTOFOLIO_PENUTUPAN_MAGANG.md`) serta dokumen laporan resmi `LAPORAN_KEGIATAN_PERIODE_3_MAGANGHUB.docx`.
+
+---
+
+#### 🌟 Fitur Nilai Tambah Enterprise (Pengembangan Ekosistem Lanjutan)
+Selain pemenuhan 100% roadmap wajib, modul pengadaan ini diperkaya dengan 7 fitur canggih berstandar logistik modern:
+1. **Entitas Dokumen Mandiri Goods Receipt Note (GRN)**: Menerbitkan dokumen fisik berformat `GRN-YYYYMMDD-XXXX` untuk tiap sesi penerimaan bertahap, lengkap dengan cetak PDF resmi via `GoodsReceiptPdfService.php`.
+2. **Jejak Audit Status Interaktif (`PurchaseOrderStatusHistory`)**: Mencatat kronologi perubahan status, aktor pengubah, stempel waktu, dan catatan alasan, ditampilkan sebagai *visual timeline* di kartu detail PO.
+3. **Pusat Notifikasi Siklus Hidup PO**: Notifikasi terintegrasi di navbar drawer untuk memberi peringatan *Pending Approval*, *Approved*, *Rejected*, dan *Goods Received*.
+4. **Deteksi Otomatis PO Terlambat (Overdue Scheduler)**: Perintah `php artisan po:check-overdue --notify` untuk mendeteksi PO yang melewati estimasi tanggal tiba, lengkap dengan badge visual merah di tabel dan detail.
+5. **Smart Restock dari Modul Prediksi Stok AI**: Menghubungkan rekomendasi stok AI (`/prediksi-stok`) langsung ke form pembuatan PO secara otomatis.
+6. **Three-Way Matching (PO vs GRN vs Dokumen OCR Tesseract)**: `ThreeWayMatchingService.php` mencocokkan data PO, fisik GRN, dan tagihan invoice hasil ekstraksi AI OCR Tesseract guna mendeteksi *overbilling* dan *price discrepancy*.
+7. **Vendor Performance Analytics & Scorecard**: `SupplierPerformanceService.php` menghitung persentase ketepatan waktu (*On-Time Delivery Rate*), tingkat pemenuhan (*Fulfillment Rate*), dan skor komposit vendor di `/suppliers/performance`.
 
 ---
 
