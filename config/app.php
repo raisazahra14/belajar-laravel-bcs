@@ -41,7 +41,7 @@ return [
 
     'debug' => (bool) env('APP_DEBUG', false),
 
-    'auto_login' => (bool) env('APP_AUTO_LOGIN', true),
+    'auto_login' => (bool) env('APP_AUTO_LOGIN', false),
 
     /*
     |--------------------------------------------------------------------------
