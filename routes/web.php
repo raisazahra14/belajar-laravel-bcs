@@ -142,7 +142,7 @@ Route::middleware('auth')->group(function () {
         Route::match(['put', 'patch'], '/warehouses/{warehouse}', [WarehouseController::class, 'update'])->name('warehouses.update');
         Route::delete('/warehouses/{warehouse}', [WarehouseController::class, 'destroy'])->name('warehouses.destroy');
         Route::get('/document-tools', [DocumentToolController::class, 'index'])->name('document-tools.index');
-        Route::post('/document-tools/import', [DocumentToolController::class, 'import'])->name('document-tools.import');
+        Route::post('/document-tools/import', [BarangImportController::class, 'store'])->name('document-tools.import');
         Route::post('/barang', [BarangController::class, 'store']);
         Route::get('/barang-report/pdf', [BarangReportController::class, 'pdf'])->name('barang.report.pdf');
         Route::get('/barang-report/excel', [BarangReportController::class, 'excel'])->name('barang.report.excel');

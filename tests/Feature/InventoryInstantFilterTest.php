@@ -118,6 +118,29 @@ class InventoryInstantFilterTest extends TestCase
         $this->assertCount(5, $response->viewData('barang'));
     }
 
+    public function test_dynamic_per_page_allows_flexible_page_sizes(): void
+    {
+        $staff = User::factory()->create(['role' => 'staff']);
+        foreach (range(1, 12) as $number) {
+            $this->barang('DYN-'.$number, 'Barang Dinamis '.$number, 'ATK', 10);
+        }
+
+        // Default remains 5 items per page
+        $defaultResponse = $this->actingAs($staff)->get(route('barang.results'));
+        $defaultResponse->assertOk()->assertSee('Menampilkan 1–5 dari 12 data');
+        $this->assertCount(5, $defaultResponse->viewData('barang'));
+
+        // Querying with per_page=15 shows all 12 items on a single page
+        $response15 = $this->get(route('barang.results', ['per_page' => 15]));
+        $response15->assertOk()->assertSee('Menampilkan 1–12 dari 12 data');
+        $this->assertCount(12, $response15->viewData('barang'));
+
+        // Querying with per_page=25 shows all 12 items
+        $response25 = $this->get(route('barang.results', ['per_page' => 25]));
+        $response25->assertOk()->assertSee('Menampilkan 1–12 dari 12 data');
+        $this->assertCount(12, $response25->viewData('barang'));
+    }
+
     private function barang(string $code, string $name, string $category, int $stock, string $location = 'Rak Filter'): Barang
     {
         return Barang::create(['kode_barang' => $code, 'nama_barang' => $name, 'kategori' => $category, 'stok' => $stock, 'satuan' => 'Pcs', 'lokasi' => $location]);

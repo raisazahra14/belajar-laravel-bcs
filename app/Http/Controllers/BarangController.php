@@ -35,8 +35,12 @@ class BarangController extends Controller
         InventoryMasterDataService $masterData,
         PurchaseOrderService $poService,
     ): View {
-        $filters = $request->safe()->only(['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort']);
-        $barang = $this->filteredInventory($filters)->paginate(5)->withQueryString();
+        $filters = $request->safe()->only(['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort', 'per_page']);
+        $perPage = (int) ($filters['per_page'] ?? 5);
+        if ($perPage < 1 || $perPage > 100) {
+            $perPage = 5;
+        }
+        $barang = $this->filteredInventory($filters)->paginate($perPage)->withQueryString();
 
         $metrics = Barang::calculateInventoryMetrics();
         $totalJenis = $metrics['total_jenis'];
@@ -84,6 +88,7 @@ class BarangController extends Controller
             'stockActivity',
             'attentionItems',
             'filters',
+            'perPage',
             'supplier_options',
             'warehouse_options',
             'procurementKpis'
@@ -92,8 +97,12 @@ class BarangController extends Controller
 
     public function inventoryResults(InventoryFilterRequest $request): View
     {
-        $filters = $request->safe()->only(['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort']);
-        $barang = $this->filteredInventory($filters)->paginate(5)->withQueryString();
+        $filters = $request->safe()->only(['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort', 'per_page']);
+        $perPage = (int) ($filters['per_page'] ?? 5);
+        if ($perPage < 1 || $perPage > 100) {
+            $perPage = 5;
+        }
+        $barang = $this->filteredInventory($filters)->paginate($perPage)->withQueryString();
         $supplier_options = ! empty($filters['supplier_id'])
             ? Supplier::withTrashed()->whereKey($filters['supplier_id'])->get(['id', 'nama_supplier', 'is_active', 'deleted_at'])
             : collect();
@@ -102,7 +111,7 @@ class BarangController extends Controller
             : collect();
 
         return view('barang.partials.inventory-results', compact(
-            'barang', 'filters', 'supplier_options', 'warehouse_options'
+            'barang', 'filters', 'perPage', 'supplier_options', 'warehouse_options'
         ));
     }
 

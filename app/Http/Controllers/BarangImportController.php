@@ -86,16 +86,23 @@ class BarangImportController extends Controller
 
     public function store(ImportBarangRequest $request, BarangSpreadsheetImporter $importer, StockPredictionScheduler $scheduler): RedirectResponse
     {
+        $isDocumentTools = $request->routeIs('document-tools.*') || $request->is('document-tools*');
+        $redirect = $isDocumentTools ? back() : redirect()->route('barang.index');
+
         try {
             $result = $importer->import($request->file('spreadsheet'));
         } catch (BarangImportValidationException $exception) {
-            return redirect()->route('barang.index')->withErrors($exception->errors())
+            return $redirect->withErrors($exception->errors())
                 ->with('import_summary', $exception->summary);
         }
         $scheduler->scheduleAll($request->user());
 
-        return redirect()->route('barang.index')
+        $message = $isDocumentTools
+            ? "Import selesai: {$result['created']} data baru, {$result['updated']} data diperbarui. Prediksi dijadwalkan."
+            : "Berhasil mengimpor {$result['total']} data barang. Prediksi barang yang berubah dijadwalkan.";
+
+        return $redirect
             ->with('import_summary', [...$result, 'failed' => 0])
-            ->with('success', "Berhasil mengimpor {$result['total']} data barang. Prediksi barang yang berubah dijadwalkan.");
+            ->with('success', $message);
     }
 }

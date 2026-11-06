@@ -1,9 +1,15 @@
 <?php
 
+use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\PurchaseOrderApiController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('auth')->group(function () {
+Route::post('/login', [AuthController::class, 'login'])->name('api.login');
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout'])->name('api.logout');
+    Route::get('/user', [AuthController::class, 'user'])->name('api.user');
+
     Route::get('/purchase-orders', [PurchaseOrderApiController::class, 'index'])->name('api.purchase-orders.index');
     Route::post('/purchase-orders', [PurchaseOrderApiController::class, 'store'])->name('api.purchase-orders.store');
     Route::get('/purchase-orders/{purchaseOrder}', [PurchaseOrderApiController::class, 'show'])->name('api.purchase-orders.show');
