@@ -29,7 +29,8 @@ LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transak
 - Opsi **Ingat saya**, normalisasi email, regenerasi session, dan pembatasan lima percobaan login gagal per email/IP selama 60 detik.
 - Logout aman dengan invalidasi session dan regenerasi token CSRF.
 - Tiga role: `admin`, `manager`, dan `staff`.
-- Admin dapat mengelola akun pengguna.
+- Admin dapat mengelola akun pengguna (dengan proteksi integritas relasi foreign key pada akun yang memiliki riwayat pembuatan PO atau penerimaan barang).
+- Proteksi lingkungan pengembangan: opsi auto-login dibatasi secara ketat hanya pada environment `local` dan dinonaktifkan secara default (`APP_AUTO_LOGIN=false`).
 
 ### Inventaris
 
@@ -58,7 +59,7 @@ LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transak
 - Riwayat transaksi dan grafik perubahan saldo.
 - Snapshot pelaku, supplier, saldo sebelum/sesudah, dan informasi audit transaksi.
 - Transfer stok antargudang.
-- Pembalikan transaksi untuk Admin dan Manager.
+- Pembalikan transaksi (reversal) untuk Admin dan Manager yang secara otomatis menyelaraskan kuantitas diterima dan status siklus hidup Purchase Order terkait.
 - Laporan mutasi stok dengan filter tanggal, supplier, gudang, dan kategori.
 - Export laporan mutasi ke CSV, XLSX, dan PDF.
 
@@ -93,7 +94,7 @@ LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transak
 - Upload PDF, JPG, JPEG, atau PNG sampai 10 MiB.
 - Mendukung Surat Jalan, Invoice, dan Bukti Fisik yang disimpan secara privat.
 - Job Laravel menjalankan Python dan Tesseract OCR untuk mengekstrak metadata serta melakukan pemeriksaan keaslian dan kelengkapan awal.
-- **Self-Healing OCR Execution**: Dilengkapi mekanisme deteksi otomatis berbasis *atomic cache lock* yang mengeksekusi OCR secara sinkron apabila antrean mengendap $\ge 4$ detik, serta tombol darurat *"Proses Langsung Sekarang"*.
+- **Asynchronous Queue Execution & On-Demand Processing**: Dokumen diproses secara asinkron di antrean background (`php artisan queue:work`) untuk menjaga stabilitas respon web server, dilengkapi opsi pemrosesan langsung (*On-Demand direct run* via `run_now=1` / tombol *"Proses Langsung Sekarang"*) yang dieksekusi secara aman saat diminta eksplisit oleh pengguna.
 - **Dual-Pane Review Workspace (`/verifications/{id}`)**: Antarmuka *side-by-side* dengan *Sticky Document Inspector* (kontrol zoom `+`, `-`, `Reset 100%`) di panel kiri dan formulir koreksi ekstraksi OCR serta kartu KPI *Three-Way Matching* PO di panel kanan.
 
 Verifikasi ini adalah alat bantu pemeriksaan awal, bukan penetapan keaslian hukum.
@@ -101,7 +102,7 @@ Verifikasi ini adalah alat bantu pemeriksaan awal, bukan penetapan keaslian huku
 ### Prediksi stok & Smart Restock berbasis SLA Vendor
 
 - Analisis histori transaksi keluar untuk membantu menentukan kebutuhan restock 30 hari ke depan.
-- Metode `cold_start`, rata-rata bergerak (*moving average*), atau regresi linear dipilih berdasarkan ketersediaan data histori.
+- Metode `cold_start`, rata-rata bergerak (*moving average*), atau Machine Learning (regresi linear dengan *moving baseline* non-negatif) dipilih secara adaptif berdasarkan kecukupan data histori.
 - Analisis satu barang atau semua barang berjalan melalui queue `stock-predictions` dengan fallback lokal di sisi Laravel jika proses Python gagal.
 - **Smart Restock AI + Best Vendor SLA (`1-Click Create PO`)**:
   - Saat sistem mendeteksi barang mendekati *out-of-stock*, sistem otomatis mengevaluasi seluruh supplier aktif dan menyarankan vendor dengan skor kepatuhan SLA tertinggi (`COMPLIANT`, *On-Time Delivery* & *Fulfillment Rate* terbaik).
@@ -266,6 +267,8 @@ php artisan db:seed
 Buka [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login), lalu gunakan salah satu akun di atas. Kredensial demo sengaja tidak ditampilkan pada halaman login; gunakan tabel dokumentasi ini hanya untuk pengembangan lokal.
 
 > Akun ini hanya untuk pengembangan. Ganti password atau hapus akun demo sebelum aplikasi dapat diakses dari jaringan publik.
+>
+> **Catatan Keamanan Lingkungan**: Opsi bypass login lokal (`APP_AUTO_LOGIN`) dinonaktifkan secara bawaan (`false`) dan dibatasi secara ketat hanya pada environment `local`. Jangan mengaktifkannya di server publik atau staging.
 
 Jika login tidak muncul:
 
@@ -454,6 +457,27 @@ Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, v
 
 ### Alur perubahan stok
 
+```mermaid
+flowchart TD
+    A["Pengguna Memilih Barang & Aksi Stok"] --> B["Validasi FormRequest & Otorisasi Gate"]
+    B --> C["Pessimistic Locking Database<br/>(Urutan Konsisten: Barang -> Gudang -> Saldo)"]
+    C --> D{"Jenis Transaksi?"}
+    
+    D -->|Stok Masuk / Keluar| E["Mutasi Saldo warehouse_stocks & barang.stok"]
+    D -->|Transfer Antargudang| F["Kurangi Gudang Asal & Tambah Gudang Tujuan"]
+    
+    E --> G["Buku Besar stok_transactions<br/>(Snapshot Saldo Sebelum & Sesudah)"]
+    F --> G
+    
+    G --> H["Commit Database Transaction"]
+    
+    H -.->|Jika Dibatalkan (Reversal)| I["Pembalikkan Transaksi (Reversal)"]
+    I --> J["Terbitkan Mutasi Lawan (Offsetting)"]
+    J --> K{"Apakah Berasal dari PO?"}
+    K -->|Ya| L["Sinkronisasi Purchase Order:<br/>- Kurangi kuantitas diterima<br/>- Rekalkulasi Status PO (APPROVED / PARTIAL)<br/>- Catat Audit Status History"]
+    K -->|Tidak| M["Kembalikan Saldo Fisik Saja"]
+```
+
 1. Pengguna memilih barang dan jenis transaksi.
 2. Request memvalidasi jumlah, gudang, supplier, catatan, dan kewenangan pengguna.
 3. Service mengunci data yang relevan dan menjalankan perubahan dalam transaksi database.
@@ -461,6 +485,34 @@ Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, v
 5. Transaksi tersimpan pada `stok_transactions` dan tampil pada riwayat/laporan.
 
 ### Alur Purchase Order dan penerimaan barang (Goods Receipt)
+
+```mermaid
+flowchart TD
+    subgraph Pengajuan_PO ["Fase 1: Pengajuan & Approval"]
+        A["1. Buat Draft PO<br/>(Pilih Supplier, Gudang, & Input Multi-Item)"] --> B{"Ajukan PO?<br/>(Submit)"}
+        B -->|Batal| C["Status: Dibatalkan (Cancelled)"]
+        B -->|Ajukan| D["Status: Menunggu Persetujuan<br/>(Pending Approval)"]
+        D --> E{"Review Manager<br/>(Maker-Checker / Separation of Duty)"}
+        E -->|Tolak & Isi Alasan| F["Status: Ditolak (Rejected)"]
+        F -->|Revisi Ulang| A
+        E -->|Setujui| G["Status: Disetujui (Approved)"]
+    end
+
+    subgraph Penerimaan_Fisik ["Fase 2: Penerimaan Fisik di Gudang"]
+        G --> H["Barang Tiba di Gudang Fisik"]
+        H --> I["Buka Modal Goods Receipt<br/>(Scan Barcode/QR BRG-###### atau Input Manual)"]
+        I --> J["Eksekusi Atomik DB Transaction:<br/>- Tambah Saldo Fisik warehouse_stocks<br/>- Catat Riwayat Mutasi Masuk stok_transactions<br/>- Akumulasi jumlah_diterima pada Item PO<br/>- Terbitkan Berita Acara Penerimaan (GRN)"]
+        J --> K{"Kuantitas Lengkap 100%?"}
+        K -->|Belum (Parsial)| L["Status: Diterima Sebagian<br/>(Partially Received)"]
+        L -->|Penerimaan Sisa Tiba| H
+        K -->|Lengkap| M["Status: Selesai (Completed)"]
+    end
+
+    subgraph Audit_Matching ["Fase 3: Verifikasi Finansial & Audit"]
+        M --> N["Three-Way Matching<br/>(Bandingkan PO vs GRN vs Dokumen Invoice OCR)"]
+        N --> O["Vendor Performance Dashboard<br/>(Evaluasi Skor SLA, On-Time Rate & Fulfillment)"]
+    end
+```
 
 ```text
 [Draft] -------------------------> [Menunggu Persetujuan] ------------> [Disetujui] ------------> [Diterima Sebagian / Selesai]
@@ -537,6 +589,22 @@ Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, v
 
 ### Alur verifikasi dokumen
 
+```mermaid
+flowchart TD
+    A["Pengguna Mengunggah Dokumen<br/>(Surat Jalan / Invoice / Bukti Fisik: PDF/JPG/PNG)"] --> B["Validasi Format, Ekstensi & Ukuran<br/>(Maksimal 10 MB)"]
+    B --> C["Simpan Berkas di Storage Privat<br/>(storage/app/document-verifications)"]
+    C --> D["Buat Record DocumentVerification<br/>(Status: Menunggu Antrean)"]
+    D --> E["Dispatch Job ke Antrean Background<br/>(ProcessDocumentVerification via Queue Worker)"]
+    
+    E --> F["Queue Worker Menjalankan Engine Python<br/>(python/document_checker.py via Symfony Process)"]
+    F --> G["Analisis Computer Vision & OCR:<br/>- PyMuPDF Page Rendering<br/>- OpenCV Heuristics & Image Processing<br/>- Tesseract OCR Multi-Language Engine"]
+    G --> H["Ekstraksi Entitas & Metadata:<br/>No. PO, No. Surat Jalan, Tanggal, Vendor, Nilai & Tabel Items"]
+    
+    H --> I["Tulis Hasil Analisis ke Database<br/>(DocumentVerificationResultWriter)"]
+    I --> J["Kirim Notifikasi Selesai ke Pemilik Dokumen"]
+    J --> K["Dual-Pane Review Workspace (/verifications/{id}):<br/>- Panel Kiri: Sticky Document Inspector (Zoom +/-)<br/>- Panel Kanan: Form Koreksi Metadata & Kartu Three-Way Matching PO"]
+```
+
 ```text
 Upload -> validasi -> storage privat -> queue default
        -> Python/Tesseract -> JSON hasil -> database
@@ -546,6 +614,30 @@ Upload -> validasi -> storage privat -> queue default
 Laravel menangani autentikasi, file, job, dan database. Python bukan server terpisah; script dijalankan oleh Laravel melalui Symfony Process.
 
 ### Alur prediksi stok
+
+```mermaid
+flowchart TD
+    A["Pemicu Prediksi Kebutuhan Stok<br/>(Tombol Analisis di Web, Batch Job, atau Cron)"] --> B["Kumpulkan Histori Transaksi Keluar (OUT)<br/>(stok_transactions)"]
+    B --> C["Dispatch Job ke Queue stock-predictions"]
+    C --> D["Eksekusi Subprocess Python<br/>(python/stock_predictor.py)"]
+    
+    D --> E{"Ketersediaan Data Histori"}
+    E -->|0 Transaksi OUT| F["Metode: Cold Start<br/>(Estimasi Manual Harian + Lead Time Supplier)"]
+    E -->|Histori < 30 Hari / < 5 Hari OUT| G["Metode: Simple Moving Average<br/>(Rata-Rata Pemakaian Harian Konsumsi)"]
+    E -->|Histori >= 30 Hari & >= 5 Hari OUT| H["Metode: Machine Learning<br/>(Linear Regression dengan Moving Baseline Non-Negatif)"]
+    
+    F --> I["Kalkulasi Safety Stock & Kebutuhan 30 Hari"]
+    G --> I
+    H --> I
+    
+    I --> J{"Evaluasi Sisa Saldo vs Ambang Batas"}
+    J -->|Saldo >= Safety Stock| K["Status: Aman / Waspada"]
+    J -->|Saldo < Safety Stock| L["Status: Perlu Restock / Mendesak"]
+    
+    L --> M["Simpan Record StockPrediction & Notifikasi"]
+    M --> N["Smart Restock AI Evaluasi Vendor Rekanan:<br/>Urutkan Supplier berdasarkan Kepatuhan SLA"]
+    N --> O["Tombol 1-Click Create PO:<br/>Otomatis Membuka Form PO dengan Vendor Terbaik & Kuantitas Rekomendasi"]
+```
 
 ```text
 Histori transaksi keluar -> queue stock-predictions -> Python
