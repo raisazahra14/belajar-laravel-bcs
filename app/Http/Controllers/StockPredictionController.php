@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Barang;
 use App\Models\StockPrediction;
 use App\Models\StockPredictionProcess;
+use App\Models\Supplier;
 use App\Services\StockPredictionPresenter;
 use App\Services\StockPredictionScheduler;
+use App\Services\SupplierPerformanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -14,8 +16,11 @@ class StockPredictionController extends Controller
 {
     private const ACTIVE_PROCESS_LIMIT = 50;
 
-    public function index(Request $request, StockPredictionPresenter $presenter)
-    {
+    public function index(
+        Request $request,
+        StockPredictionPresenter $presenter,
+        SupplierPerformanceService $supplierPerformance,
+    ) {
         $focusPredictionId = $request->integer('focus');
         $predictions = StockPrediction::with('barang')
             ->when($focusPredictionId > 0, fn ($query) => $query->whereKey($focusPredictionId))
@@ -42,6 +47,20 @@ class StockPredictionController extends Controller
             $prediction->id => $presenter->present($prediction, $processes->get($prediction->barang_id)),
         ]);
 
+        // Precompute SLA vendor metrics dalam 1 batch kueri konstan (O(1)) untuk rekomendasi Smart Restock
+        $hasRestockItems = $predictions->getCollection()->contains(fn (StockPrediction $p): bool => (float) $p->recommended_restock > 0);
+        $precomputedSupplierMetrics = $hasRestockItems
+            ? $supplierPerformance->calculateForSuppliers(
+                Supplier::query()->where('is_active', true)->orderBy('nama_supplier')->get()
+            )
+            : collect();
+
+        $vendorRecommendations = $predictions->getCollection()->mapWithKeys(fn (StockPrediction $prediction): array => [
+            $prediction->id => ((float) $prediction->recommended_restock > 0 && $prediction->barang)
+                ? $supplierPerformance->recommendBestSupplierForBarang($prediction->barang, $precomputedSupplierMetrics)
+                : null,
+        ]);
+
         return view('stock-predictions.index', compact(
             'predictions',
             'processes',
@@ -49,6 +68,7 @@ class StockPredictionController extends Controller
             'activeProcessCounts',
             'visibleActiveProcesses',
             'presentations',
+            'vendorRecommendations',
         ));
     }
 
@@ -115,12 +135,17 @@ class StockPredictionController extends Controller
     /**
      * Mengarahkan rekomendasi restock prediksi ke formulir pembuatan Purchase Order (Smart Restock).
      */
-    public function createPo(StockPrediction $stockPrediction)
+    public function createPo(Request $request, StockPrediction $stockPrediction)
     {
         $this->authorize('approve-restock');
         abort_unless($stockPrediction->recommended_restock > 0, 422, 'Prediksi ini tidak memiliki rekomendasi restock.');
 
-        return redirect()->route('purchase-orders.create', ['from_prediction' => $stockPrediction->id]);
+        $params = ['from_prediction' => $stockPrediction->id];
+        if ($request->filled('supplier_id')) {
+            $params['supplier_id'] = $request->integer('supplier_id');
+        }
+
+        return redirect()->route('purchase-orders.create', $params);
     }
 
     private function activeProcesses()

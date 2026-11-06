@@ -1,6 +1,6 @@
 # Indeks Dokumentasi LogistikKu
 
-Folder ini berisi dokumentasi teknis dan fungsional LogistikKu. Seluruh dokumen aktif telah diselaraskan dengan kode dan seluruh migration hingga **29 Oktober 2026 (Penyelesaian Bulan ke-3: Modul Pengadaan, GRN, Three-Way Matching & Vendor Analytics)**.
+Folder ini berisi dokumentasi teknis dan fungsional LogistikKu. Seluruh dokumen aktif telah diselaraskan dengan kode dan seluruh migration hingga **5 November 2026 (Penyelesaian Bulan ke-3: Modul Pengadaan, Scanner Barcode/QR GRN, Three-Way Matching, Smart Restock SLA Vendor, Vendor SLA Analytics & Procurement Analytics Dashboard)**.
 
 Urutan membaca yang disarankan:
 
@@ -14,28 +14,29 @@ Urutan membaca yang disarankan:
 LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python untuk OCR dan prediksi stok. Aplikasi menyediakan:
 
 - login session, pembatasan percobaan login, logout, dan role Admin/Manager/Staff;
-- master barang, supplier, gudang, pengguna, foto, harga beli, dan parameter prediksi;
+- master barang, supplier, gudang, pengguna, foto, harga beli, parameter prediksi, dan panel visualisasi distribusi stok per gudang;
 - saldo per gudang serta total stok barang;
 - stok masuk/keluar, supplier transaksi, referensi dokumen, biaya unit, pelaku transaksi, dan histori;
 - transfer stok antargudang dan reversal transaksi dengan jejak audit;
-- pencarian, filter, dashboard, stok menipis, analitik, valuasi, dan rekonsiliasi;
+- pencarian, filter, dashboard, stok menipis, analitik inventaris, analitik pengadaan & utilisasi anggaran (PO vs Invoice), valuasi, dan rekonsiliasi;
 - laporan mutasi dan export CSV/XLSX/PDF;
 - import barang XLSX/XLS/CSV secara atomik;
 - soft delete, restore, hapus permanen aman, dan aksi massal;
-- verifikasi Surat Jalan, Invoice, serta Bukti Fisik melalui OCR Python/Tesseract;
-- prediksi restock melalui queue dengan metode cold-start, rata-rata, atau machine learning;
+- verifikasi Surat Jalan, Invoice, serta Bukti Fisik melalui OCR Python/Tesseract dengan antarmuka *Dual-Pane AI Review Workspace* dan *Self-Healing OCR*;
+- prediksi restock melalui queue dengan metode cold-start, rata-rata, atau machine learning yang terintegrasi dengan **Smart Restock AI berbasis evaluasi SLA Vendor (`1-Click Create PO`)**;
+- modul pengadaan lengkap: siklus Purchase Order (PO), persetujuan *Maker-Checker*, Goods Receipt Note (GRN) dengan **Pemindai Barcode / QR Code (`BRG-######`)**, *Three-Way Matching*, dan **Vendor Performance & SLA Governance** (ekspor Excel, CSV, PDF);
 - pusat notifikasi terpadu untuk aktivitas yang memerlukan perhatian.
 
 ## Dokumen aktif
 
 | Dokumen | Kegunaan | Status |
 |---|---|---|
-| [SRS Markdown](./srs.md) | Spesifikasi fitur, hak akses, aturan bisnis, NFR, diagram, dan pengujian penerimaan. | Versi 1.4, baseline aktif. |
-| [SRS PDF](./SRS_Sistem_Inventaris_LogistikKu.pdf) | Versi SRS yang siap dibaca atau dibagikan. | Dibangkitkan dari SRS versi 1.4. |
+| [SRS Markdown](./srs.md) | Spesifikasi fitur, hak akses, aturan bisnis, NFR, diagram, dan pengujian penerimaan. | Versi 1.5, baseline aktif. |
+| [SRS PDF](./SRS_Sistem_Inventaris_LogistikKu.pdf) | Versi SRS yang siap dibaca atau dibagikan. | Dibangkitkan dari SRS versi 1.5. |
 | [Peta Konsep](./PETA_KONSEP_LOGISTIKKU.md) | Ringkasan cara kerja setiap modul dan hubungan Laravel, database, queue, storage, dan Python. | Aktif. |
-| [ERD](./database/erd.md) | Diagram relasi tabel bisnis, fungsi tabel, FK, dan integritas data. | 15 tabel bisnis/aplikasi. |
+| [ERD](./database/erd.md) | Diagram relasi tabel bisnis, fungsi tabel, FK, dan integritas data. | 20 tabel bisnis/aplikasi. |
 | [Data Dictionary](./data_dictionary.md) | Definisi seluruh tabel, kolom, kunci, indeks, dan aturan data. | 28 tabel, 268 kolom, 38 FK. |
-| [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) | Alur bisnis, status, matriks transisi, hak akses, skema database, GRN, Three-Way Matching, dan aturan bisnis Modul Pengadaan. | Modul Pengadaan & GRN. |
+| [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) | Alur bisnis, status, matriks transisi, hak akses, skema database, GRN + Barcode Scanner, Three-Way Matching, Smart Restock SLA, dan Procurement Analytics. | Modul Pengadaan & GRN. |
 | [Portofolio Penutupan Magang](./PORTOFOLIO_PENUTUPAN_MAGANG.md) | Rekapitulasi komprehensif pencapaian rekayasa perangkat lunak, milestone, metrik pengujian regresi, dan kontribusi bisnis. | Laporan Akhir Magang. |
 
 ## Peta fitur dan dokumentasinya
@@ -43,16 +44,16 @@ LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python unt
 | Area | Fitur yang tersedia | Dokumen utama |
 |---|---|---|
 | Akses | Login, remember-me, rate limit, session, logout, tiga role | [SRS 4.1](./srs.md#41-autentikasi-dan-pengguna) |
-| Barang | CRUD, foto, kode otomatis, filter, stok menipis, trash | [SRS 4.2](./srs.md#42-master-dan-inventaris) |
-| Supplier | Daftar/detail semua role, CRUD Admin, supplier utama dan snapshot transaksi | [Peta Konsep 3](./PETA_KONSEP_LOGISTIKKU.md#3-master-barang-supplier-dan-gudang) |
+| Barang | CRUD, foto, kode otomatis, filter, distribusi stok per gudang, stok menipis, trash | [SRS 4.2](./srs.md#42-master-dan-inventaris) |
+| Supplier | Daftar/detail semua role, CRUD Admin, Vendor Performance & SLA Governance + ekspor Excel/CSV/PDF | [Peta Konsep 3](./PETA_KONSEP_LOGISTIKKU.md#3-master-barang-supplier-dan-gudang) |
 | Gudang | Gudang Utama/A/B/C, saldo per gudang, CRUD Admin | [ERD](./database/erd.md) |
 | Stok | Masuk/keluar, transfer, reversal, histori, audit pelaku dan referensi | [SRS 4.3](./srs.md#43-transaksi-transfer-reversal-dan-riwayat-stok) |
 | Import/export | Import atomik XLSX/XLS/CSV dan export inventaris CSV/XLSX/PDF | [SRS 4.4](./srs.md#44-import-dan-export) |
 | Laporan | Mutasi terfilter dan export CSV/XLSX/PDF | [SRS 4.5](./srs.md#45-dashboard-analitik-laporan-dan-notifikasi) |
-| Analitik | Fast/Slow/Dead Stock, valuasi, tren, rekonsiliasi, ringkasan otomatis | [SRS 4.5](./srs.md#45-dashboard-analitik-laporan-dan-notifikasi) |
-| OCR | Upload privat, queue, OCR, metadata, skor, audit, retry/reprocess | [SRS 4.6](./srs.md#46-verifikasi-dokumen-ocr) |
-| Prediksi | Analisis satu/semua barang, fallback, proses, rekomendasi, notifikasi | [SRS 4.7](./srs.md#47-prediksi-stok) |
-| Pengadaan | Siklus Purchase Order (PO), approval Maker-Checker, Goods Receipt Note (GRN) mandiri, Three-Way Matching OCR, Vendor Performance Dashboard, Smart Restock AI, dan cetak PDF resmi | [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) |
+| Analitik | Tab Inventaris (Fast/Slow/Dead Stock, valuasi, rekonsiliasi) & Tab Pengadaan (`?tab=procurement`: Tren PO Bulanan/Kuartalan, Anggaran PO vs Invoice, Distribusi Gudang/Kategori) | [SRS 4.5](./srs.md#45-dashboard-analitik-laporan-dan-notifikasi) |
+| OCR | Upload privat, Self-Healing OCR, Dual-Pane AI Review Workspace, metadata, skor, audit, retry/reprocess | [SRS 4.6](./srs.md#46-verifikasi-dokumen-ocr) |
+| Prediksi | Analisis satu/semua barang, fallback, proses, Smart Restock AI + Best Vendor SLA (`1-Click Create PO`), notifikasi | [SRS 4.7](./srs.md#47-prediksi-stok--smart-restock-sla) |
+| Pengadaan | Siklus Purchase Order (PO), approval Maker-Checker, Goods Receipt Note (GRN) + Pemindai Barcode/QR (`BRG-######`), Three-Way Matching OCR, Vendor Performance & SLA Dashboard, dan cetak PDF resmi | [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) |
 
 ## Hak akses ringkas
 
@@ -106,7 +107,7 @@ Pada Visual Studio Code, buka file Markdown lalu tekan `Ctrl+Shift+V`. Pada GitH
 Builder berada di [`docs/tools/build_srs_pdf.py`](./tools/build_srs_pdf.py). Builder membutuhkan Python, Mistune, PyMuPDF, dan Chrome/Edge headless yang sudah tersedia pada mesin.
 
 ```powershell
-python docs/tools/build_srs_pdf.py --output storage/SRS_LogistikKu_v1.4.candidate.pdf
+python docs/tools/build_srs_pdf.py --output storage/SRS_LogistikKu_v1.5.candidate.pdf
 ```
 
 Periksa versi, jumlah halaman, tabel, diagram, tautan, dan keterbacaan kandidat sebelum mengganti PDF aktif. Builder tidak menimpa file output yang sudah ada.

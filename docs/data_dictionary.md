@@ -409,18 +409,18 @@ Aturan penting: status model adalah `waiting`, `processing`, `completed`, atau `
 
 Fungsi: header dokumen Purchase Order (PO) pengadaan barang ke supplier untuk alokasi gudang fisik.
 
-PK: `id` (AI). UK: `purchase_orders_nomor_po_unique` (`nomor_po`). IDX: `supplier_id`, `warehouse_id`, `created_by`, `approved_by`, `status`, dan komposit (`status`, `tanggal_pesan`). Soft delete: tidak.
+PK: `id` (AI). UK: `purchase_orders_nomor_po_unique` (`nomor_po`). IDX: `supplier_id`, `warehouse_id`, `created_by`, `approved_by`, `status`, serta komposit (`status`, `tanggal_pesan`), `idx_po_status_estimasi` (`status`, `estimasi_tiba`), `idx_po_supplier_status_tanggal` (`supplier_id`, `status`, `tanggal_pesan`), `idx_po_warehouse_status_tanggal` (`warehouse_id`, `status`, `tanggal_pesan`), dan `idx_po_tanggal_status_biaya` (`tanggal_pesan`, `status`, `total_biaya`). Soft delete: tidak.
 
 | Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
 |---|---|---:|---|---|---|
 | `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas Purchase Order. |
 | `nomor_po` | `varchar(30)` | Tidak | — | UK | Nomor unik PO (`PO-YYYYMMDD-XXXX`). |
-| `supplier_id` | `bigint(20) unsigned` | Tidak | — | FK → `suppliers.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Rekanan supplier tujuan pemesanan. |
-| `warehouse_id` | `bigint(20) unsigned` | Tidak | — | FK → `warehouses.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Gudang tujuan alokasi fisik barang. |
+| `supplier_id` | `bigint(20) unsigned` | Tidak | — | FK → `suppliers.id`; delete `RESTRICT`, update `RESTRICT`; IDX, IDX komposit | Rekanan supplier tujuan pemesanan. |
+| `warehouse_id` | `bigint(20) unsigned` | Tidak | — | FK → `warehouses.id`; delete `RESTRICT`, update `RESTRICT`; IDX, IDX komposit | Gudang tujuan alokasi fisik barang. |
 | `status` | `varchar(30)` | Tidak | `'draft'` | IDX, IDX komposit | Status siklus hidup PO. |
 | `tanggal_pesan` | `date` | Tidak | — | IDX komposit | Tanggal penerbitan PO. |
-| `estimasi_tiba` | `date` | Ya | `NULL` | — | Perkiraan tanggal kedatangan barang. |
-| `total_biaya` | `decimal(15,2)` | Tidak | `0.00` | — | Total akumulasi biaya PO. |
+| `estimasi_tiba` | `date` | Ya | `NULL` | IDX komposit | Perkiraan tanggal kedatangan barang. |
+| `total_biaya` | `decimal(15,2)` | Tidak | `0.00` | IDX komposit | Total akumulasi biaya PO. |
 | `catatan` | `text` | Ya | `NULL` | — | Catatan operasional PO. |
 | `created_by` | `bigint(20) unsigned` | Tidak | — | FK → `users.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Pembuat PO. |
 | `approved_by` | `bigint(20) unsigned` | Ya | `NULL` | FK → `users.id`; delete `SET NULL`, update `RESTRICT`; IDX | Penyetuju PO (Admin/Manager). |
@@ -431,15 +431,15 @@ PK: `id` (AI). UK: `purchase_orders_nomor_po_unique` (`nomor_po`). IDX: `supplie
 
 Fungsi: rincian baris barang yang dipesan dalam Purchase Order beserta progres kuantitas fisik yang telah diterima.
 
-PK: `id` (AI). IDX: `purchase_order_id`, `barang_id`. Soft delete: tidak.
+PK: `id` (AI). IDX: `purchase_order_id`, `barang_id`, serta komposit `idx_poi_po_barang` (`purchase_order_id`, `barang_id`) dan `idx_poi_po_fulfillment` (`purchase_order_id`, `jumlah_pesan`, `jumlah_diterima`). Soft delete: tidak.
 
 | Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
 |---|---|---:|---|---|---|
 | `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas item pesanan. |
-| `purchase_order_id` | `bigint(20) unsigned` | Tidak | — | FK → `purchase_orders.id`; delete `CASCADE`, update `RESTRICT`; IDX | Induk Purchase Order. |
-| `barang_id` | `bigint(20) unsigned` | Tidak | — | FK → `barang.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Barang yang dipesan. |
-| `jumlah_pesan` | `int(10) unsigned` | Tidak | — | — | Kuantitas barang yang dipesan (> 0). |
-| `jumlah_diterima` | `int(10) unsigned` | Tidak | `0` | — | Kuantitas kumulatif barang yang telah diterima fisik. |
+| `purchase_order_id` | `bigint(20) unsigned` | Tidak | — | FK → `purchase_orders.id`; delete `CASCADE`, update `RESTRICT`; IDX, IDX komposit | Induk Purchase Order. |
+| `barang_id` | `bigint(20) unsigned` | Tidak | — | FK → `barang.id`; delete `RESTRICT`, update `RESTRICT`; IDX, IDX komposit | Barang yang dipesan. |
+| `jumlah_pesan` | `int(10) unsigned` | Tidak | — | IDX komposit | Kuantitas barang yang dipesan (> 0). |
+| `jumlah_diterima` | `int(10) unsigned` | Tidak | `0` | IDX komposit | Kuantitas kumulatif barang yang telah diterima fisik. |
 | `harga_satuan` | `decimal(15,2)` | Tidak | `0.00` | — | Harga kesepakatan per unit. |
 | `subtotal` | `decimal(15,2)` | Tidak | `0.00` | — | Subtotal biaya (`jumlah_pesan * harga_satuan`). |
 | `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
@@ -467,7 +467,7 @@ PK: `id` (AI). IDX: `to_status`, `purchase_order_id`, `user_id`, dan komposit (`
 
 Fungsi: dokumen Berita Acara Penerimaan Barang fisik (Goods Receipt Note / GRN) di gudang.
 
-PK: `id` (AI). UK: `goods_receipts_nomor_grn_unique` (`nomor_grn`). IDX: `purchase_order_id`, `warehouse_id`, `received_by`, dan komposit (`purchase_order_id`, `tanggal_terima`). Soft delete: tidak.
+PK: `id` (AI). UK: `goods_receipts_nomor_grn_unique` (`nomor_grn`). IDX: `purchase_order_id`, `warehouse_id`, `received_by`, `idx_grn_surat_jalan` (`nomor_surat_jalan`), serta komposit (`purchase_order_id`, `tanggal_terima`) dan `idx_grn_po_surat_jalan` (`purchase_order_id`, `nomor_surat_jalan`). Soft delete: tidak.
 
 | Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
 |---|---|---:|---|---|---|
@@ -476,7 +476,7 @@ PK: `id` (AI). UK: `goods_receipts_nomor_grn_unique` (`nomor_grn`). IDX: `purcha
 | `purchase_order_id` | `bigint(20) unsigned` | Tidak | — | FK → `purchase_orders.id`; delete `CASCADE`, update `RESTRICT`; IDX, IDX komposit | Purchase Order referensi. |
 | `warehouse_id` | `bigint(20) unsigned` | Tidak | — | FK → `warehouses.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Gudang tempat barang dibongkar/diterima. |
 | `tanggal_terima` | `date` | Tidak | — | IDX komposit | Tanggal fisik barang diterima di gudang. |
-| `nomor_surat_jalan` | `varchar(100)` | Ya | `NULL` | — | Nomor surat jalan dari vendor/ekspedisi. |
+| `nomor_surat_jalan` | `varchar(100)` | Ya | `NULL` | IDX, IDX komposit | Nomor surat jalan dari vendor/ekspedisi. |
 | `foto_surat_jalan` | `varchar(255)` | Ya | `NULL` | — | Path berkas foto fisik bukti surat jalan. |
 | `catatan` | `text` | Ya | `NULL` | — | Catatan operasional penerimaan fisik. |
 | `received_by` | `bigint(20) unsigned` | Tidak | — | FK → `users.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Staf gudang/Admin yang menerima barang. |

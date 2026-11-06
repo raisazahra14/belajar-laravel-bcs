@@ -61,7 +61,19 @@ class UserController extends Controller
             return back()->with('error', 'Anda tidak dapat menghapus akun sendiri.');
         }
 
-        $user->delete();
+        if ($user->createdPurchaseOrders()->exists()) {
+            return back()->with('error', 'User tidak dapat dihapus karena tercatat memiliki riwayat pembuatan Purchase Order.');
+        }
+
+        if (\App\Models\GoodsReceipt::where('received_by', $user->id)->exists()) {
+            return back()->with('error', 'User tidak dapat dihapus karena tercatat sebagai penerima barang fisik (Goods Receipt).');
+        }
+
+        try {
+            $user->delete();
+        } catch (\Illuminate\Database\QueryException) {
+            return back()->with('error', 'User tidak dapat dihapus karena masih terhubung dengan data operasional.');
+        }
 
         return redirect('/users')->with('success', 'User berhasil dihapus.');
     }

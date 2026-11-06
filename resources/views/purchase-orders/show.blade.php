@@ -15,6 +15,11 @@
             Cetak PDF PO
         </x-ui.button>
 
+        {{-- Tombol Cetak Label QR Barang PO --}}
+        <x-ui.button :href="route('purchase-orders.labels-pdf', $purchaseOrder)" target="_blank" variant="outline-secondary" icon="ti-layout-grid2" title="Cetak lembar stiker QR Code seluruh barang pada PO ini">
+            Cetak Label QR
+        </x-ui.button>
+
         {{-- Edit PO jika masih DRAFT --}}
         @if($purchaseOrder->status->isEditable() && (in_array(auth()->user()?->role, ['admin', 'manager'], true) || $purchaseOrder->created_by === auth()->id()))
             <x-ui.button :href="route('purchase-orders.edit', $purchaseOrder)" variant="outline-primary" icon="ti-pencil">Edit PO</x-ui.button>
@@ -694,6 +699,7 @@
         <div class="modal-content">
             <form action="{{ route('purchase-orders.receive', $purchaseOrder) }}" method="POST" id="goodsReceiptForm">
                 @csrf
+                <input type="hidden" name="receipt_token" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
                 <div class="modal-header">
                     <div>
                         <h2 class="modal-title fs-5" id="goodsReceiptModalLabel">Terima Barang Fisik (Goods Receipt)</h2>
@@ -714,6 +720,68 @@
                         <div class="col-12">
                             <label for="receipt_catatan" class="form-label fw-bold">Catatan Penerimaan</label>
                             <textarea name="catatan" id="receipt_catatan" class="form-control" rows="2" placeholder="Catatan kondisi fisik kemasan atau nomor resi pengiriman (opsional)..." maxlength="1000"></textarea>
+                        </div>
+                    </div>
+
+                    @php
+                        $remainingItems = $purchaseOrder->items->filter(fn($i) => $i->sisa > 0)->values();
+                        $completedItemCodes = $purchaseOrder->items
+                            ->filter(fn($i) => $i->sisa <= 0)
+                            ->map(fn($i) => strtoupper((string) $i->barang?->kode_barang))
+                            ->filter()
+                            ->values()
+                            ->implode(',');
+                    @endphp
+
+                    {{-- Panel Barcode / QR Code Scanner Penerimaan Fisik --}}
+                    <div class="p-3 mb-3 rounded border bg-light" id="grn-barcode-scanner" data-completed-codes="{{ $completedItemCodes }}">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                            <div>
+                                <h3 class="fs-6 fw-bold mb-0"><i class="ti-layout-grid2 me-1 text-primary"></i> Scan Barcode / QR Code Barang Fisik</h3>
+                                <small class="text-muted">Pindai kode barang (<code>BRG-######</code>) menggunakan scanner USB atau kamera perangkat untuk otomatis menambah kuantitas fisik tiba.</small>
+                            </div>
+                            <span class="badge bg-primary" id="grn-scan-total-badge">0 unit siap diterima</span>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                            <div class="flex-grow-1">
+                                <label for="grn-scanner-input" class="visually-hidden">Kode Barcode / QR Barang</label>
+                                <input type="text"
+                                       id="grn-scanner-input"
+                                       class="form-control form-control-sm"
+                                       placeholder="Scan barcode USB atau ketik kode barang (contoh: BRG-000001) lalu tekan Enter..."
+                                       autocomplete="off">
+                            </div>
+                            <div style="width: 85px;">
+                                <label for="grn-scanner-step" class="visually-hidden">Kuantitas per Scan</label>
+                                <input type="number"
+                                       id="grn-scanner-step"
+                                       class="form-control form-control-sm text-center"
+                                       value="1"
+                                       min="1"
+                                       max="1000"
+                                       title="Jumlah penambahan unit setiap kali scan">
+                            </div>
+                            <button type="button" class="btn btn-sm btn-primary text-nowrap" id="grn-scanner-add-btn">
+                                <i class="ti-plus me-1"></i> Scan / Tambah
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" id="grn-camera-start-btn">
+                                <i class="ti-camera me-1"></i> Scan Kamera
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger text-nowrap" id="grn-camera-stop-btn" hidden>
+                                <i class="ti-control-stop me-1"></i> Hentikan Kamera
+                            </button>
+                        </div>
+                        <div id="grn-camera-viewport" class="mt-2" hidden>
+                            <video id="grn-scanner-video"
+                                   playsinline
+                                   muted
+                                   class="w-100 rounded border bg-dark"
+                                   style="max-height: 200px; object-fit: cover;"
+                                   aria-label="Pratinjau kamera untuk memindai barcode barang"></video>
+                            <small class="text-muted d-block mt-1"><i class="ti-lock me-1"></i> Video kamera diproses secara lokal di perangkat Anda.</small>
+                        </div>
+                        <div id="grn-scanner-feedback" class="alert py-2 px-3 mb-0 mt-2 small alert-secondary" role="status" aria-live="polite" hidden>
+                            Siap memindai kode barang.
                         </div>
                     </div>
 
@@ -738,11 +806,13 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @php
-                                    $remainingItems = $purchaseOrder->items->filter(fn($i) => $i->sisa > 0)->values();
-                                @endphp
                                 @forelse($remainingItems as $idx => $item)
-                                    <tr>
+                                    <tr class="grn-item-row"
+                                        data-kode-barang="{{ strtoupper((string) $item->barang?->kode_barang) }}"
+                                        data-nama-barang="{{ $item->barang?->nama_barang }}"
+                                        data-satuan="{{ $item->barang?->satuan }}"
+                                        data-max="{{ $item->sisa }}"
+                                        data-index="{{ $idx }}">
                                         <td class="text-center text-muted">{{ $idx + 1 }}</td>
                                         <td>
                                             <strong>{{ $item->barang?->nama_barang }}</strong>
@@ -763,6 +833,7 @@
                                                    value="0" 
                                                    data-max="{{ $item->sisa }}"
                                                    data-index="{{ $idx }}"
+                                                   data-kode-barang="{{ strtoupper((string) $item->barang?->kode_barang) }}"
                                                    required>
                                         </td>
                                         <td class="text-center">
@@ -798,6 +869,7 @@
 @endif
 
 @push('scripts')
+<script src="{{ asset('assets/js/grn-barcode-scanner.js') }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const receiptForm = document.getElementById('goodsReceiptForm');
@@ -829,7 +901,14 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
 
+        let isReceiptSubmitting = false;
+
         receiptForm.addEventListener('submit', function (e) {
+            if (isReceiptSubmitting) {
+                e.preventDefault();
+                return false;
+            }
+
             let totalReceived = 0;
             qtyInputs.forEach(input => {
                 const val = parseInt(input.value, 10) || 0;
@@ -845,16 +924,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 } else {
                     alert('Minimal satu barang harus diisi jumlah penerimaannya (> 0 unit).');
                 }
-                return;
+                return false;
             }
 
             // Cegah double submit dari sisi UI
+            isReceiptSubmitting = true;
             const submitBtn = document.getElementById('btn-submit-receipt');
             if (submitBtn) {
-                if (submitBtn.disabled) {
-                    e.preventDefault();
-                    return;
-                }
                 submitBtn.disabled = true;
                 submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Menyimpan Penerimaan...';
             }
@@ -865,6 +941,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 dismissBtns.forEach(btn => btn.setAttribute('disabled', 'disabled'));
             }
         });
+
+        // Reset proteksi submit jika kembali dari bfcache browser
+        window.addEventListener('pageshow', function () {
+            isReceiptSubmitting = false;
+            const submitBtn = document.getElementById('btn-submit-receipt');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="ti-package me-1"></i> Konfirmasi Penerimaan Barang';
+            }
+        });
     }
 
     // Cegah double submit pada form aksi modal konfirmasi (Approve, Reject, Cancel)
@@ -873,7 +959,13 @@ document.addEventListener('DOMContentLoaded', function () {
         if (modal) {
             const form = modal.querySelector('form');
             if (form) {
-                form.addEventListener('submit', function () {
+                let isModalSubmitting = false;
+                form.addEventListener('submit', function (e) {
+                    if (isModalSubmitting) {
+                        e.preventDefault();
+                        return false;
+                    }
+                    isModalSubmitting = true;
                     const submitBtn = form.querySelector('button[type="submit"]');
                     if (submitBtn && !submitBtn.disabled) {
                         submitBtn.disabled = true;
@@ -883,7 +975,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
     });
-    }
 });
 </script>
 @endpush

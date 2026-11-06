@@ -435,14 +435,57 @@ Modul analitik ekosistem pengadaan untuk memantau keandalan rekanan supplier sec
    - $< 50\%$: **Kritis** (Merah)
 
 ### 12.2 Halaman & Tampilan
-- **Dashboard Global (`/suppliers/performance`)**: Ringkasan eksekutif rata-rata ketepatan waktu, rasio pemenuhan, total belanja, serta tabel peringkat supplier dengan filter rating dan pencarian.
-- **Scorecard Audit Vendor (`/suppliers/{supplier}/performance`)**: Analisis mendalam per supplier lengkap dengan riwayat logistik pengiriman fisik (nomor GRN, nomor PO, tanggal terima vs estimasi, dan status tepat waktu/terlambat).
+- **Dashboard Global (`/suppliers/performance`)**: Ringkasan eksekutif rata-rata ketepatan waktu, rasio pemenuhan, total belanja, *Early Warning SLA Banner*, serta tabel peringkat supplier dengan filter rentang tanggal, status SLA, rating, dan pencarian.
+- **Scorecard Audit Vendor (`/suppliers/{supplier}/performance`)**: Analisis mendalam per supplier lengkap dengan kuadran distribusi keterlambatan pengiriman (`Tepat Waktu`, `1–3 hari`, `4–7 hari`, `> 7 hari`) dan riwayat logistik pengiriman fisik (nomor GRN, nomor PO, tanggal terima vs estimasi, dan status tepat waktu/terlambat).
+
+### 12.3 Evaluasi Kepatuhan Kontrak SLA & Ekspor Multi-Format
+- **Klasifikasi SLA Vendor (`SupplierPerformanceService`)**:
+  - **Memenuhi SLA (`COMPLIANT`)**: On-Time Delivery $\ge 90\%$, Fulfillment $\ge 95\%$, Discrepancy $\le 5\%$, dan rata-rata keterlambatan $= 0$ hari.
+  - **Peringatan SLA (`WARNING`)**: Berada di bawah target optimal tetapi belum melanggar batas kritis.
+  - **Melanggar SLA (`BREACHED`)**: On-Time Delivery $< 75\%$ ATAU Fulfillment $< 80\%$ ATAU Discrepancy $> 20\%$ ATAU rata-rata keterlambatan $> 4$ hari.
+- **Suite Ekspor Resmi (`SupplierPerformanceExportService`)**:
+  - Mendukung pengunduhan laporan kinerja dan kepatuhan SLA vendor dalam format **Excel (`.xlsx`)**, **CSV (UTF-8 BOM + proteksi formula injection)**, dan **PDF Landscape Resmi (Pure PHP PDF-1.4)**.
+
+### 12.4 Smart Restock AI Berbasis SLA Vendor (`1-Click Create PO`)
+- Menghubungkan rekomendasi kebutuhan stok AI (`/prediksi-stok`) dengan evaluasi SLA vendor secara otomatis melalui `SupplierPerformanceService::recommendBestSupplierForBarang()` dan `calculateForSuppliers()` ($O(1)$ batch query).
+- Mengurutkan supplier aktif berdasarkan hierarki: **Status SLA (`COMPLIANT` > `WARNING` > `NO_DATA` > `BREACHED`)** $\rightarrow$ **Skor Komposit Performa** $\rightarrow$ **On-Time Delivery Rate** $\rightarrow$ **Fulfillment Rate** $\rightarrow$ **Discrepancy Rate Terendah** $\rightarrow$ **Supplier Utama Barang (Tie-Breaker)**.
+- Menyediakan tombol **`1-Click Create PO`** pada `/prediksi-stok` yang langsung membuka `/purchase-orders/create?from_prediction={id}` dengan vendor terbaik, kuantitas optimal, gudang defisit, serta panel perbandingan kandidat vendor interaktif (`#smart-restock-sla-panel`).
+
+### 12.5 Pemindai Barcode / QR Code pada Penerimaan Fisik (`#goodsReceiptModal`)
+- Modul JavaScript mandiri `public/assets/js/grn-barcode-scanner.js` yang disematkan pada modal **Terima Barang Fisik (Goods Receipt)** di `/purchase-orders/{id}`.
+- Mendukung pemindaian kode barang (`BRG-######`) menggunakan **USB/Bluetooth Hardware Barcode Scanner** (intersepsi `Enter` otomatis) maupun **Kamera Perangkat (`BarcodeDetector` API)**.
+- Secara otomatis menaikkan input kuantitas fisik tiba sesuai *step increment* (`+1`, `+5`, `+10`, dst.), menyalakan efek *highlight* pada baris barang, dan menegakkan batas *anti-over-receipt* (`max = sisa`).
+
+### 12.6 Procurement Analytics & Budget Utilization Dashboard (`/analytics?tab=procurement`)
+- Layanan `ProcurementAnalyticsService.php` menyajikan analitik pengadaan eksekutif dengan jumlah kueri konstan ($O(1)$):
+  - **Tren Pengeluaran PO vs Realisasi Tagihan Invoice** secara **Bulanan** dan **Kuartalan** (dengan tombol *toggle* interaktif pada grafik Chart.js).
+  - **Komparasi Total Anggaran Pesanan (PO) vs Realisasi Tagihan Invoice** hasil *Three-Way Matching* (`DocumentVerification` + `DocumentMetadataMapper`), memisahkan status *Cocok Sempurna (Matched)*, *Selisih/Overbilling (Discrepancy)*, dan *Belum Ditagih (Uninvoiced)*.
+  - **Distribusi Nilai & Volume Pengadaan** per **Gudang Tujuan** dan per **Kategori Barang**.
+
+### 12.7 Optimasi Performa & Composite Indexing Pengadaan ($O(1)$ Queries)
+- Migrasi `2026_11_04_100000_add_performance_composite_indexes_to_purchase_orders_tables.php` menambahkan composite index strategis pada `purchase_orders`, `purchase_order_items`, dan `goods_receipts`.
+- Perhitungan KPI pengadaan (`PurchaseOrderService::getProcurementKpis()`) dioptimasi menggunakan agregasi kondisional tunggal (`COUNT/SUM CASE WHEN`) sehingga hanya membutuhkan 2 kueri konstan.
 
 ---
 
 ## 13. Riwayat Perubahan & Catatan Rilis Modul (Changelog)
 
 Catatan kronologis evolusi dan peningkatan teknis Modul Pengadaan (*Purchase Order & Goods Receipt*):
+
+### [v1.7.0] — 2026-11-05: Smart Restock SLA Vendor, Barcode Scanner GRN & Procurement Analytics Dashboard
+- **Opsi 2 — Smart Restock AI + Best Vendor SLA (`1-Click Create PO`)**:
+  - Penambahan `calculateForSuppliers()` ($O(1)$ batch query) dan `recommendBestSupplierForBarang()` pada `SupplierPerformanceService.php`.
+  - Integrasi badge SLA vendor terbaik dan tombol `1-Click Create PO` pada `/prediksi-stok` serta panel interaktif `#smart-restock-sla-panel` pada `/purchase-orders/create`.
+- **Opsi 3 — Barcode / QR Code Scanner pada Penerimaan Fisik (Goods Receipt)**:
+  - Pembuatan `public/assets/js/grn-barcode-scanner.js` dan integrasi komponen `#grn-barcode-scanner` pada `#goodsReceiptModal` di `/purchase-orders/{id}` (mendukung kamera `BarcodeDetector` dan USB scanner).
+- **Opsi 4 — Procurement Analytics & Budget Utilization Dashboard**:
+  - Pembuatan `ProcurementAnalyticsService.php` dan tab baru `/analytics?tab=procurement` dengan 4 grafik Chart.js (Tren Bulanan/Kuartalan, Anggaran PO vs Realisasi Invoice Three-Way Matching, Distribusi Gudang, dan Distribusi Kategori).
+- **Automated Testing Suite**: Penambahan `ProcurementAnalyticsDashboardTest.php` dan perluasan `PurchaseOrderSmartRestockIntegrationTest.php` (seluruh test suite lulus 100%).
+
+### [v1.6.0] — 2026-11-04: Database Hardening, Self-Healing OCR, Dual-Pane Review & Vendor SLA Exports
+- **Optimasi KPI & 7 Composite Indexes**: Refactor `getProcurementKpis()` menjadi 2 kueri konstan dan penambahan 7 *composite indexes* pada tabel pengadaan.
+- **Vendor SLA Governance & Multi-Format Export**: Penambahan metrik *Discrepancy Rate*, distribusi keterlambatan pengiriman, klasifikasi SLA (`COMPLIANT`, `WARNING`, `BREACHED`), filter rentang tanggal, serta `SupplierPerformanceExportService.php` (Excel `.xlsx`, CSV, PDF Landscape).
+- **Self-Healing OCR & Dual-Pane Review Workspace**: Eksekusi sinkron otomatis berbasis *atomic cache lock* saat dokumen mengendap $\ge 4$ detik dan perombakan halaman `/verifications/{id}` menjadi *side-by-side Dual-Pane Workspace*.
 
 ### [v1.5.0] — 2026-10-29: Demo Data Seeder Skala Besar (>50 Data per Entitas)
 - **Penambahan Seeder Komprehensif**: `ProcurementDemoDataSeeder.php` dibuat dan didaftarkan pada `DatabaseSeeder.php` untuk memasok data pengujian realistis bagi seluruh fitur pengadaan.

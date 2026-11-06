@@ -32,6 +32,7 @@
         <div class="ocr-process-actions">
             <a class="btn btn-primary" id="ocr-result-link" href="{{ route('verifications.show', $verification) }}" @if($verification->process_status !== 'selesai') hidden @endif><i class="ti-eye" aria-hidden="true"></i><span>Lihat Hasil</span></a>
             <form id="ocr-retry-form" method="POST" action="{{ route('verifications.retry', $verification) }}" @if($verification->process_status !== 'gagal') hidden @endif>@csrf<button class="btn btn-outline-primary" type="submit"><i class="ti-reload" aria-hidden="true"></i><span>Coba Lagi</span></button></form>
+            <button class="btn btn-outline-primary" id="btn-process-now" type="button" hidden><i class="ti-bolt me-1" aria-hidden="true"></i><span>Proses Langsung Sekarang</span></button>
         </div>
         <noscript><p class="alert alert-info mt-3">Pembaruan otomatis tidak tersedia. Muat ulang halaman untuk melihat status terbaru.</p></noscript>
     </div>
@@ -47,7 +48,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const message = document.getElementById('ocr-status-message');
     const resultLink = document.getElementById('ocr-result-link');
     const retryForm = document.getElementById('ocr-retry-form');
+    const processNowBtn = document.getElementById('btn-process-now');
     let timer;
+    let pollCount = 0;
+    let isDirectRunning = false;
 
     const update = function (payload) {
         processCard.dataset.processStatus = payload.process_status;
@@ -55,17 +59,60 @@ document.addEventListener('DOMContentLoaded', function () {
         message.textContent = payload.message || 'Status proses telah diperbarui.';
         resultLink.hidden = payload.process_status !== 'selesai';
         retryForm.hidden = payload.process_status !== 'gagal';
+        if (processNowBtn && ['selesai', 'gagal'].includes(payload.process_status)) {
+            processNowBtn.hidden = true;
+        }
         if (payload.result_url) resultLink.href = payload.result_url;
         if (payload.retry_url) retryForm.action = payload.retry_url;
         if (['selesai', 'gagal'].includes(payload.process_status)) window.clearInterval(timer);
     };
 
+    const triggerDirectRun = function () {
+        if (isDirectRunning) return;
+        isDirectRunning = true;
+        if (label) label.textContent = 'Engine OCR sedang membaca dokumen';
+        if (message) message.textContent = 'Memproses analisis OCR secara langsung (mengalihkan antrean)...';
+        if (processNowBtn) {
+            processNowBtn.disabled = true;
+            processNowBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Memproses OCR...';
+        }
+
+        fetch(processCard.dataset.statusUrl + '?run_now=1', {
+            headers: {'Accept': 'application/json'},
+            credentials: 'same-origin'
+        })
+        .then(function (response) { if (!response.ok) throw new Error('Status tidak tersedia'); return response.json(); })
+        .then(update)
+        .catch(function () {})
+        .finally(function () {
+            isDirectRunning = false;
+        });
+    };
+
     const poll = function () {
+        if (isDirectRunning) return;
+        pollCount++;
+
+        // Jika setelah 3 kali polling (~6 detik) masih tertahan di status 'menunggu antrean',
+        // tampilkan tombol proses langsung dan picu auto-run untuk memotong antrean yang macet.
+        if (pollCount >= 3 && processCard.dataset.processStatus === 'menunggu') {
+            if (processNowBtn) processNowBtn.hidden = false;
+            triggerDirectRun();
+            return;
+        }
+
         fetch(processCard.dataset.statusUrl, {headers: {'Accept': 'application/json'}, credentials: 'same-origin'})
             .then(function (response) { if (!response.ok) throw new Error('Status tidak tersedia'); return response.json(); })
             .then(update)
             .catch(function () { window.clearInterval(timer); });
     };
+
+    if (processNowBtn) {
+        processNowBtn.addEventListener('click', function () {
+            triggerDirectRun();
+        });
+    }
+
     timer = window.setInterval(poll, 2000);
     poll();
 });

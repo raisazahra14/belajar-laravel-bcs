@@ -33,8 +33,9 @@ LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transak
 
 ### Inventaris
 
-- Daftar, pencarian, filter, pengurutan, dan pagination barang.
-- CRUD barang, foto barang, kode barang otomatis, dan soft delete.
+- Daftar, pencarian, filter, pengurutan, dan pagination barang yang ringkas dan bebas N+1 query.
+- Panel visualisasi **Distribusi Stok per Gudang** pada halaman detail barang (`/barang/{id}`) dengan indikator persentase alokasi kapasitas per gudang.
+- CRUD barang, foto barang, kode barang otomatis (`BRG-######`), dan soft delete.
 - Halaman stok menipis untuk barang dengan stok `<= 5`.
 - Import XLSX, XLS, atau CSV secara atomik.
 - Export persediaan ke XLSX, CSV, dan PDF.
@@ -46,6 +47,10 @@ LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transak
 - Admin dapat menambah, mengubah, dan menghapus master supplier serta gudang.
 - Saldo barang dicatat per gudang melalui `warehouse_stocks`.
 - Transfer stok antargudang dan rekonsiliasi saldo tersedia.
+- **Vendor Performance Analytics & SLA Governance (`/suppliers/performance`)**:
+  - Melacak *On-Time Delivery Rate*, *Fulfillment Rate*, *Discrepancy Rate*, dan distribusi keterlambatan pengiriman (`Tepat Waktu`, `1–3 hari`, `4–7 hari`, `> 7 hari`).
+  - Klasifikasi kepatuhan kontrak SLA otomatis (*Memenuhi SLA / Compliant*, *Peringatan SLA / Warning*, *Melanggar SLA / Breached*) beserta *Early Warning SLA Banner*.
+  - Filter rentang tanggal dinamis (*Bulan Ini*, *30 Hari Terakhir*, *Tahun Ini*) dan ekspor laporan ke **Excel (`.xlsx`)**, **CSV**, serta **PDF Landscape Resmi**.
 
 ### Transaksi dan laporan stok
 
@@ -64,38 +69,43 @@ LogistikKu adalah aplikasi web untuk mengelola barang, supplier, gudang, transak
 - Siklus hidup 7 status pesanan berbasis state machine terpusat: `Draft`, `Menunggu Persetujuan` (Pending Approval), `Disetujui` (Approved), `Ditolak` (Rejected), `Diterima Sebagian` (Partially Received), `Selesai` (Completed), dan `Dibatalkan` (Cancelled).
 - Pemisahan tugas (*Separation of Duty*): Manager dilarang menyetujui atau menolak PO yang dibuat oleh dirinya sendiri.
 - Penerimaan barang fisik (*Goods Receipt*) bertahap atau penuh langsung dialokasikan ke gudang tujuan fisik.
+- **Pemindai Barcode / QR Code pada Penerimaan Fisik (`#goodsReceiptModal`)**: Staf gudang dapat memindai kode barang (`BRG-######`) menggunakan kamera perangkat (*BarcodeDetector API*) atau *USB/Bluetooth Barcode Scanner* untuk menaikkan kuantitas fisik tiba secara otomatis sesuai *step increment* tanpa salah input.
 - Sinkronisasi otomatis: penerimaan fisik langsung menambah saldo gudang (`warehouse_stocks`) dan membukukan mutasi stok masuk (`stok_transactions`) secara atomik.
 - Validasi pencegahan *over-receipt* (total kuantitas diterima tidak boleh melampaui kuantitas dipesan).
 - Perlindungan konkurensi data: *pessimistic locking* (`lockForUpdate`), penguncian berurutan deterministik anti-*deadlock*, dan *atomic cache lock* pencegah *double submit*.
-- Cetak dokumen resmi Purchase Order dalam format PDF siap cetak berstandar profesional.
+- Cetak dokumen resmi Purchase Order dan Berita Acara Penerimaan Barang (GRN) dalam format PDF siap cetak berstandar profesional, serta ekspor rekap PO ke CSV.
 - Endpoint internal REST API berstandar DTO dan API Resource untuk interoperabilitas modul pengadaan.
 
-### Analitik dan notifikasi
+### Analitik bisnis, pengadaan, dan notifikasi
 
-- Ringkasan jumlah barang, total stok, kategori, aktivitas 7/30 hari, dan stok menipis.
-- Klasifikasi Fast, Slow, dan Dead Stock.
-- Valuasi stok berdasarkan harga beli.
-- Analitik mutasi dan rekonsiliasi saldo master dengan saldo gudang.
-- Pusat notifikasi untuk hasil prediksi, verifikasi dokumen, dan perhatian operasional.
+- **Tab 1 — Analitik Inventaris & Mutasi (`/analytics`)**:
+  - Ringkasan jumlah barang, total stok, kategori, aktivitas 7/30 hari, dan stok menipis.
+  - Klasifikasi Fast, Slow, dan Dead Stock beserta valuasi modal persediaan berdasarkan harga beli.
+  - Analitik mutasi dan rekonsiliasi saldo master dengan saldo gudang.
+- **Tab 2 — Analitik Pengadaan & Utilisasi Anggaran (`/analytics?tab=procurement`)**:
+  - Visualisasi tren pengeluaran PO vs realisasi tagihan invoice secara **Bulanan** maupun **Kuartalan** (dilengkapi tombol *toggle* interaktif).
+  - Komparasi **Total Anggaran Pesanan (PO) vs Realisasi Tagihan Invoice** hasil *Three-Way Matching* (memisahkan status *Cocok Sempurna*, *Selisih/Overbilling*, dan *Belum Ditagih*).
+  - Grafik dan tabel distribusi nilai pesanan berdasarkan **Gudang Tujuan** dan **Kategori Barang**.
+- Pusat notifikasi untuk hasil prediksi, verifikasi dokumen, persetujuan PO, dan perhatian operasional.
 
-### Verifikasi dokumen
+### Verifikasi dokumen (Dual-Pane AI Review Workspace)
 
 - Upload PDF, JPG, JPEG, atau PNG sampai 10 MiB.
-- Mendukung Surat Jalan, Invoice, dan Bukti Fisik.
-- File disimpan secara privat.
-- Job Laravel menjalankan Python dan Tesseract OCR untuk mengekstrak metadata serta melakukan pemeriksaan awal.
-- Status proses, hasil pemeriksaan, retry, edit metadata, audit, dan notifikasi tersedia.
+- Mendukung Surat Jalan, Invoice, dan Bukti Fisik yang disimpan secara privat.
+- Job Laravel menjalankan Python dan Tesseract OCR untuk mengekstrak metadata serta melakukan pemeriksaan keaslian dan kelengkapan awal.
+- **Self-Healing OCR Execution**: Dilengkapi mekanisme deteksi otomatis berbasis *atomic cache lock* yang mengeksekusi OCR secara sinkron apabila antrean mengendap $\ge 4$ detik, serta tombol darurat *"Proses Langsung Sekarang"*.
+- **Dual-Pane Review Workspace (`/verifications/{id}`)**: Antarmuka *side-by-side* dengan *Sticky Document Inspector* (kontrol zoom `+`, `-`, `Reset 100%`) di panel kiri dan formulir koreksi ekstraksi OCR serta kartu KPI *Three-Way Matching* PO di panel kanan.
 
 Verifikasi ini adalah alat bantu pemeriksaan awal, bukan penetapan keaslian hukum.
 
-### Prediksi stok
+### Prediksi stok & Smart Restock berbasis SLA Vendor
 
-- Analisis histori transaksi keluar untuk membantu menentukan kebutuhan restock.
-- Metode `cold_start`, rata-rata sederhana, atau regresi linear dipilih berdasarkan data yang tersedia.
-- Analisis satu barang atau semua barang berjalan melalui queue `stock-predictions`.
-- Laravel menyediakan fallback lokal jika proses Python gagal.
-- Admin dan Manager dapat menjalankan analisis serta menerapkan rekomendasi restock.
-- Integrasi **Smart Restock**: tombol "Buat PO dari Rekomendasi" otomatis menyusun draft Purchase Order baru dengan supplier rekanan, gudang yang defisit stok, estimasi tanggal tiba, dan kuantitas barang yang dibutuhkan.
+- Analisis histori transaksi keluar untuk membantu menentukan kebutuhan restock 30 hari ke depan.
+- Metode `cold_start`, rata-rata bergerak (*moving average*), atau regresi linear dipilih berdasarkan ketersediaan data histori.
+- Analisis satu barang atau semua barang berjalan melalui queue `stock-predictions` dengan fallback lokal di sisi Laravel jika proses Python gagal.
+- **Smart Restock AI + Best Vendor SLA (`1-Click Create PO`)**:
+  - Saat sistem mendeteksi barang mendekati *out-of-stock*, sistem otomatis mengevaluasi seluruh supplier aktif dan menyarankan vendor dengan skor kepatuhan SLA tertinggi (`COMPLIANT`, *On-Time Delivery* & *Fulfillment Rate* terbaik).
+  - Menyediakan tombol **`1-Click Create PO`** pada halaman `/prediksi-stok` yang langsung membuka formulir PO (`/purchase-orders/create?from_prediction={id}`) dengan vendor terbaik, gudang defisit, kuantitas optimal, dan panel perbandingan kandidat vendor interaktif (`#smart-restock-sla-panel`).
 
 ## Teknologi
 
@@ -477,11 +487,11 @@ Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, v
    - **Penolakan (Reject)**: Manager menolak pesanan dengan wajib menyertakan alasan penolakan. Status berubah menjadi `Ditolak` (*Rejected*). Pembuat PO dapat melakukan revisi (*Revise*) untuk mengembalikan PO ke mode `Draft` dan memperbaikinya tanpa mengulang input dari nol.
    - **Separation of Duty**: Berdasarkan prinsip tata kelola dan kontrol internal, Manager yang merangkap sebagai pembuat PO diblokir oleh sistem agar tidak dapat menyetujui atau menolak pesanannya sendiri.
 
-4. **Penerimaan Fisik di Gudang (Goods Receipt Note / GRN) & Sinkronisasi Stok**:
+4. **Penerimaan Fisik di Gudang (Goods Receipt Note / GRN), Scanner Barcode/QR & Sinkronisasi Stok**:
    - Setelah PO berstatus `Disetujui`, supplier mengirimkan barang ke gudang fisik tujuan.
-   - Staff Gudang atau Admin membuka modal pencatatan penerimaan barang pada halaman detail PO.
+   - Staff Gudang atau Admin membuka modal pencatatan penerimaan barang (`#goodsReceiptModal`) pada halaman detail PO (`/purchase-orders/{id}`).
+   - **Pemindai Barcode / QR Code (`BRG-######`)**: Tersedia input *scanner hardware* (USB/Bluetooth) serta pemindai kamera *real-time* (`BarcodeDetector` API). Saat kode barang dipindai, kuantitas fisik tiba pada baris item otomatis bertambah sesuai *step increment* (`+1`, `+5`, `+10`, dst.) dengan proteksi otomatis *anti-over-receipt*.
    - Formulir mendukung pencatatan nomor Surat Jalan/Delivery Order vendor serta unggah berkas fisik bukti Surat Jalan (JPG, PNG, PDF).
-   - Kuantitas fisik yang diterima diinput per baris item. Sistem memvalidasi kuantitas untuk mencegah *over-receipt* (total diterima tidak boleh melebihi sisa yang dipesan).
    - Seluruh proses berjalan secara atomik di dalam satu database transaction:
      - Menerbitkan dokumen Berita Acara Penerimaan Barang resmi dengan nomor urut unik `GRN-YYYYMMDD-XXXX`.
      - Saldo fisik pada tabel `warehouse_stocks` untuk gudang tujuan bertambah seketika.
@@ -505,19 +515,25 @@ Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, v
    - **Pencegahan Double Submit**: Menggunakan *atomic cache lock* 15 detik pada level service dan penguncian tombol formulir di sisi UI frontend.
    - **Pencegahan Deadlock**: Menggunakan *pessimistic locking* (`lockForUpdate`) dengan urutan penguncian item deterministik berdasarkan `id` barang (`orderBy('id')`) serta toleransi *deadlock auto-retry* 3 kali.
 
-8. **Integrasi Prediksi Stok ke PO (Smart Restock)**:
-   - Tombol **Buat PO dari Rekomendasi** pada halaman rekomendasi restock (`/prediksi-stok`) secara otomatis mengisi formulir pembuatan PO: supplier rekanan, gudang defisit yang membutuhkan alokasi, kuantitas rekomendasi, harga beli master barang, dan estimasi tanggal tiba sebelum stok menipis.
+8. **Integrasi Prediksi Stok ke PO Berbasis SLA Vendor (Smart Restock AI + Best Vendor)**:
+   - Tombol **`1-Click Create PO`** pada halaman rekomendasi restock (`/prediksi-stok`) secara otomatis mengevaluasi rekam jejak SLA seluruh vendor aktif (`COMPLIANT` > `WARNING` > `NO_DATA` > `BREACHED`) dan memilih supplier dengan skor performa serta *On-Time Delivery* terbaik.
+   - Formulir pembuatan PO (`/purchase-orders/create?from_prediction={id}`) otomatis terisi dengan vendor terbaik, gudang defisit, kuantitas optimal, estimasi tiba, serta menampilkan panel perbandingan kandidat vendor (`#smart-restock-sla-panel`) yang dapat diganti dengan 1 klik.
 
 9. **Pencocokan Tiga Arah (Three-Way Matching: PO vs GRN vs Dokumen OCR)**:
    - Mengintegrasikan hasil pindaian berkas fisik vendor (Surat Jalan / Invoice via Tesseract OCR) dengan data pemesanan sistem (PO) dan bukti penerimaan fisik gudang (GRN).
    - Membandingkan nomor PO, nomor referensi DO/surat jalan, entitas vendor, dan total nilai tagihan finansial.
    - Matriks perbandingan per baris mendeteksi selisih kuantitas fisik vs tagihan (*overbilling*), selisih harga satuan (*price discrepancy*), dan mencatat status pencocokan secara visual.
-   - Dilengkapi *deep linking* dua arah antara halaman detail PO dan halaman hasil verifikasi OCR.
+   - Dilengkapi *deep linking* dua arah antara halaman detail PO dan halaman hasil verifikasi OCR (`/verifications/{id}`).
 
-10. **Dashboard Analitik Kinerja Rekanan (Vendor Performance Dashboard)**:
-    - Melacak ketepatan waktu pengiriman vendor (*On-Time Delivery Rate*) berdasarkan selisih tanggal terima GRN terhadap estimasi tiba PO, rata-rata hari keterlambatan (*average delay days*), dan rasio pemenuhan kuantitas fisik (*fulfillment rate*).
-    - Menghitung skor komposit performa berbobot dan mengklasifikasikan vendor ke dalam peringkat: *Sangat Baik* ($\ge 90\%$), *Baik* ($75\% - 89.9\%$), *Perlu Evaluasi* ($50\% - 74.9\%$), dan *Kritis* ($< 50\%$).
-    - Tersedia ringkasan eksekutif di `/suppliers/performance` dan audit logistik per vendor di `/suppliers/{supplier}/performance`.
+10. **Dashboard Analitik Kinerja Rekanan & Kepatuhan SLA (Vendor Performance & SLA Governance)**:
+    - Melacak ketepatan waktu pengiriman vendor (*On-Time Delivery Rate*), rata-rata hari keterlambatan (*average delay days*), rasio pemenuhan kuantitas fisik (*fulfillment rate*), tingkat selisih (*discrepancy rate*), serta distribusi keterlambatan (`Tepat Waktu`, `1–3 hari`, `4–7 hari`, `> 7 hari`).
+    - Mengklasifikasikan kepatuhan kontrak SLA vendor (*Memenuhi SLA / Compliant*, *Peringatan SLA / Warning*, *Melanggar SLA / Breached*) lengkap dengan *Early Warning SLA Banner*.
+    - Tersedia ringkasan eksekutif dengan filter rentang tanggal di `/suppliers/performance`, audit logistik per vendor di `/suppliers/{supplier}/performance`, serta ekspor multi-format ke **Excel (`.xlsx`)**, **CSV**, dan **PDF Landscape Resmi**.
+
+11. **Dashboard Analitik Pengadaan & Utilisasi Anggaran (`/analytics?tab=procurement`)**:
+    - Menyajikan tren pengeluaran PO dan realisasi tagihan invoice secara **Bulanan** maupun **Kuartalan** (dengan tombol *toggle* grafik interaktif).
+    - Membandingkan **Total Anggaran Pesanan (PO)** terhadap **Realisasi Tagihan Invoice** hasil *Three-Way Matching* untuk memantau penghematan anggaran atau potensi *overbilling*.
+    - Menampilkan grafik dan tabel proporsi alokasi anggaran pengadaan per **Gudang Tujuan** dan per **Kategori Barang**.
 
 ### Alur verifikasi dokumen
 
@@ -642,12 +658,13 @@ pre-commit install
 Proyek ini menerapkan standarisasi ketat untuk mencegah kode bertele-tele (*AI slop*), kode redundan, maupun celah keamanan:
 
 1. **Zero Raw SQL in Controller**: Seluruh query SQL mentah (`selectRaw`, `whereRaw`, `DB::table`) dilarang di Controller dan wajib dienkapsulasi ke dalam Eloquent Model (Query Scopes) atau Service Layer.
-2. **DTO & API Resource**: Endpoint API mentransformasikan data menggunakan DTO (`PurchaseOrderData`) dan JsonResource (`PurchaseOrderResource`).
-3. **Pessimistic Locking & Deadlock Prevention**: Mutasi persediaan dan Goods Receipt diamankan menggunakan `lockForUpdate()` dengan urutan deterministik (`orderBy('id')`) untuk menangkal *race condition*.
-4. **Proteksi Double-Submit**: Aksi transaksional dilengkapi *atomic cache lock* (`Cache::lock`) dan pembatasan UI tombol dengan `aria-busy`.
-5. **Pre-commit Automated Gate**: Menggunakan [`.pre-commit-config.yaml`](.pre-commit-config.yaml) untuk memvalidasi syntax PHP, format Laravel Pint, dan Ruff sebelum commit diizinkan masuk ke repositori.
+2. **High-Performance & Zero N+1 Queries ($O(1)$)**: Seluruh halaman analitik (`/analytics`), prediksi stok (`/prediksi-stok`), KPI pengadaan (`/purchase-orders`), dan evaluasi SLA vendor (`/suppliers/performance`) menggunakan *batch eager loading* dan agregasi kondisional tunggal serta dilindungi *composite indexes*.
+3. **DTO & API Resource**: Endpoint API mentransformasikan data menggunakan DTO (`PurchaseOrderData`) dan JsonResource (`PurchaseOrderResource`).
+4. **Pessimistic Locking & Deadlock Prevention**: Mutasi persediaan dan Goods Receipt diamankan menggunakan `lockForUpdate()` dengan urutan deterministik (`orderBy('id')`) untuk menangkal *race condition*.
+5. **Proteksi Double-Submit**: Aksi transaksional dilengkapi *atomic cache lock* (`Cache::lock`) dan pembatasan UI tombol dengan `aria-busy`.
+6. **Pre-commit Automated Gate**: Menggunakan [`.pre-commit-config.yaml`](.pre-commit-config.yaml) untuk memvalidasi syntax PHP, format Laravel Pint, dan Ruff sebelum commit diizinkan masuk ke repositori.
 
-PHPUnit menggunakan SQLite in-memory dan driver cache, session, mail, serta queue in-memory sesuai [`phpunit.xml`](phpunit.xml), sehingga tidak mengubah database development. 464 unit & feature tests + 59 Python tests berstatus **100% PASS**.
+PHPUnit menggunakan SQLite in-memory dan driver cache, session, mail, serta queue in-memory sesuai [`phpunit.xml`](phpunit.xml), sehingga tidak mengubah database development. **482+ unit & feature tests** + **59 Python tests** berstatus **100% PASS**.
 
 ## Struktur proyek
 

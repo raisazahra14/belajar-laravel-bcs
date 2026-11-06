@@ -1,6 +1,6 @@
 # ERD Database LogistikKu
 
-Dokumen ini menggambarkan **skema akhir repository** setelah seluruh migration dijalankan berurutan, termasuk supplier, multi-gudang, pelaku transaksi, harga beli, transfer, reversal, biaya, dan referensi dokumen. Audit 5 Oktober 2026 menjalankan 32 migration pada SQLite kosong dan mencocokkan hasilnya dengan model Eloquent.
+Dokumen ini menggambarkan **skema akhir repository** setelah seluruh migration dijalankan berurutan, termasuk supplier, multi-gudang, pengadaan (Purchase Order & Goods Receipt Note), pelaku transaksi, harga beli, transfer, reversal, biaya, dan referensi dokumen. Audit 5 November 2026 menjalankan seluruh migration pada SQLite kosong dan mencocokkan hasilnya dengan model Eloquent serta [Data Dictionary](../data_dictionary.md).
 
 ## ERD
 
@@ -229,6 +229,71 @@ erDiagram
         timestamp updated_at "nullable"
     }
 
+    PURCHASE_ORDERS {
+        bigint id PK
+        varchar_30 nomor_po UK
+        bigint supplier_id FK "delete RESTRICT"
+        bigint warehouse_id FK "delete RESTRICT"
+        varchar_30 status "default draft"
+        date tanggal_pesan
+        date estimasi_tiba "nullable"
+        decimal_15_2 total_biaya "default 0.00"
+        text catatan "nullable"
+        bigint created_by FK "delete RESTRICT"
+        bigint approved_by FK "nullable; delete SET NULL"
+        timestamp created_at "nullable"
+        timestamp updated_at "nullable"
+    }
+
+    PURCHASE_ORDER_ITEMS {
+        bigint id PK
+        bigint purchase_order_id FK "delete CASCADE"
+        bigint barang_id FK "delete RESTRICT"
+        uint jumlah_pesan
+        uint jumlah_diterima "default 0"
+        decimal_15_2 harga_satuan "default 0.00"
+        decimal_15_2 subtotal "default 0.00"
+        timestamp created_at "nullable"
+        timestamp updated_at "nullable"
+    }
+
+    PURCHASE_ORDER_STATUS_HISTORIES {
+        bigint id PK
+        bigint purchase_order_id FK "delete CASCADE"
+        varchar_30 from_status "nullable"
+        varchar_30 to_status
+        bigint user_id FK "nullable; delete SET NULL"
+        text reason "nullable"
+        json metadata "nullable"
+        timestamp created_at "nullable"
+        timestamp updated_at "nullable"
+    }
+
+    GOODS_RECEIPTS {
+        bigint id PK
+        varchar_30 nomor_grn UK
+        bigint purchase_order_id FK "delete CASCADE"
+        bigint warehouse_id FK "delete RESTRICT"
+        date tanggal_terima
+        varchar_100 nomor_surat_jalan "nullable"
+        varchar_255 foto_surat_jalan "nullable"
+        text catatan "nullable"
+        bigint received_by FK "delete RESTRICT"
+        timestamp created_at "nullable"
+        timestamp updated_at "nullable"
+    }
+
+    GOODS_RECEIPT_ITEMS {
+        bigint id PK
+        bigint goods_receipt_id FK "delete CASCADE"
+        bigint purchase_order_item_id FK "delete CASCADE"
+        bigint barang_id FK "delete RESTRICT"
+        uint jumlah_diterima
+        varchar_255 catatan_kondisi "nullable"
+        timestamp created_at "nullable"
+        timestamp updated_at "nullable"
+    }
+
     USERS ||--o{ DOCUMENT_VERIFICATIONS : "mengunggah (user_id)"
     USERS o|--o{ DOCUMENT_VERIFICATIONS : "mengoreksi OCR (ocr_corrected_by)"
     DOCUMENT_VERIFICATIONS ||--o{ DOCUMENT_VERIFICATION_AUDITS : "memiliki audit"
@@ -255,6 +320,21 @@ erDiagram
     BARANG ||--o| STOCK_PREDICTION_PROCESSES : "memiliki proses aktif"
     USERS o|--o{ STOCK_PREDICTION_PROCESSES : "meminta proses"
     STOCK_PREDICTIONS o|--o{ STOCK_PREDICTION_PROCESSES : "hasil proses menurut DB"
+
+    SUPPLIERS ||--o{ PURCHASE_ORDERS : "menerima pesanan"
+    WAREHOUSES ||--o{ PURCHASE_ORDERS : "menjadi gudang tujuan"
+    USERS ||--o{ PURCHASE_ORDERS : "membuat PO (created_by)"
+    USERS o|--o{ PURCHASE_ORDERS : "menyetujui PO (approved_by)"
+    PURCHASE_ORDERS ||--o{ PURCHASE_ORDER_ITEMS : "memiliki baris item"
+    BARANG ||--o{ PURCHASE_ORDER_ITEMS : "dipesan dalam PO"
+    PURCHASE_ORDERS ||--o{ PURCHASE_ORDER_STATUS_HISTORIES : "memiliki riwayat status"
+    USERS o|--o{ PURCHASE_ORDER_STATUS_HISTORIES : "mengubah status"
+    PURCHASE_ORDERS ||--o{ GOODS_RECEIPTS : "memiliki penerimaan GRN"
+    WAREHOUSES ||--o{ GOODS_RECEIPTS : "menerima fisik GRN"
+    USERS ||--o{ GOODS_RECEIPTS : "menerima barang (received_by)"
+    GOODS_RECEIPTS ||--o{ GOODS_RECEIPT_ITEMS : "memiliki rincian tiba"
+    PURCHASE_ORDER_ITEMS ||--o{ GOODS_RECEIPT_ITEMS : "dipenuhi oleh GRN"
+    BARANG ||--o{ GOODS_RECEIPT_ITEMS : "diterima secara fisik"
 ```
 
 [Buka render SVG ERD](../images/database-erd.svg). SVG ini diselaraskan dengan source Mermaid pada audit 5 Oktober 2026.
@@ -282,6 +362,11 @@ Tidak dibuat garis dari `STOK_TRANSACTIONS` ke `STOCK_PREDICTION_PROCESSES`: `so
 | `stock_prediction_notifications` | Notifikasi bisnis yang dihasilkan dari prediksi untuk barang/status tertentu. |
 | `stock_prediction_notification_reads` | Status baca notifikasi prediksi per pengguna. |
 | `stock_prediction_processes` | Satu state proses prediksi aktif per barang, termasuk generasi, peminta, hasil, dan informasi kegagalan. |
+| `purchase_orders` | Header dokumen pemesanan barang (PO) ke supplier dengan 7 status siklus hidup dan alokasi gudang tujuan. |
+| `purchase_order_items` | Rincian baris item barang yang dipesan pada PO beserta progres kumulatif kuantitas diterima. |
+| `purchase_order_status_histories` | Jejak audit kronologis perpindahan status PO, aktor, dan alasan penolakan/pembatalan. |
+| `goods_receipts` | Dokumen Berita Acara Penerimaan Barang fisik (`GRN-YYYYMMDD-XXXX`) di gudang tujuan. |
+| `goods_receipt_items` | Rincian kuantitas barang fisik yang diterima pada tiap sesi Goods Receipt. |
 
 Alur stok: supplier dapat menjadi master barang dan snapshot transaksi. Setiap pasangan barang/gudang memiliki satu saldo. Operasi masuk/keluar memperbarui saldo gudang serta total barang; transfer membuat transaksi keluar dan masuk ber-UUID sama tanpa mengubah total; reversal membuat transaksi lawan dan menandai transaksi asli. Harga satuan, referensi, dan pelaku disimpan untuk audit. Transaksi keluar menjadi masukan prediksi.
 
@@ -353,14 +438,19 @@ Ketidaksesuaian atau relasi yang hanya tersedia di satu lapisan:
 | `document_verification_audits` | Masuk ERD | Audit langsung verifikasi dokumen dan aktor pengguna. |
 | `stock_prediction_notification_reads` | Masuk ERD | Penghubung langsung notifikasi prediksi dengan pengguna. |
 | `stock_prediction_processes` | Masuk ERD | State proses langsung untuk barang, pengguna, dan hasil prediksi. |
+| `purchase_orders` | Masuk ERD | Header utama modul pengadaan barang (PO). |
+| `purchase_order_items` | Masuk ERD | Rincian item barang yang dipesan dalam PO. |
+| `purchase_order_status_histories` | Masuk ERD | Riwayat audit transisi status PO. |
+| `goods_receipts` | Masuk ERD | Dokumen penerimaan barang fisik (GRN). |
+| `goods_receipt_items` | Masuk ERD | Rincian item barang yang diterima pada GRN. |
 | `migrations` | Tidak masuk | Tabel internal Laravel untuk status migration; dibuat oleh migrator, bukan `Schema::create` project. |
 
-Source migration mendefinisikan **22 tabel**. Hasil migration bersih berisi **23 tabel** setelah menyertakan tabel internal `migrations`: 15 dimasukkan ke ERD dan 8 dikecualikan.
+Source migration mendefinisikan **27 tabel**. Hasil migration bersih berisi **28 tabel** setelah menyertakan tabel internal `migrations`: 20 tabel bisnis/aplikasi dimasukkan ke ERD dan 8 tabel framework dikecualikan.
 
 ## Validasi
 
-- Audit statis mencakup seluruh **32 file migration** dan model di repository.
-- Seluruh **32 migration** berhasil dijalankan dari nol; hasilnya **23 tabel, 218 kolom, dan 24 FK**.
+- Audit statis mencakup seluruh **38 file migration** dan model di repository.
+- Seluruh **38 migration** berhasil dijalankan dari nol; hasilnya **28 tabel, 268 kolom, dan 38 FK** (dilengkapi composite indexes performa pengadaan).
 - Migration bersih membuat `GDG-UTAMA`, `GDG-A`, `GDG-B`, dan `GDG-C`. Audit ini memverifikasi jalur migration dan constraint, bukan data deployment.
 - Engine/collation, representasi JSON/timestamp, perilaku constraint, isi backfill, dan drift database target tetap berstatus **Perlu Uji Produksi**.
 - Skema akhir memperhitungkan migration lanjutan: penambahan soft delete/foto/input prediksi/snapshot stok/nomor DO, pemisahan skor, serta penggantian `document_verifications.status` menjadi dua kolom status.

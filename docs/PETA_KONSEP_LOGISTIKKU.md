@@ -157,19 +157,24 @@ Admin dapat mengekspor inventaris aktif ke CSV, XLSX, atau PDF. Barang dalam Ton
 - pusat perhatian untuk kondisi yang perlu ditindaklanjuti;
 - status prediksi terbaru.
 
-### Analitik bisnis
+### Analitik bisnis & pengadaan
 
-Khusus Admin:
+Khusus Admin (`/analytics`):
 
-- mutasi periodik;
-- Fast-Moving, Slow-Moving, dan Dead Stock;
-- valuasi persediaan berdasarkan `harga_beli`;
-- ringkasan per kategori dan gudang;
-- rekonsiliasi total barang dengan jumlah saldo gudang;
-- ringkasan otomatis yang deterministik;
-- export CSV hasil terfilter.
+- **Tab 1 — Analitik Inventaris & Mutasi**:
+  - mutasi periodik;
+  - Fast-Moving, Slow-Moving, dan Dead Stock;
+  - valuasi persediaan berdasarkan `harga_beli`;
+  - ringkasan per kategori dan gudang;
+  - rekonsiliasi total barang dengan jumlah saldo gudang;
+  - ringkasan otomatis yang deterministik;
+  - export CSV hasil terfilter.
+- **Tab 2 — Analitik Pengadaan & Utilisasi Anggaran (`/analytics?tab=procurement`)**:
+  - visualisasi tren pengeluaran PO dan realisasi tagihan invoice secara **Bulanan** dan **Kuartalan** (toggle interaktif);
+  - komparasi **Total Anggaran Pesanan (PO) vs Realisasi Tagihan Invoice** hasil *Three-Way Matching* (memisahkan status *Cocok Sempurna*, *Selisih/Overbilling*, dan *Belum Ditagih*);
+  - distribusi nilai dan volume pengadaan per **Gudang Tujuan** dan per **Kategori Barang**.
 
-Filter supplier, gudang, dan kategori berlaku pada dataset yang relevan. Filter tanggal membatasi mutasi, bukan snapshot valuasi saat ini.
+Filter supplier, gudang, dan kategori berlaku pada dataset yang relevan. Filter tanggal membatasi mutasi dan periode pengadaan, bukan snapshot valuasi persediaan saat ini.
 
 ### Laporan mutasi
 
@@ -204,11 +209,13 @@ Kegunaan fitur:
 - mengekstrak nomor/tanggal dokumen, nomor PO/DO, supplier, nominal, dan metadata lain;
 - menghitung readability, completeness, authenticity, overall, dan confidence;
 - menyimpan temuan pemeriksaan visual/manipulasi;
+- menyediakan **Self-Healing Inline Execution** berbasis *atomic cache lock* apabila dokumen tertahan di antrean $\ge 4$ detik;
+- menyediakan antarmuka **Dual-Pane AI Review Workspace** (`/verifications/{id}`) dengan *Sticky Document Inspector* (zoom interaktif) dan kartu KPI *Three-Way Matching* PO;
 - menyediakan koreksi metadata, retry, reprocess, download, audit, dan notifikasi.
 
 File PDF/JPG/JPEG/PNG maksimum 10 MiB disimpan privat. Manager/Staff hanya dapat mengakses dokumen sendiri; Admin dapat mengakses semua. Hasil OCR bukan keputusan hukum dan tetap perlu pemeriksaan manusia.
 
-## 11. Prediksi stok
+## 11. Prediksi stok & Smart Restock berbasis SLA Vendor
 
 ```mermaid
 flowchart TD
@@ -225,35 +232,45 @@ flowchart TD
     ML --> O
     J -- Python gagal --> F[Fallback Laravel]
     F --> O
-    O --> N[Notifikasi per pengguna]
+    O --> SLA[Evaluasi SLA Vendor Terbaik]
+    SLA --> N[1-Click Create PO & Notifikasi]
 ```
 
 Prediksi menghasilkan status Aman, Waspada, Perlu Restock, Mendesak, atau Perlu Ditinjau beserta kebutuhan, tanggal minimum/habis, safety stock, jumlah restock, metode, confidence, dan alasan.
 
-Semua role dapat melihat hasil. Admin/Manager dapat menjalankan analisis, melihat proses, dan menerapkan rekomendasi ke form stok masuk. Prediksi tidak pernah mengubah stok secara otomatis.
+Semua role dapat melihat hasil. Admin/Manager dapat menjalankan analisis, melihat proses, menerapkan rekomendasi ke form stok masuk, atau menekan tombol **`1-Click Create PO`** yang secara otomatis memilih vendor dengan skor kepatuhan SLA tertinggi (`COMPLIANT`, *On-Time Delivery* terbaik) dan mengisi form PO (`/purchase-orders/create?from_prediction={id}`). Prediksi tidak pernah mengubah stok secara otomatis.
 
-## 12. Pusat notifikasi
+## 12. Pengadaan barang (Purchase Order, Goods Receipt, Three-Way Matching & SLA Vendor)
+
+- **Purchase Order (`PO-YYYYMMDD-XXXX`)**: Dikelola melalui state machine 7 status (`Draft`, `Pending Approval`, `Approved`, `Rejected`, `Partially Received`, `Completed`, `Cancelled`) dengan prinsip *Separation of Duty* (*Maker-Checker*).
+- **Goods Receipt Note (`GRN-YYYYMMDD-XXXX`) & Scanner Barcode/QR**: Penerimaan fisik bertahap atau penuh yang atomik menambah saldo `warehouse_stocks` dan membukukan `stok_transactions`. Dilengkapi **Pemindai Barcode / QR Code (`BRG-######`)** di dalam modal `#goodsReceiptModal` (via kamera `BarcodeDetector` maupun *USB/Bluetooth Scanner*) untuk menaikkan kuantitas tiba secara otomatis sesuai *step increment* tanpa risiko salah input.
+- **Three-Way Matching**: Mencocokkan PO, penerimaan fisik GRN, dan tagihan Invoice/Surat Jalan hasil OCR untuk mendeteksi selisih kuantitas atau harga satuan.
+- **Vendor Performance & SLA Governance (`/suppliers/performance`)**: Menghitung *On-Time Delivery Rate*, *Fulfillment Rate*, *Discrepancy Rate*, distribusi keterlambatan, dan status kepatuhan SLA (`COMPLIANT`, `WARNING`, `BREACHED`), lengkap dengan ekspor ke Excel (`.xlsx`), CSV, dan PDF Landscape.
+
+## 13. Pusat notifikasi
 
 Pusat notifikasi menggabungkan:
 
 - hasil verifikasi dokumen;
 - perubahan risiko prediksi;
+- pengajuan, persetujuan, penolakan, penerimaan, dan keterlambatan Purchase Order;
 - kondisi stok yang memerlukan perhatian.
 
 Badge diperbarui melalui polling endpoint internal. Pengguna dapat membuka sumber notifikasi serta menandai satu atau semua notifikasi telah dibaca. Status baca prediksi disimpan per pengguna sehingga tidak saling memengaruhi.
 
-## 13. Data aktif
+## 14. Data aktif
 
 | Kelompok | Tabel utama |
 |---|---|
 | Identitas | `users`, `sessions`, `password_reset_tokens` |
 | Master | `barang`, `suppliers`, `warehouses`, `warehouse_stocks` |
 | Transaksi | `stok_transactions`, `stok_transaction_actors`, `stok_histories` |
+| Pengadaan | `purchase_orders`, `purchase_order_items`, `purchase_order_status_histories`, `goods_receipts`, `goods_receipt_items` |
 | OCR | `document_verifications`, `document_verification_audits`, `notifications` |
 | Prediksi | `stock_predictions`, `stock_prediction_processes`, `stock_prediction_notifications`, `stock_prediction_notification_reads` |
 | Infrastruktur | `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs`, `migrations` |
 
-## 14. Prinsip operasional
+## 15. Prinsip operasional
 
 1. Ubah stok melalui transaksi, transfer, reversal, atau import resmi—bukan edit langsung database.
 2. Jumlah seluruh `warehouse_stocks.stok` harus konsisten dengan `barang.stok`.

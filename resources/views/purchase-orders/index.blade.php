@@ -4,7 +4,12 @@
 <x-ui.breadcrumb :items="[['label' => 'Purchase Order']]" />
 
 <x-ui.page-header title="Purchase Order" description="Kelola pesanan pengadaan barang ke supplier dan pantau penerimaan barang multi-gudang.">
-    <x-ui.button :href="route('purchase-orders.create')" icon="ti-plus">Buat Purchase Order</x-ui.button>
+    <div class="d-flex flex-wrap gap-2">
+        <x-ui.button :href="route('purchase-orders.export', request()->query())" variant="outline-primary" icon="ti-download">
+            Export CSV / Excel
+        </x-ui.button>
+        <x-ui.button :href="route('purchase-orders.create')" icon="ti-plus">Buat Purchase Order</x-ui.button>
+    </div>
 </x-ui.page-header>
 
 @if(session('success'))
@@ -13,6 +18,42 @@
 
 @if($errors->any())
     <x-ui.alert type="danger">{{ $errors->first() }}</x-ui.alert>
+@endif
+
+@if(isset($kpis))
+<div class="stats-grid mb-4">
+    <a href="{{ route('purchase-orders.index', ['status' => 'pending_approval']) }}" class="stat-link" title="Lihat PO Menunggu Approval">
+        <x-ui.card class="stat-card stat-warning">
+            <div class="stat-icon"><i class="ti-clipboard"></i></div>
+            <p>Menunggu Approval</p>
+            <strong>{{ number_format($kpis['pending_approval'] ?? 0, 0, ',', '.') }}</strong>
+            <small>Butuh verifikasi manager <i class="ti-arrow-right"></i></small>
+        </x-ui.card>
+    </a>
+
+    <a href="{{ route('purchase-orders.index', ['status' => 'approved', 'overdue' => 1]) }}" class="stat-link" title="Lihat PO Terlambat (Overdue)">
+        <x-ui.card class="stat-card {{ ($kpis['overdue'] ?? 0) > 0 ? 'stat-danger' : 'stat-info' }}">
+            <div class="stat-icon"><i class="ti-timer"></i></div>
+            <p>PO Overdue (Terlambat)</p>
+            <strong>{{ number_format($kpis['overdue'] ?? 0, 0, ',', '.') }}</strong>
+            <small>{{ ($kpis['overdue'] ?? 0) > 0 ? 'Melewati estimasi tiba' : 'Tepat jadwal' }} <i class="ti-arrow-right"></i></small>
+        </x-ui.card>
+    </a>
+
+    <x-ui.card class="stat-card stat-success">
+        <div class="stat-icon"><i class="ti-package"></i></div>
+        <p>Tingkat Pemenuhan</p>
+        <strong>{{ number_format($kpis['fulfillment_rate'] ?? 0, 1, ',', '.') }}%</strong>
+        <small>{{ number_format($kpis['active_po_count'] ?? 0, 0, ',', '.') }} PO aktif berjalan</small>
+    </x-ui.card>
+
+    <x-ui.card class="stat-card stat-info">
+        <div class="stat-icon"><i class="ti-wallet"></i></div>
+        <p>Belanja Bulan Ini</p>
+        <strong>Rp {{ number_format(($kpis['monthly_spend'] ?? 0) / 1000000, 1, ',', '.') }} jt</strong>
+        <small>Total: Rp {{ number_format($kpis['monthly_spend'] ?? 0, 0, ',', '.') }}</small>
+    </x-ui.card>
+</div>
 @endif
 
 <x-ui.card class="filter-card mb-4">

@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PurchaseOrderService
 {
@@ -372,6 +373,7 @@ class PurchaseOrderService
         ?string $documentDate = null,
         ?string $nomorSuratJalan = null,
         ?string $fotoSuratJalan = null,
+        ?string $receiptToken = null,
     ): PurchaseOrder {
         if (! in_array($staff->role, ['admin', 'staff'], true)) {
             throw InvalidPurchaseOrderTransitionException::guardFailed(
@@ -379,6 +381,17 @@ class PurchaseOrderService
             );
         }
 
+        // 1. Validasi cegah re-submit via token transaksi idempotensi
+        if ($receiptToken !== null && $receiptToken !== '') {
+            $tokenKey = "purchase_order:receipt_token:{$receiptToken}";
+            if (Cache::has($tokenKey)) {
+                throw ValidationException::withMessages([
+                    'double_submit' => "Penerimaan barang dengan nomor bukti/token ini sudah berhasil dicatat sebelumnya. Halaman diperbarui untuk mencegah duplikasi saldo.",
+                ]);
+            }
+        }
+
+        // 2. Atomic Cache Lock untuk mencegah concurrent double-submit pada PO yang sama
         $lockKey = "purchase_order:receive:{$po->id}";
         $lock = Cache::lock($lockKey, 15);
 
@@ -389,7 +402,7 @@ class PurchaseOrderService
         }
 
         try {
-            return DB::transaction(function () use ($po, $receivedItems, $staff, $notes, $documentDate, $nomorSuratJalan, $fotoSuratJalan): PurchaseOrder {
+            $resultPo = DB::transaction(function () use ($po, $receivedItems, $staff, $notes, $documentDate, $nomorSuratJalan, $fotoSuratJalan): PurchaseOrder {
                 // 1. Kunci header PO dengan lockForUpdate()
                 $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
                 $oldStatus = $lockedPo->status;
@@ -513,6 +526,13 @@ class PurchaseOrderService
 
                 return $lockedPo->fresh(['items.barang', 'supplier', 'warehouse', 'statusHistories.user', 'goodsReceipts.items.barang', 'goodsReceipts.receivedBy']);
             }, 3);
+
+            // Simpan token idempotensi agar tidak dapat di-submit ulang
+            if ($receiptToken !== null && $receiptToken !== '') {
+                Cache::put("purchase_order:receipt_token:{$receiptToken}", true, now()->addMinutes(15));
+            }
+
+            return $resultPo;
         } finally {
             $lock->release();
         }
@@ -572,6 +592,14 @@ class PurchaseOrderService
             ];
         }
 
+        // Urutkan item secara deterministik berdasarkan barang_id ASC untuk mencegah database deadlock
+        usort($result, static function (array $a, array $b): int {
+            $idA = (int) ($a['item']->barang_id ?? 0);
+            $idB = (int) ($b['item']->barang_id ?? 0);
+
+            return $idA <=> $idB;
+        });
+
         return $result;
     }
 
@@ -606,7 +634,8 @@ class PurchaseOrderService
     }
 
     /**
-     * Menyiapkan data awal pembuatan Purchase Order berdasarkan rekomendasi prediksi stok (Smart Restock).
+     * Menyiapkan data awal pembuatan Purchase Order berdasarkan rekomendasi prediksi stok (Smart Restock)
+     * yang terintegrasi dengan pemilihan Vendor Terbaik berbasis skor kepatuhan SLA.
      *
      * @return array{
      *     supplier_id: ?int,
@@ -614,7 +643,8 @@ class PurchaseOrderService
      *     estimasi_tiba: ?string,
      *     catatan: string,
      *     items: list<array{id: null, barang_id: int, jumlah_pesan: int, harga_satuan: float}>,
-     *     deficit_warehouse_name: string
+     *     deficit_warehouse_name: string,
+     *     vendor_recommendation: array<string, mixed>
      * }
      */
     public function prepareSmartRestockData(StockPrediction $prediction): array
@@ -626,9 +656,11 @@ class PurchaseOrderService
             throw new \InvalidArgumentException('Prediksi stok tidak memiliki relasi barang yang valid.');
         }
 
-        // 1. Supplier rekanan aktif
-        $supplierId = null;
-        if ($barang->supplier_id && $barang->supplier && $barang->supplier->is_active && ! $barang->supplier->trashed()) {
+        // 1. Rekomendasi Supplier Terbaik berbasis Skor Kinerja & SLA Vendor
+        $vendorRecommendation = app(SupplierPerformanceService::class)->recommendBestSupplierForBarang($barang);
+        $supplierId = $vendorRecommendation['recommended_supplier_id'];
+
+        if ($supplierId === null && $barang->supplier_id && $barang->supplier && $barang->supplier->is_active && ! $barang->supplier->trashed()) {
             $supplierId = $barang->supplier_id;
         }
 
@@ -662,8 +694,12 @@ class PurchaseOrderService
             $estimasiTiba = now()->addDays(7)->format('Y-m-d');
         }
 
-        // 5. Catatan informatif
+        // 5. Catatan informatif (dilengkapi konteks SLA Vendor bila tersedia)
         $catatan = "Auto-generated dari rekomendasi Smart Restock (Prediksi #{$prediction->id}, Status: {$prediction->status}, Defisit di: {$deficitWarehouseName}, Kebutuhan 30 Hari: ".number_format((float) $prediction->predicted_30_day_need, 0, ',', '.')." {$barang->satuan}).";
+        if (! empty($vendorRecommendation['recommended_supplier']) && ! empty($vendorRecommendation['recommended_metrics']['total_po'])) {
+            $recMetrics = $vendorRecommendation['recommended_metrics'];
+            $catatan .= " Vendor Rekomendasi SLA: {$vendorRecommendation['recommended_supplier']->nama_supplier} ({$recMetrics['sla_label']}, Skor {$recMetrics['performance_score']}%, On-Time {$recMetrics['on_time_rate']}%).";
+        }
 
         $items = [
             [
@@ -681,6 +717,180 @@ class PurchaseOrderService
             'catatan' => $catatan,
             'items' => $items,
             'deficit_warehouse_name' => $deficitWarehouseName,
+            'vendor_recommendation' => $vendorRecommendation,
         ];
+    }
+
+    /**
+     * Menghitung indikator kinerja utama (KPI) pengadaan dan rantai pasok secara real-time.
+     *
+     * @return array{
+     *     pending_approval: int,
+     *     approved: int,
+     *     partially_received: int,
+     *     completed: int,
+     *     overdue: int,
+     *     monthly_spend: float,
+     *     fulfillment_rate: float,
+     *     active_po_count: int
+     * }
+     */
+    public function getProcurementKpis(): array
+    {
+        $startOfMonth = now()->startOfMonth()->toDateString();
+        $endOfMonth = now()->endOfMonth()->toDateString();
+        $today = today()->toDateString();
+
+        $poStats = DB::table('purchase_orders')
+            ->selectRaw("
+                COUNT(CASE WHEN status = ? THEN 1 END) as pending_approval,
+                COUNT(CASE WHEN status = ? THEN 1 END) as approved,
+                COUNT(CASE WHEN status = ? THEN 1 END) as partially_received,
+                COUNT(CASE WHEN status = ? THEN 1 END) as completed,
+                COUNT(CASE WHEN status = ? AND estimasi_tiba < ? THEN 1 END) as overdue,
+                COALESCE(SUM(CASE WHEN status IN (?, ?, ?) AND tanggal_pesan BETWEEN ? AND ? THEN total_biaya ELSE 0 END), 0) as monthly_spend
+            ", [
+                PurchaseOrderStatus::PENDING_APPROVAL->value,
+                PurchaseOrderStatus::APPROVED->value,
+                PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
+                PurchaseOrderStatus::COMPLETED->value,
+                PurchaseOrderStatus::APPROVED->value,
+                $today,
+                PurchaseOrderStatus::APPROVED->value,
+                PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
+                PurchaseOrderStatus::COMPLETED->value,
+                $startOfMonth,
+                $endOfMonth,
+            ])
+            ->first();
+
+        $pendingCount = (int) ($poStats?->pending_approval ?? 0);
+        $approvedCount = (int) ($poStats?->approved ?? 0);
+        $partiallyCount = (int) ($poStats?->partially_received ?? 0);
+        $completedCount = (int) ($poStats?->completed ?? 0);
+        $overdueCount = (int) ($poStats?->overdue ?? 0);
+        $monthlySpend = (float) ($poStats?->monthly_spend ?? 0);
+        $activePoCount = $approvedCount + $partiallyCount;
+
+        $itemTotals = DB::table('purchase_order_items')
+            ->join('purchase_orders', 'purchase_order_items.purchase_order_id', '=', 'purchase_orders.id')
+            ->whereIn('purchase_orders.status', [
+                PurchaseOrderStatus::APPROVED->value,
+                PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
+                PurchaseOrderStatus::COMPLETED->value,
+            ])
+            ->selectRaw('SUM(jumlah_pesan) as total_pesan, SUM(jumlah_diterima) as total_terima')
+            ->first();
+
+        $totalPesan = (int) ($itemTotals?->total_pesan ?? 0);
+        $totalTerima = (int) ($itemTotals?->total_terima ?? 0);
+        $fulfillmentRate = $totalPesan > 0 ? round(($totalTerima / $totalPesan) * 100, 1) : 100.0;
+
+        return [
+            'pending_approval' => $pendingCount,
+            'approved' => $approvedCount,
+            'partially_received' => $partiallyCount,
+            'completed' => $completedCount,
+            'overdue' => $overdueCount,
+            'monthly_spend' => $monthlySpend,
+            'fulfillment_rate' => $fulfillmentRate,
+            'active_po_count' => $activePoCount,
+        ];
+    }
+
+    /**
+     * Streaming download export rekap Purchase Order dalam format CSV kompatibel Excel (UTF-8 BOM).
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function exportCsv(array $filters = []): StreamedResponse
+    {
+        $filename = 'rekap-purchase-orders-'.now()->format('Ymd-His').'.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+            'Pragma' => 'no-cache',
+            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires' => '0',
+        ];
+
+        return response()->stream(function () use ($filters): void {
+            $handle = fopen('php://output', 'wb');
+            if ($handle === false) {
+                return;
+            }
+
+            // Tulis UTF-8 Byte Order Mark (BOM) agar Microsoft Excel mengenali karakter dengan benar
+            fputs($handle, "\xEF\xBB\xBF");
+
+            // Header Kolom CSV
+            fputcsv($handle, [
+                'No.',
+                'Nomor PO',
+                'Status',
+                'Nama Supplier',
+                'Kode Supplier',
+                'Gudang Tujuan',
+                'Tanggal Pesan',
+                'Estimasi Tiba',
+                'Jumlah Item',
+                'Total Qty Pesan',
+                'Total Qty Diterima',
+                'Fulfillment (%)',
+                'Total Nilai (IDR)',
+                'Dibuat Oleh',
+                'Disetujui Oleh',
+                'No. GRN Terakhir',
+                'No. Surat Jalan Terakhir',
+                'Catatan / Alasan',
+            ]);
+
+            $rowNumber = 1;
+
+            PurchaseOrder::query()
+                ->with([
+                    'supplier:id,kode_supplier,nama_supplier',
+                    'warehouse:id,kode_gudang,nama_gudang',
+                    'creator:id,name',
+                    'approver:id,name',
+                    'items:id,purchase_order_id,jumlah_pesan,jumlah_diterima',
+                    'goodsReceipts' => fn ($q) => $q->latest('id')->select(['id', 'purchase_order_id', 'nomor_grn', 'nomor_surat_jalan']),
+                ])
+                ->filter($filters)
+                ->orderByDesc('tanggal_pesan')
+                ->orderByDesc('id')
+                ->chunk(200, function ($purchaseOrders) use ($handle, &$rowNumber): void {
+                    foreach ($purchaseOrders as $po) {
+                        $totalOrdered = (int) $po->items->sum('jumlah_pesan');
+                        $totalReceived = (int) $po->items->sum('jumlah_diterima');
+                        $fulfillment = $totalOrdered > 0 ? round(($totalReceived / $totalOrdered) * 100, 1) : 0;
+                        $latestGrn = $po->goodsReceipts->first();
+
+                        fputcsv($handle, [
+                            $rowNumber++,
+                            $po->nomor_po,
+                            $po->status->label(),
+                            $po->supplier?->nama_supplier ?? '—',
+                            $po->supplier?->kode_supplier ?? '—',
+                            $po->warehouse?->nama_gudang ?? '—',
+                            $po->tanggal_pesan?->format('d/m/Y') ?? '—',
+                            $po->estimasi_tiba?->format('d/m/Y') ?? '—',
+                            $po->items->count(),
+                            $totalOrdered,
+                            $totalReceived,
+                            $fulfillment.'%',
+                            number_format((float) $po->total_biaya, 2, ',', '.'),
+                            $po->creator?->name ?? '—',
+                            $po->approver?->name ?? '—',
+                            $latestGrn?->nomor_grn ?? '—',
+                            $latestGrn?->nomor_surat_jalan ?? '—',
+                            $po->catatan ?? '—',
+                        ]);
+                    }
+                });
+
+            fclose($handle);
+        }, 200, $headers);
     }
 }

@@ -194,17 +194,24 @@ class WarehouseBalanceSyncCommandTest extends TestCase
         $this->assertSame(1, $show->viewData('stocks')->total());
     }
 
-    public function test_inventory_list_shows_actual_positive_warehouse_balances_and_keeps_location_text(): void
+    public function test_inventory_list_keeps_location_text_and_moves_warehouse_distribution_to_detail(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $barang = $this->barang('Rak Lama A1', 7, 'LIST');
         $this->stock($barang, 'GDG-B', 7);
 
+        // Halaman index tetap bersih dan menampilkan lokasi rak tanpa kolom distribusi stok gudang yang ramai
         $this->actingAs($admin)->get(route('barang.index'))
             ->assertOk()
-            ->assertSee('Distribusi Stok per Gudang')
-            ->assertSee('Gudang B (7)')
+            ->assertDontSee('Distribusi Stok per Gudang')
             ->assertSee('Rak Lama A1');
+
+        // Distribusi stok per gudang dipindahkan secara terstruktur dan informatif ke halaman detail barang
+        $this->actingAs($admin)->get(route('barang.show', $barang))
+            ->assertOk()
+            ->assertSee('Distribusi Stok per Gudang')
+            ->assertSee('Gudang B')
+            ->assertSee('7 Pcs');
     }
 
     private function barang(string $location, int $stock, string $suffix): Barang

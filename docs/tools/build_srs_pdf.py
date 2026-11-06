@@ -53,11 +53,11 @@ DIAGRAMS = (
 )
 
 REQUIRED_MARKERS = (
-    "SRS-LOGISTIKKU-1.4",
-    "| Versi | 1.4 |",
-    "| Tanggal pembaruan | 5 Oktober 2026 |",
+    "SRS-LOGISTIKKU-1.5",
+    "| Versi | 1.5 |",
+    "| Tanggal pembaruan | 5 November 2026 |",
     "## 12. Matriks Ketertelusuran Kebutuhan",
-    "### 12.3 Bukti eksekusi audit 5 Oktober 2026",
+    "### 12.3 Bukti eksekusi audit 5 November 2026",
     "Perlu Uji Produksi",
 )
 
@@ -66,7 +66,7 @@ PAGE_BREAK = r'<div class="page-break"></div>\n\n\1'
 PDF_METADATA = {
     "title": "Software Requirements Specification (SRS) Sistem Inventaris LogistikKu",
     "author": "Tim LogistikKu",
-    "keywords": "LogistikKu, SRS, inventaris, OCR, prediksi stok, versi 1.4",
+    "keywords": "LogistikKu, SRS, inventaris, pengadaan, PO, GRN, OCR, prediksi stok, SLA vendor, versi 1.5",
 }
 
 RMTREE_ATTEMPTS = 20
@@ -128,6 +128,7 @@ th, td {
     overflow-wrap: anywhere;
 }
 th { color: #102f52; background: #dceaf7; font-weight: 700; }
+th:first-child, td:first-child { white-space: nowrap; }
 tbody tr:nth-child(even) td { background: #f8fafc; }
 blockquote {
     margin: 2mm 0;
@@ -169,7 +170,7 @@ HTML_TEMPLATE = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <base href="{base_uri}">
-  <title>SRS LogistikKu 1.4</title>
+  <title>SRS LogistikKu 1.5</title>
   <style>{css}</style>
 </head>
 <body>
@@ -193,7 +194,7 @@ def find_browser() -> Path:
 
 def prepare_markdown(source: str) -> str:
     if missing := [marker for marker in REQUIRED_MARKERS if marker not in source]:
-        raise RuntimeError(f"SRS bukan baseline 1.4 yang diharapkan: {', '.join(missing)}")
+        raise RuntimeError(f"SRS bukan baseline 1.5 yang diharapkan: {', '.join(missing)}")
 
     # Section page breaks make the preceding `---` redundant; keeping it can
     # produce a page holding only a rule when the prior diagram fills the page.
@@ -230,13 +231,15 @@ def render_html(markdown_source: str) -> str:
 
 def attach_source_metadata(pdf: Path, source: str) -> str:
     source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest().upper()
+    temp_pdf = pdf.with_suffix(".compressed.pdf")
     with pymupdf.open(pdf) as document:
         document.set_metadata({
             **document.metadata,
             **PDF_METADATA,
-            "subject": f"SRS versi 1.4; source docs/srs.md SHA-256 {source_hash}",
+            "subject": f"SRS versi 1.5; source docs/srs.md SHA-256 {source_hash}",
         })
-        document.saveIncr()
+        document.save(temp_pdf, garbage=4, deflate=True, clean=True)
+    temp_pdf.replace(pdf)
     return source_hash
 
 
@@ -264,6 +267,21 @@ def is_pdf_written(path: Path) -> bool:
     return path.is_file() and path.stat().st_size > 0
 
 
+def render_pdf_with_pymupdf(html: str, output: Path) -> None:
+    archive = pymupdf.Archive(str(DOCS.resolve()))
+    story = pymupdf.Story(html=html, archive=archive)
+    mediabox = pymupdf.paper_rect("a4")
+    where = mediabox + (36, 42, -36, -48)
+    writer = pymupdf.DocumentWriter(str(output))
+    more = 1
+    while more:
+        device = writer.begin_page(mediabox)
+        more, _ = story.place(where)
+        story.draw(device)
+        writer.end_page()
+    writer.close()
+
+
 def main() -> int:
     output = parse_args().output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -277,25 +295,32 @@ def main() -> int:
 
     clean_build_dir()
     BUILD_DIR.mkdir(parents=True)
-    html_path = BUILD_DIR / "srs-v1.4.html"
+    html_path = BUILD_DIR / "srs-v1.5.html"
     html_path.write_text(html, encoding="utf-8")
 
-    command = [
-        str(find_browser()),
-        *BROWSER_FLAGS,
-        f"--user-data-dir={BUILD_DIR / 'browser-profile'}",
-        f"--print-to-pdf={output}",
-        html_path.resolve().as_uri(),
-    ]
-
     try:
-        result = subprocess.run(command, check=False, timeout=120)
-        for _ in range(PDF_WAIT_ATTEMPTS):
-            if is_pdf_written(output):
-                break
-            time.sleep(POLL_INTERVAL)
-        if result.returncode != 0 or not is_pdf_written(output):
-            raise RuntimeError(f"Browser gagal membuat PDF (exit code {result.returncode}).")
+        try:
+            command = [
+                str(find_browser()),
+                *BROWSER_FLAGS,
+                f"--user-data-dir={BUILD_DIR / 'browser-profile'}",
+                f"--print-to-pdf={output}",
+                html_path.resolve().as_uri(),
+            ]
+            result = subprocess.run(command, check=False, timeout=120)
+            if result.returncode == 0:
+                for _ in range(PDF_WAIT_ATTEMPTS):
+                    if is_pdf_written(output):
+                        break
+                    time.sleep(POLL_INTERVAL)
+        except Exception:
+            result = None
+
+        if result is None or result.returncode != 0 or not is_pdf_written(output):
+            render_pdf_with_pymupdf(html, output)
+
+        if not is_pdf_written(output):
+            raise RuntimeError("Gagal membuat PDF SRS.")
 
         source_hash = attach_source_metadata(output, source)
         print(f"PDF_CANDIDATE={output}")

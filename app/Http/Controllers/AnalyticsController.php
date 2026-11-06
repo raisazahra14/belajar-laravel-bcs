@@ -10,6 +10,8 @@ use App\Services\AnalyticsCsv;
 use App\Services\AnalyticsInsightService;
 use App\Services\InventoryAnalyticsService;
 use App\Services\InventoryMasterDataService;
+use App\Services\ProcurementAnalyticsExportService;
+use App\Services\ProcurementAnalyticsService;
 use App\Services\StockMutationReportService;
 use Illuminate\Contracts\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -22,25 +24,34 @@ class AnalyticsController extends Controller
         InventoryAnalyticsService $analytics,
         AnalyticsInsightService $insights,
         InventoryMasterDataService $masterData,
+        ProcurementAnalyticsService $procurementAnalytics,
     ): View {
         $filters = $this->filters($request);
         $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
         $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
         $category = $filters['category'] ?? null;
+        $isCustomPeriod = ($filters['period'] ?? null) === 'custom';
+        $poStartDate = $isCustomPeriod ? ($filters['start_date'] ?? null) : null;
+        $poEndDate = $isCustomPeriod ? ($filters['end_date'] ?? null) : null;
+
         $mutation = $mutations->summary($filters);
         $movement = $analytics->movementSummary($warehouseId, $supplierId, $category);
         $valuation = $analytics->valuationSummary($warehouseId, $supplierId, $category);
         $attention = $analytics->currentAttentionSummary($warehouseId, $supplierId, $category);
+        $procurement = $procurementAnalytics->summary($warehouseId, $supplierId, $category, $poStartDate, $poEndDate);
         $suppliers = $masterData->suppliers();
         $warehouses = $masterData->warehouses();
         $selectedWarehouse = $warehouseId === null ? null : $warehouses->firstWhere('id', $warehouseId);
         $insightData = $insights->build($mutation, $movement, $attention, $selectedWarehouse?->nama_gudang);
+        $activeTab = $request->string('tab')->toString() === 'procurement' ? 'procurement' : 'inventory';
         $data = [
             'filters' => $filters,
+            'activeTab' => $activeTab,
             'mutation' => $mutation,
             'movement' => $movement,
             'valuation' => $valuation,
             'attention' => $attention,
+            'procurement' => $procurement,
             'priorityNotifications' => $insightData['notifications'],
             'automaticSummary' => $insightData['summary'],
             'mutationRows' => $mutations->paginatedRows($filters, 10, 'mutation_page'),
@@ -65,6 +76,56 @@ class AnalyticsController extends Controller
         AnalyticsCsv $csv,
     ): StreamedResponse {
         return $csv->download($this->analyticsData($request, $mutations, $analytics));
+    }
+
+    public function exportProcurementExcel(
+        StockMutationReportRequest $request,
+        ProcurementAnalyticsService $procurementAnalytics,
+        ProcurementAnalyticsExportService $exportService,
+    ): StreamedResponse {
+        [$procurement, $filters] = $this->procurementExportPayload($request, $procurementAnalytics);
+
+        return $exportService->exportExcel($procurement, $filters);
+    }
+
+    public function exportProcurementCsv(
+        StockMutationReportRequest $request,
+        ProcurementAnalyticsService $procurementAnalytics,
+        ProcurementAnalyticsExportService $exportService,
+    ): StreamedResponse {
+        [$procurement, $filters] = $this->procurementExportPayload($request, $procurementAnalytics);
+
+        return $exportService->exportCsv($procurement, $filters);
+    }
+
+    public function exportProcurementPdf(
+        StockMutationReportRequest $request,
+        ProcurementAnalyticsService $procurementAnalytics,
+        ProcurementAnalyticsExportService $exportService,
+    ): StreamedResponse {
+        [$procurement, $filters] = $this->procurementExportPayload($request, $procurementAnalytics);
+
+        return $exportService->exportPdf($procurement, $filters);
+    }
+
+    /**
+     * @return array{0: array<string, mixed>, 1: array<string, mixed>}
+     */
+    private function procurementExportPayload(
+        StockMutationReportRequest $request,
+        ProcurementAnalyticsService $procurementAnalytics,
+    ): array {
+        $filters = $this->filters($request);
+        $warehouseId = isset($filters['warehouse_id']) ? (int) $filters['warehouse_id'] : null;
+        $supplierId = isset($filters['supplier_id']) ? (int) $filters['supplier_id'] : null;
+        $category = $filters['category'] ?? null;
+        $isCustomPeriod = ($filters['period'] ?? null) === 'custom';
+        $poStartDate = $isCustomPeriod ? ($filters['start_date'] ?? null) : null;
+        $poEndDate = $isCustomPeriod ? ($filters['end_date'] ?? null) : null;
+
+        $procurement = $procurementAnalytics->summary($warehouseId, $supplierId, $category, $poStartDate, $poEndDate);
+
+        return [$procurement, $filters];
     }
 
     /** @return array<string,mixed> */

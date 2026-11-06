@@ -154,8 +154,15 @@ def predict(payload: dict[str, Any], today: date | None = None) -> dict[str, Any
         reason = "Regresi tren menggunakan histori OUT hingga waktu analisis."
 
     if daily_rate <= 0:
-        result["reason"] = result["message"] = "Permintaan harian bernilai nol"
-        return result
+        avg_rate = sum(usage) / history_days if history_days > 0 else 0.0
+        if avg_rate > 0:
+            forecast_values = [avg_rate] * horizon
+            daily_rate = avg_rate
+            confidence = max(0.3, round(confidence * 0.7, 2)) if confidence is not None else 0.3
+            reason = "Regresi tren linear menukik ke nol; disesuaikan dengan rata-rata konsumsi historis."
+        else:
+            result["reason"] = result["message"] = "Permintaan harian bernilai nol"
+            return result
     demand = sum(forecast_values)
     safety = max(minimum, int(math.ceil(daily_rate * (lead_time or 7))))
     restock = max(int(math.ceil(demand + safety - stock)), 0)

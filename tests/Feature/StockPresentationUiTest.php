@@ -105,7 +105,7 @@ class StockPresentationUiTest extends TestCase
         $this->transaction($barang, 'masuk', 90, 14, 104, now()->addDay(), 'Masa depan');
 
         $response = $this->actingAs($user)->get('/barang/'.$barang->id.'/riwayat-stok')->assertOk()
-            ->assertSee('Pergerakan Saldo Stok')->assertSee('Timeline Transaksi')
+            ->assertSee('Pergerakan Stok')->assertSee('Timeline Transaksi')
             ->assertSee('Snapshot historis tidak tersedia')->assertSee('10')->assertSee('15')
             ->assertSee('stock-history.js')->assertDontSee('Masa depan');
 

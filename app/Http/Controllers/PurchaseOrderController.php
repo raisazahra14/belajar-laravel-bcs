@@ -15,6 +15,7 @@ use App\Models\PurchaseOrder;
 use App\Models\StockPrediction;
 use App\Models\Supplier;
 use App\Models\Warehouse;
+use App\Services\BarcodeLabelPdfService;
 use App\Services\PurchaseOrderPdfService;
 use App\Services\PurchaseOrderService;
 use App\Services\PurchaseOrderStateMachine;
@@ -28,6 +29,7 @@ use Illuminate\Http\Response;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PurchaseOrderController extends Controller
 {
@@ -71,6 +73,7 @@ class PurchaseOrderController extends Controller
 
         $statuses = PurchaseOrderStatus::cases();
         $overdueOnly = ! empty($validated['overdue']);
+        $kpis = $service->getProcurementKpis();
 
         return view('purchase-orders.index', compact(
             'purchaseOrders',
@@ -78,8 +81,31 @@ class PurchaseOrderController extends Controller
             'warehouses',
             'statuses',
             'searchTerm',
-            'overdueOnly'
+            'overdueOnly',
+            'kpis'
         ));
+    }
+
+    /**
+     * Export rekap Purchase Order ke format CSV / Excel stream berkinerja tinggi.
+     */
+    public function export(Request $request, PurchaseOrderService $service): StreamedResponse
+    {
+        $statusValues = array_map(
+            static fn (PurchaseOrderStatus $case): string => $case->value,
+            PurchaseOrderStatus::cases()
+        );
+
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'nomor_po' => ['nullable', 'string', 'max:100'],
+            'supplier_id' => ['nullable', 'integer'],
+            'warehouse_id' => ['nullable', 'integer'],
+            'status' => ['nullable', 'string', Rule::in($statusValues)],
+            'overdue' => ['nullable', 'boolean'],
+        ]);
+
+        return $service->exportCsv($validated);
     }
 
     public function create(Request $request, PurchaseOrderService $service): View
@@ -107,6 +133,7 @@ class PurchaseOrderController extends Controller
         $initialItems = [];
         $sourcePrediction = null;
         $deficitWarehouseName = null;
+        $vendorRecommendation = null;
 
         $predictionId = $request->integer('from_prediction') ?: $request->integer('prediction_id');
         if ($predictionId > 0) {
@@ -119,6 +146,7 @@ class PurchaseOrderController extends Controller
                 $defaultCatatan = $smartRestock['catatan'];
                 $initialItems = $smartRestock['items'];
                 $deficitWarehouseName = $smartRestock['deficit_warehouse_name'];
+                $vendorRecommendation = $smartRestock['vendor_recommendation'] ?? null;
             }
         } elseif ($request->filled('barang_id')) {
             $barangId = $request->integer('barang_id');
@@ -155,7 +183,8 @@ class PurchaseOrderController extends Controller
             'defaultCatatan',
             'initialItems',
             'sourcePrediction',
-            'deficitWarehouseName'
+            'deficitWarehouseName',
+            'vendorRecommendation'
         ));
     }
 
@@ -471,7 +500,8 @@ class PurchaseOrderController extends Controller
                 $validated['catatan'] ?? null,
                 $validated['tanggal_terima'] ?? null,
                 $validated['nomor_surat_jalan'] ?? null,
-                $fotoPath
+                $fotoPath,
+                $validated['receipt_token'] ?? null,
             );
 
             if ($request->wantsJson()) {
@@ -482,7 +512,7 @@ class PurchaseOrderController extends Controller
 
             return redirect()
                 ->route('purchase-orders.show', $po)
-                ->with('success', "Penerimaan barang fisik untuk Purchase Order {$po->nomor_po} berhasil dicatat.");
+                ->with('success', "Penerimaan barang fisik untuk Purchase Order {$po->nomor_po} berhasil dicatat. Saldo stok gudang telah diperbarui.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
             if ($request->wantsJson()) {
                 return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
@@ -499,10 +529,14 @@ class PurchaseOrderController extends Controller
             return back()->with('error', $errorMessage)->withErrors($e->validator)->withInput();
         } catch (QueryException $e) {
             $isDeadlock = in_array((string) $e->getCode(), ['40001', '1213'], true)
-                || (isset($e->errorInfo[1]) && in_array((int) $e->errorInfo[1], [1205, 1213], true));
+                || (isset($e->errorInfo[1]) && in_array((int) $e->errorInfo[1], [1205, 1213], true))
+                || str_contains(strtolower($e->getMessage()), 'deadlock')
+                || str_contains(strtolower($e->getMessage()), 'lock wait timeout')
+                || str_contains(strtolower($e->getMessage()), 'database is locked')
+                || str_contains(strtolower($e->getMessage()), 'busy');
 
             $friendlyMessage = $isDeadlock
-                ? 'Sistem mendeteksi kepadatan transaksi pada database saat memperbarui saldo stok. Transaksi dibatalkan dengan aman untuk menjaga integritas ledger. Silakan coba kembali beberapa saat lagi.'
+                ? 'Sistem mendeteksi kepadatan transaksi pada database saat memperbarui saldo stok di gudang. Transaksi dibatalkan dengan aman untuk menjaga integritas saldo. Silakan coba kembali beberapa saat lagi.'
                 : 'Terjadi kendala saat menyimpan mutasi stok ke database. Silakan coba beberapa saat lagi.';
 
             if ($request->wantsJson()) {
@@ -522,6 +556,24 @@ class PurchaseOrderController extends Controller
         return response($pdfContent, 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="'.$purchaseOrder->nomor_po.'.pdf"',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
+    public function labelsPdf(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        BarcodeLabelPdfService $labelPdfService
+    ): Response {
+        $this->authorize('viewPdf', $purchaseOrder);
+
+        $copiesPerItem = max(1, min(10, (int) $request->input('copies', 1)));
+        $pdfContent = $labelPdfService->makeForPurchaseOrder($purchaseOrder, $copiesPerItem);
+
+        return response($pdfContent, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="label-barcode-'.$purchaseOrder->nomor_po.'.pdf"',
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, no-store',
         ]);

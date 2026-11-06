@@ -497,4 +497,105 @@ class ThreeWayMatchingAndSupplierPerformanceTest extends TestCase
         $response->assertSee('PO-20261029-3001');
         $response->assertSee('Buka Matriks Three-Way Matching');
     }
+
+    public function test_supplier_performance_sla_and_discrepancy_calculations(): void
+    {
+        // Buat supplier dengan performa kritis / breach SLA
+        $badSupplier = Supplier::create([
+            'kode_supplier' => 'SUP-BAD-01',
+            'nama_supplier' => 'PT Suplai Kritis Terlambat',
+            'is_active' => true,
+        ]);
+
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261104-BAD',
+            'supplier_id' => $badSupplier->id,
+            'warehouse_id' => $this->warehouse->id,
+            'status' => PurchaseOrderStatus::COMPLETED,
+            'tanggal_pesan' => '2026-10-15',
+            'estimasi_tiba' => '2026-10-18',
+            'total_biaya' => 500000,
+            'created_by' => $this->staff->id,
+        ]);
+
+        $item = PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'barang_id' => $this->barangA->id,
+            'jumlah_pesan' => 20,
+            'jumlah_diterima' => 10, // Selisih 50%
+            'harga_satuan' => 25000,
+            'subtotal' => 500000,
+        ]);
+
+        $grn = GoodsReceipt::create([
+            'nomor_grn' => 'GRN-20261104-BAD-01',
+            'purchase_order_id' => $po->id,
+            'warehouse_id' => $this->warehouse->id,
+            'tanggal_terima' => '2026-10-25', // Terlambat 7 hari (>4 toleransi SLA)
+            'received_by' => $this->staff->id,
+        ]);
+        $grn->items()->create(['purchase_order_item_id' => $item->id, 'barang_id' => $this->barangA->id, 'jumlah_diterima' => 10]);
+
+        $perfService = app(SupplierPerformanceService::class);
+        $metrics = $perfService->calculateForSupplier($badSupplier);
+
+        $this->assertEquals(50.0, $metrics['fulfillment_rate']);
+        $this->assertEquals(0.0, $metrics['on_time_rate']);
+        $this->assertEquals(7.0, $metrics['avg_delay_days']);
+        $this->assertEquals(100.0, $metrics['discrepancy_rate']);
+        $this->assertEquals(1, $metrics['discrepancy_po_count']);
+        $this->assertEquals('BREACHED', $metrics['sla_status']);
+        $this->assertEquals('Melanggar SLA', $metrics['sla_label']);
+        $this->assertNotEmpty($metrics['sla_breach_reasons']);
+    }
+
+    public function test_supplier_performance_dashboard_with_date_range_and_sla_filter(): void
+    {
+        $response = $this->actingAs($this->manager)->get(route('suppliers.performance', [
+            'start_date' => '2026-10-01',
+            'end_date' => '2026-11-30',
+            'sla' => 'all',
+        ]));
+        $response->assertOk();
+        $response->assertSee('Dashboard Performa Supplier');
+        $response->assertSee('Tabel Peringkat Kepatuhan dan Performa Vendor');
+
+        // Filter SLA Breached
+        $responseSla = $this->actingAs($this->manager)->get(route('suppliers.performance', ['sla' => 'BREACHED']));
+        $responseSla->assertOk();
+    }
+
+    public function test_supplier_performance_exports_excel_csv_pdf(): void
+    {
+        // 1. Export Excel
+        $responseExcel = $this->actingAs($this->manager)->get(route('suppliers.performance.export-excel'));
+        $responseExcel->assertOk();
+        $this->assertEquals('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $responseExcel->headers->get('Content-Type'));
+        $this->assertStringContainsString('.xlsx', $responseExcel->headers->get('Content-Disposition') ?? '');
+
+        // 2. Export CSV
+        $responseCsv = $this->actingAs($this->manager)->get(route('suppliers.performance.export-csv'));
+        $responseCsv->assertOk();
+        $this->assertStringContainsString('text/csv', $responseCsv->headers->get('Content-Type') ?? '');
+        $this->assertStringContainsString('.csv', $responseCsv->headers->get('Content-Disposition') ?? '');
+
+        // 3. Export PDF
+        $responsePdf = $this->actingAs($this->manager)->get(route('suppliers.performance.export-pdf'));
+        $responsePdf->assertOk();
+        $this->assertEquals('application/pdf', $responsePdf->headers->get('Content-Type'));
+        $this->assertStringContainsString('%PDF-1.4', $responsePdf->getContent());
+    }
+
+    public function test_supplier_performance_detail_with_date_range_filter(): void
+    {
+        $response = $this->actingAs($this->manager)->get(route('suppliers.performance.show', [
+            'supplier' => $this->supplier,
+            'start_date' => '2026-10-01',
+            'end_date' => '2026-10-31',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Audit Performa:');
+        $response->assertSee('Distribusi Ketepatan Waktu Pengiriman');
+    }
 }

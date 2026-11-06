@@ -21,7 +21,7 @@
             <p class="detail-value">{{ number_format($barang->stok, 0, ',', '.') }} {{ $barang->satuan }}</p>
             <div class="table-responsive mt-3">
                 <table class="table table-sm">
-                    <thead><tr><th>Gudang aktif</th><th class="text-end">Saldo</th></tr></thead>
+                    <thead><tr><th>Gudang aktif</th><th class="text-end">Stok</th></tr></thead>
                     <tbody>
                     @foreach($warehouses as $warehouse)
                         @php($balance = (int) optional($warehouse->warehouseStocks->first())->stok)
@@ -63,7 +63,7 @@
                 <div class="form-group">
                     <label for="jumlah" class="form-label">Jumlah transfer</label>
                     <input id="jumlah" name="jumlah" type="number" min="1" step="1" class="form-control @error('jumlah') is-invalid @enderror" value="{{ old('jumlah') }}" required data-transfer-quantity aria-describedby="transferBalanceHelp">
-                    <div class="form-text" id="transferBalanceHelp" data-transfer-balance>Pilih gudang asal untuk melihat saldo tersedia.</div>
+                    <div class="form-text" id="transferBalanceHelp" data-transfer-balance>Pilih gudang asal untuk melihat stok tersedia.</div>
                     @error('jumlah')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 </div>
                 <div class="row">
@@ -114,7 +114,7 @@
             option.disabled = option.value !== '' && option.value === source.value;
         });
         if (destination.selectedOptions[0] && destination.selectedOptions[0].disabled) destination.value = '';
-        feedback.textContent = stock === null ? 'Pilih gudang asal untuk melihat saldo tersedia.' : 'Saldo tersedia: ' + stock + ' {{ $barang->satuan }}.';
+        feedback.textContent = stock === null ? 'Pilih gudang asal untuk melihat stok tersedia.' : 'Stok tersedia: ' + stock + ' {{ $barang->satuan }}.';
     };
     source.addEventListener('change', sync);
     destination.addEventListener('change', sync);

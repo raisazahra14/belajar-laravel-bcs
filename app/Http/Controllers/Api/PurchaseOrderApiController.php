@@ -12,6 +12,7 @@ use App\Http\Requests\UpdatePurchaseOrderRequest;
 use App\Http\Resources\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
 use App\Services\PurchaseOrderService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -155,6 +156,9 @@ class PurchaseOrderApiController extends Controller
                 $request->user(),
                 $validated['catatan'] ?? null,
                 $validated['tanggal_terima'] ?? null,
+                $validated['nomor_surat_jalan'] ?? null,
+                null,
+                $validated['receipt_token'] ?? null,
             );
             $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
 
@@ -164,6 +168,22 @@ class PurchaseOrderApiController extends Controller
                 'message' => $e->getMessage(),
                 'error_code' => $e->errorCode,
             ], $e->statusCode);
+        } catch (QueryException $e) {
+            $isDeadlock = in_array((string) $e->getCode(), ['40001', '1213'], true)
+                || (isset($e->errorInfo[1]) && in_array((int) $e->errorInfo[1], [1205, 1213], true))
+                || str_contains(strtolower($e->getMessage()), 'deadlock')
+                || str_contains(strtolower($e->getMessage()), 'lock wait timeout')
+                || str_contains(strtolower($e->getMessage()), 'database is locked')
+                || str_contains(strtolower($e->getMessage()), 'busy');
+
+            $friendlyMessage = $isDeadlock
+                ? 'Sistem mendeteksi kepadatan transaksi pada database saat memperbarui saldo stok di gudang. Transaksi dibatalkan dengan aman untuk menjaga integritas saldo. Silakan coba kembali beberapa saat lagi.'
+                : 'Terjadi kendala saat menyimpan mutasi stok ke database. Silakan coba beberapa saat lagi.';
+
+            return response()->json([
+                'message' => $friendlyMessage,
+                'error_code' => 'database_conflict',
+            ], 409);
         }
     }
 }

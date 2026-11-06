@@ -21,6 +21,7 @@ use App\Http\Controllers\StockTransactionReversalController;
 use App\Http\Controllers\StockTransferController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\SupplierPerformanceController;
+use App\Http\Controllers\SystemHealthController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
@@ -42,6 +43,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/verifications/{documentVerification}/retry', [DocumentVerificationController::class, 'retry'])->name('verifications.retry');
     Route::get('/verifications/{documentVerification}', [DocumentVerificationController::class, 'show'])->name('verifications.show');
     Route::get('/verifications/{documentVerification}/download', [DocumentVerificationController::class, 'download'])->name('verifications.download');
+    Route::get('/verifications/{documentVerification}/preview', [DocumentVerificationController::class, 'preview'])->name('verifications.preview');
     Route::post('/verifications/{documentVerification}/reprocess', [DocumentVerificationController::class, 'reprocess'])->name('verifications.reprocess');
     Route::patch('/verifications/{documentVerification}/metadata', [DocumentVerificationController::class, 'updateMetadata'])->name('verifications.metadata.update');
 
@@ -50,6 +52,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/barang/scanner/cari', [BarangController::class, 'scanLookup'])->name('barang.scanner.lookup');
     Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
     Route::get('/suppliers/performance', [SupplierPerformanceController::class, 'index'])->name('suppliers.performance');
+    Route::get('/suppliers/performance/export/excel', [SupplierPerformanceController::class, 'exportExcel'])->name('suppliers.performance.export-excel');
+    Route::get('/suppliers/performance/export/csv', [SupplierPerformanceController::class, 'exportCsv'])->name('suppliers.performance.export-csv');
+    Route::get('/suppliers/performance/export/pdf', [SupplierPerformanceController::class, 'exportPdf'])->name('suppliers.performance.export-pdf');
     Route::get('/suppliers/{supplier}/performance', [SupplierPerformanceController::class, 'show'])->name('suppliers.performance.show');
     Route::get('/warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
     Route::middleware('role:admin')->group(function () {
@@ -62,11 +67,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
 
     Route::get('/purchase-orders', [PurchaseOrderController::class, 'index'])->name('purchase-orders.index');
+    Route::get('/purchase-orders/export', [PurchaseOrderController::class, 'export'])->name('purchase-orders.export');
     Route::get('/purchase-orders/create', [PurchaseOrderController::class, 'create'])->name('purchase-orders.create');
     Route::post('/purchase-orders', [PurchaseOrderController::class, 'store'])->name('purchase-orders.store');
     Route::get('/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'show'])->name('purchase-orders.show');
     Route::get('/purchase-orders/{purchaseOrder}/three-way-matching', [PurchaseOrderController::class, 'threeWayMatching'])->name('purchase-orders.three-way-matching');
     Route::get('/purchase-orders/{purchaseOrder}/pdf', [PurchaseOrderController::class, 'pdf'])->name('purchase-orders.pdf');
+    Route::get('/purchase-orders/{purchaseOrder}/labels-pdf', [PurchaseOrderController::class, 'labelsPdf'])->name('purchase-orders.labels-pdf');
     Route::get('/purchase-orders/{purchaseOrder}/edit', [PurchaseOrderController::class, 'edit'])->name('purchase-orders.edit');
     Route::match(['put', 'patch'], '/purchase-orders/{purchaseOrder}', [PurchaseOrderController::class, 'update'])->name('purchase-orders.update');
     Route::post('/purchase-orders/{purchaseOrder}/submit', [PurchaseOrderController::class, 'submit'])->name('purchase-orders.submit');
@@ -80,9 +87,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/barang/dashboard/activity', [BarangController::class, 'dashboardActivity'])->name('barang.dashboard.activity');
     Route::get('/barang/{barang}/qr-code', [BarangQrCodeController::class, 'show'])->name('barang.qr-code');
     Route::get('/barang/{barang}/qr-code/download', [BarangQrCodeController::class, 'download'])->name('barang.qr-code.download');
+    Route::get('/barang/{barang}/label-pdf', [BarangQrCodeController::class, 'labelPdf'])->name('barang.label-pdf');
     Route::get('/barang/create', [BarangController::class, 'create'])->middleware('role:admin');
     Route::get('/barang/low-stock', [BarangController::class, 'lowStock']);
-    Route::get('/barang/{id}', [BarangController::class, 'show']);
+    Route::get('/barang/{id}', [BarangController::class, 'show'])->name('barang.show');
     Route::get('/barang/{id}/riwayat-stok', [BarangController::class, 'riwayatStok'])->name('barang.stock-history');
     Route::get('/barang/{id}/stok', [BarangController::class, 'stok'])->name('barang.stok');
     Route::post('/barang/{id}/stok', [BarangController::class, 'updateStok']);
@@ -122,6 +130,11 @@ Route::middleware('auth')->group(function () {
     Route::middleware('role:admin')->group(function () {
         Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics.index');
         Route::get('/analytics/csv', [AnalyticsController::class, 'csv'])->name('analytics.csv');
+        Route::get('/analytics/procurement/export/excel', [AnalyticsController::class, 'exportProcurementExcel'])->name('analytics.procurement.export-excel');
+        Route::get('/analytics/procurement/export/csv', [AnalyticsController::class, 'exportProcurementCsv'])->name('analytics.procurement.export-csv');
+        Route::get('/analytics/procurement/export/pdf', [AnalyticsController::class, 'exportProcurementPdf'])->name('analytics.procurement.export-pdf');
+        Route::get('/admin/system-health', [SystemHealthController::class, 'index'])->name('system-health.index');
+        Route::get('/admin/system-health/json', [SystemHealthController::class, 'json'])->name('system-health.json');
         Route::get('/suppliers/{supplier}/edit', [SupplierController::class, 'edit'])->name('suppliers.edit');
         Route::match(['put', 'patch'], '/suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
         Route::delete('/suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('suppliers.destroy');

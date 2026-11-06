@@ -4,6 +4,9 @@ namespace Tests\Feature;
 
 use App\Enums\PurchaseOrderStatus;
 use App\Models\Barang;
+use App\Models\GoodsReceipt;
+use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderItem;
 use App\Models\StockPrediction;
 use App\Models\Supplier;
 use App\Models\User;
@@ -12,6 +15,7 @@ use App\Models\WarehouseStock;
 use App\Services\PurchaseOrderService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PurchaseOrderSmartRestockIntegrationTest extends TestCase
@@ -248,5 +252,161 @@ class PurchaseOrderSmartRestockIntegrationTest extends TestCase
         // Staff tidak memiliki izin 'approve-restock'
         $response = $this->actingAs($this->staff)->get(route('stock-predictions.create-po', $prediction));
         $response->assertStatus(403);
+    }
+
+    public function test_smart_restock_automatically_recommends_best_sla_vendor_when_default_vendor_has_lower_sla(): void
+    {
+        // Supplier A (supplier default barang) melanggar SLA (pengiriman terlambat 10 hari)
+        $poA = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261001-0001',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehousePusat->id,
+            'status' => PurchaseOrderStatus::COMPLETED,
+            'tanggal_pesan' => '2026-10-01',
+            'estimasi_tiba' => '2026-10-05',
+            'total_biaya' => 1500000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $poA->id,
+            'barang_id' => $this->barang->id,
+            'jumlah_pesan' => 10,
+            'jumlah_diterima' => 6,
+            'harga_satuan' => 150000,
+            'subtotal' => 1500000,
+        ]);
+        GoodsReceipt::create([
+            'nomor_grn' => 'GRN-20261015-0001',
+            'purchase_order_id' => $poA->id,
+            'warehouse_id' => $this->warehousePusat->id,
+            'tanggal_terima' => '2026-10-15', // terlambat 10 hari
+            'received_by' => $this->staff->id,
+        ]);
+
+        // Supplier B memiliki rekam jejak SLA sempurna (100% On-Time, 100% Fulfillment -> COMPLIANT)
+        $poB = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261010-0002',
+            'supplier_id' => $this->supplierB->id,
+            'warehouse_id' => $this->warehousePusat->id,
+            'status' => PurchaseOrderStatus::COMPLETED,
+            'tanggal_pesan' => '2026-10-10',
+            'estimasi_tiba' => '2026-10-15',
+            'total_biaya' => 3000000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $poB->id,
+            'barang_id' => $this->barang->id,
+            'jumlah_pesan' => 20,
+            'jumlah_diterima' => 20,
+            'harga_satuan' => 150000,
+            'subtotal' => 3000000,
+        ]);
+        GoodsReceipt::create([
+            'nomor_grn' => 'GRN-20261014-0002',
+            'purchase_order_id' => $poB->id,
+            'warehouse_id' => $this->warehousePusat->id,
+            'tanggal_terima' => '2026-10-14', // tepat waktu
+            'received_by' => $this->staff->id,
+        ]);
+
+        $prediction = StockPrediction::create([
+            'barang_id' => $this->barang->id,
+            'current_stock' => 25,
+            'predicted_30_day_need' => 110.00,
+            'predicted_depletion_date' => '2026-11-10',
+            'recommended_restock' => 85,
+            'safety_stock' => 15,
+            'status' => StockPrediction::STATUS_URGENT,
+            'method' => 'linear_regression',
+            'analysis_status' => 'success',
+            'analyzed_at' => now(),
+        ]);
+
+        $service = app(PurchaseOrderService::class);
+        $smartData = $service->prepareSmartRestockData($prediction);
+
+        // Sistem otomatis merekomendasikan Supplier B yang COMPLIANT (Skor 100%) dibanding Supplier A yang BREACHED
+        $this->assertSame($this->supplierB->id, $smartData['supplier_id']);
+        $this->assertTrue($smartData['vendor_recommendation']['is_sla_upgrade']);
+        $this->assertSame('COMPLIANT', $smartData['vendor_recommendation']['recommended_metrics']['sla_status']);
+        $this->assertSame(100.0, $smartData['vendor_recommendation']['recommended_metrics']['performance_score']);
+        $this->assertStringContainsString('PT Sentosa Abadi', $smartData['vendor_recommendation']['recommendation_reason']);
+
+        // Verifikasi halaman Prediksi Stok menampilkan badge SLA Vendor & tombol 1-Click Create PO
+        $indexResponse = $this->actingAs($this->manager)->get(route('stock-predictions.index'));
+        $indexResponse->assertOk()
+            ->assertSee('1-Click Create PO')
+            ->assertSee('Smart Restock AI + Best Vendor SLA')
+            ->assertSee('PT Sentosa Abadi')
+            ->assertSee('Rekomendasi Terbaik SLA');
+
+        // Verifikasi halaman Create PO dari prediksi otomatis memilih Supplier B dan menampilkan panel SLA
+        $createResponse = $this->actingAs($this->manager)->get(route('purchase-orders.create', ['from_prediction' => $prediction->id]));
+        $createResponse->assertOk()
+            ->assertSee('smart-restock-sla-panel', false)
+            ->assertSee('Analisis Kepatuhan SLA Vendor')
+            ->assertSee('Peringkat Kandidat Vendor')
+            ->assertViewHas('defaultSupplierId', $this->supplierB->id);
+    }
+
+    public function test_goods_receipt_modal_renders_barcode_qr_scanner_and_item_attributes(): void
+    {
+        $barang2 = Barang::create([
+            'kode_barang' => 'BRG-DONE-002',
+            'nama_barang' => 'Stretch Film Selesai',
+            'kategori' => 'Logistik',
+            'stok' => 10,
+            'satuan' => 'roll',
+            'lokasi' => 'Zona B-01',
+            'harga_beli' => 50000,
+            'supplier_id' => $this->supplierA->id,
+        ]);
+
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261105-0099',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehousePusat->id,
+            'status' => PurchaseOrderStatus::PARTIALLY_RECEIVED,
+            'tanggal_pesan' => '2026-11-01',
+            'estimasi_tiba' => '2026-11-08',
+            'total_biaya' => 2000000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+
+        // Item 1: masih ada sisa 6 unit
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'barang_id' => $this->barang->id,
+            'jumlah_pesan' => 10,
+            'jumlah_diterima' => 4,
+            'harga_satuan' => 150000,
+            'subtotal' => 1500000,
+        ]);
+
+        // Item 2: sudah diterima penuh (sisa 0)
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'barang_id' => $barang2->id,
+            'jumlah_pesan' => 10,
+            'jumlah_diterima' => 10,
+            'harga_satuan' => 50000,
+            'subtotal' => 500000,
+        ]);
+
+        $response = $this->actingAs($this->staff)->get(route('purchase-orders.show', $po));
+
+        $response->assertOk()
+            ->assertSee('id="grn-barcode-scanner"', false)
+            ->assertSee('id="grn-scanner-input"', false)
+            ->assertSee('id="grn-scanner-step"', false)
+            ->assertSee('id="grn-scanner-add-btn"', false)
+            ->assertSee('id="grn-camera-start-btn"', false)
+            ->assertSee('data-kode-barang="BRG-SMART-001"', false)
+            ->assertSee('data-completed-codes="BRG-DONE-002"', false)
+            ->assertSee('assets/js/grn-barcode-scanner.js', false);
     }
 }

@@ -145,6 +145,7 @@ class ReceivePurchaseOrderItemRequest extends FormRequest
             'nomor_surat_jalan' => ['nullable', 'string', 'max:120'],
             'foto_surat_jalan' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:5120'],
             'catatan' => ['nullable', 'string', 'max:1000'],
+            'receipt_token' => ['nullable', 'string', 'max:64'],
         ];
     }
 
@@ -156,7 +157,7 @@ class ReceivePurchaseOrderItemRequest extends FormRequest
             if ($po && ! $po->status->canReceiveGoods()) {
                 $validator->errors()->add(
                     'status',
-                    "Penerimaan barang tidak dapat dicatat untuk Purchase Order yang berstatus {$po->status->label()}."
+                    "Penerimaan barang fisik tidak dapat dicatat untuk Purchase Order yang berstatus \"{$po->status->label()}\". Barang hanya dapat diterima pada pesanan yang telah disetujui (Approved) atau diterima sebagian (Partially Received)."
                 );
             }
 
@@ -165,9 +166,10 @@ class ReceivePurchaseOrderItemRequest extends FormRequest
             if ($singleItem && $this->filled('jumlah_diterima')) {
                 $qty = (int) $this->input('jumlah_diterima');
                 if ($qty > $singleItem->sisa) {
+                    $namaBarang = $singleItem->barang?->nama_barang ?? "Item #{$singleItem->id}";
                     $validator->errors()->add(
                         'jumlah_diterima',
-                        "Jumlah barang yang diterima ({$qty}) melebihi sisa barang yang belum tiba ({$singleItem->sisa})."
+                        "Jumlah barang yang diterima untuk {$namaBarang} ({$qty} unit) melebihi sisa barang yang belum tiba ({$singleItem->sisa} unit). Mohon sesuaikan jumlah fisik aktual."
                     );
                 }
             }
@@ -198,7 +200,7 @@ class ReceivePurchaseOrderItemRequest extends FormRequest
                         $namaBarang = $item->barang?->nama_barang ?? "Item #{$item->id}";
                         $validator->errors()->add(
                             "items.{$index}.jumlah_diterima",
-                            "Jumlah diterima untuk {$namaBarang} ({$qty}) melebihi sisa barang yang belum tiba ({$item->sisa})."
+                            "Jumlah barang yang diterima untuk {$namaBarang} ({$qty} unit) melebihi sisa barang yang belum tiba ({$item->sisa} unit). Mohon sesuaikan jumlah fisik aktual."
                         );
                     }
                 }

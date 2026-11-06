@@ -244,6 +244,34 @@ class DocumentVerificationTest extends TestCase
         Queue::assertPushed(ProcessDocumentVerification::class, 1);
     }
 
+    public function test_processing_status_triggers_self_healing_direct_run_when_requested(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create(['role' => 'staff']);
+        $verification = DocumentVerification::create([
+            ...$this->historyData($user, 'auto-run.pdf'),
+            'process_status' => 'menunggu',
+            'authenticity_status' => null,
+            'file_path' => 'document-verifications/'.$user->id.'/auto-run.pdf',
+        ]);
+        Storage::disk('local')->put($verification->file_path, 'dummy content');
+
+        $this->mock(DocumentVerificationService::class)
+            ->shouldReceive('verify')
+            ->once()
+            ->andReturn($this->verificationResult());
+
+        $this->actingAs($user)->getJson(route('verifications.status', [$verification, 'run_now' => 1]))
+            ->assertOk()
+            ->assertJson([
+                'process_status' => 'selesai',
+                'authenticity_status' => 'asli',
+                'result_url' => route('verifications.show', $verification),
+            ]);
+
+        $this->assertSame('selesai', $verification->fresh()->process_status);
+    }
+
     public function test_failed_processing_page_offers_retry_without_fake_percentage(): void
     {
         $user = User::factory()->create(['role' => 'staff']);
@@ -576,6 +604,23 @@ class DocumentVerificationTest extends TestCase
         $this->actingAs($admin)->get(route('verifications.download', $verification))
             ->assertOk()->assertDownload('surat jalan.pdf');
         $this->actingAs($other)->get(route('verifications.download', $verification))->assertForbidden();
+    }
+
+    public function test_owner_and_admin_can_preview_document_inline_but_other_staff_cannot(): void
+    {
+        Storage::fake('local');
+        $owner = User::factory()->create(['role' => 'staff']);
+        $other = User::factory()->create(['role' => 'staff']);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $verification = DocumentVerification::create($this->historyData($owner, 'surat jalan.pdf'));
+        Storage::disk('local')->put($verification->file_path, 'PDF content');
+
+        $this->actingAs($owner)->get(route('verifications.preview', $verification))
+            ->assertOk()
+            ->assertHeader('Content-Disposition', 'inline; filename="surat jalan.pdf"');
+        $this->actingAs($admin)->get(route('verifications.preview', $verification))
+            ->assertOk();
+        $this->actingAs($other)->get(route('verifications.preview', $verification))->assertForbidden();
     }
 
     public function test_owner_can_reprocess_document_and_update_metadata_without_replacing_file(): void

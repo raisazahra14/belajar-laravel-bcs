@@ -22,6 +22,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
@@ -123,9 +124,45 @@ class DocumentVerificationController extends Controller
         return view('verifications.processing', ['verification' => $documentVerification]);
     }
 
-    public function status(DocumentVerification $documentVerification): JsonResponse
+    public function status(Request $request, DocumentVerification $documentVerification): JsonResponse
     {
         $this->authorizeAccess($documentVerification);
+
+        // Self-Healing Inline Fallback:
+        // Jika antrean background worker tidak aktif (stalled) saat dokumen berstatus 'menunggu'
+        // dan telah menunggu lebih dari 4 detik atau dipicu langsung via query (?run_now=1),
+        // eksekusi dokumen secara langsung agar pengguna tidak tertahan di status 'menunggu antrean'.
+        if (
+            $documentVerification->process_status === DocumentVerification::PROCESS_WAITING
+            && (! app()->runningUnitTests() || $request->boolean('run_now'))
+        ) {
+            // Eksekusi sinkron hanya bila diminta eksplisit (run_now / auto_run) agar tidak memblokir worker HTTP saat polling
+            if ($request->boolean('run_now') || $request->boolean('auto_run')) {
+                $lockKey = "document_verification:auto_process:{$documentVerification->id}";
+                $lock = Cache::lock($lockKey, 60);
+
+                if ($lock->get()) {
+                    try {
+                        $fresh = $documentVerification->fresh();
+                        if ($fresh && $fresh->process_status === DocumentVerification::PROCESS_WAITING) {
+                            // Hapus job dari tabel queue database hanya bila menggunakan database queue driver
+                            if (config('queue.default') === 'database' && \Illuminate\Support\Facades\Schema::hasTable('jobs')) {
+                                try {
+                                    DB::table('jobs')
+                                        ->where('payload', 'like', '%ProcessDocumentVerification%')
+                                        ->where('payload', 'like', '%"verificationId":'.$documentVerification->id.'%')
+                                        ->delete();
+                                } catch (Throwable) {}
+                            }
+
+                            ProcessDocumentVerification::dispatchSync($documentVerification->id);
+                        }
+                    } finally {
+                        $lock->release();
+                    }
+                }
+            }
+        }
 
         return response()->json($this->statusPayload($documentVerification->fresh()));
     }
@@ -162,6 +199,22 @@ class DocumentVerificationController extends Controller
         return Storage::disk('local')->download(
             $documentVerification->file_path,
             $documentVerification->original_filename,
+        );
+    }
+
+    public function preview(Request $request, DocumentVerification $documentVerification): StreamedResponse
+    {
+        $this->authorizeAccess($documentVerification);
+        abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
+
+        if ($request->hasSession()) {
+            $request->session()->save();
+        }
+
+        return Storage::disk('local')->response(
+            $documentVerification->file_path,
+            $documentVerification->original_filename,
+            ['Content-Disposition' => 'inline; filename="'.addslashes($documentVerification->original_filename).'"']
         );
     }
 

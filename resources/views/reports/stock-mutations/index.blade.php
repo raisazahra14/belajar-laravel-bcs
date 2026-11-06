@@ -1,7 +1,7 @@
 @extends('layouts.skydash')
 
 @section('content')
-<x-ui.page-header title="Laporan Mutasi Stok" description="Rekap saldo awal, barang masuk, barang keluar, dan saldo akhir per periode.">
+<x-ui.page-header title="Laporan Mutasi Stok" description="Rekap stok awal, barang masuk, barang keluar, dan stok akhir per periode.">
     <div class="page-actions"><div class="dropdown"><button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="ti-download" aria-hidden="true"></i> Unduh Laporan</button><ul class="dropdown-menu dropdown-menu-end mutation-export-menu"><li><a class="dropdown-item" href="{{ route('stock-mutations.csv', $filters) }}"><i class="ti-file" aria-hidden="true"></i> CSV</a></li><li><a class="dropdown-item" href="{{ route('stock-mutations.excel', $filters) }}"><i class="ti-layout-grid2" aria-hidden="true"></i> Excel</a></li><li><a class="dropdown-item" href="{{ route('stock-mutations.pdf', $filters) }}"><i class="ti-printer" aria-hidden="true"></i> PDF</a></li></ul></div></div>
 </x-ui.page-header>
 
@@ -114,11 +114,11 @@
         </div>
     </div>
     @if(! $report['totals']['history_available'])
-        <x-ui.alert type="warning">{{ $report['totals']['unavailable_count'] }} barang tidak mempunyai saldo historis yang dapat dibuktikan. Total saldo awal dan akhir tidak ditampilkan, tetapi mutasi IN/OUT yang memiliki tanggal tetap direkap.</x-ui.alert>
+        <x-ui.alert type="warning">{{ $report['totals']['unavailable_count'] }} barang tidak mempunyai stok historis yang dapat dibuktikan. Total stok awal dan akhir tidak ditampilkan, tetapi mutasi IN/OUT yang memiliki tanggal tetap direkap.</x-ui.alert>
     @endif
     <div class="table-responsive">
         <table class="table">
-            <thead><tr><th>Barang</th><th>Kategori</th><th>Supplier saat ini</th><th class="text-end">Saldo awal</th><th class="text-end">Masuk</th><th class="text-end">Keluar</th><th class="text-end">Saldo akhir</th></tr></thead>
+            <thead><tr><th>Barang</th><th>Kategori</th><th>Supplier saat ini</th><th class="text-end">Stok awal</th><th class="text-end">Masuk</th><th class="text-end">Keluar</th><th class="text-end">Stok akhir</th></tr></thead>
             <tbody>
             @forelse($mutationRows as $row)
                 <tr>

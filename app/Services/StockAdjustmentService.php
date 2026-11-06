@@ -289,6 +289,34 @@ class StockAdjustmentService
                 ],
             );
             $original->update(['reversed_at' => now(), 'reversed_by' => $userId]);
+
+            if ($original->reference_type === 'PO' && $original->reference_number) {
+                $po = \App\Models\PurchaseOrder::where('nomor_po', $original->reference_number)->first();
+                if ($po) {
+                    $poItem = $po->items()->where('barang_id', $original->barang_id)->first();
+                    if ($poItem) {
+                        $poItem->jumlah_diterima = max(0, (int) $poItem->jumlah_diterima - (int) $original->jumlah);
+                        $poItem->save();
+                    }
+                    $totalPesan = (int) $po->items()->sum('jumlah_pesan');
+                    $totalTerima = (int) $po->items()->sum('jumlah_diterima');
+                    $newStatus = $totalTerima <= 0
+                        ? \App\Enums\PurchaseOrderStatus::APPROVED
+                        : ($totalTerima < $totalPesan ? \App\Enums\PurchaseOrderStatus::PARTIALLY_RECEIVED : \App\Enums\PurchaseOrderStatus::COMPLETED);
+
+                    if ($po->status !== $newStatus) {
+                        $oldStatus = $po->status;
+                        $po->status = $newStatus;
+                        $po->save();
+                        $po->recordStatusHistory(
+                            $oldStatus,
+                            $newStatus,
+                            \App\Models\User::find($userId),
+                            'Penyesuaian status akibat reversal mutasi stok #'.$original->id,
+                        );
+                    }
+                }
+            }
         });
     }
 

@@ -156,7 +156,7 @@ class StockMutationReportTest extends TestCase
             'warehouse_id' => $warehouse->id,
         ]));
 
-        $response->assertOk()->assertSee('tidak mempunyai saldo historis yang dapat dibuktikan');
+        $response->assertOk()->assertSee('tidak mempunyai stok historis yang dapat dibuktikan');
         $report = $response->viewData('report');
         $this->assertFalse($report['totals']['history_available']);
         $this->assertSame(2, $report['totals']['unavailable_count']);

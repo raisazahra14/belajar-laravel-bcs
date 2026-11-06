@@ -41,16 +41,27 @@
     @php($ui = $presentations->get($prediction->id))
     @php($summary = $ui['summary'])
     @php($process = $processes->get($prediction->barang_id))
+    @php($vendorRec = isset($vendorRecommendations) ? $vendorRecommendations->get($prediction->id) : null)
+    @php($recSupplier = $vendorRec['recommended_supplier'] ?? null)
+    @php($recMetrics = $vendorRec['recommended_metrics'] ?? null)
     @php($isFocused = request()->integer('focus') === $prediction->id)
     <tr class="prediction-summary-row">
         <td><strong>{{ $prediction->barang->nama_barang }}</strong><small>{{ $prediction->barang->kode_barang }}</small>@if(!$ui['available'])<span class="prediction-data-missing">Data belum lengkap</span>@endif</td>
         <td><x-ui.badge variant="{{ $ui['risk_variant'] }}">{{ $prediction->status }}</x-ui.badge><span class="sr-only">Risiko stok {{ $prediction->status }}</span></td>
         <td class="text-right text-nowrap">{{ $prediction->current_stock }} {{ $prediction->barang->satuan }}</td>
         <td class="text-nowrap">{{ $ui['available'] ? ($ui['depletion_date']?->format('d/m/Y') ?? 'Belum tersedia') : '—' }}</td>
-        <td class="text-right text-nowrap">{{ $ui['available'] ? $prediction->recommended_restock.' '.$prediction->barang->satuan : '—' }}</td>
+        <td class="text-right text-nowrap">
+            {{ $ui['available'] ? $prediction->recommended_restock.' '.$prediction->barang->satuan : '—' }}
+            @if($ui['available'] && $prediction->recommended_restock > 0 && $recSupplier)
+                <small class="d-block text-muted mt-1" title="{{ $vendorRec['recommendation_reason'] ?? '' }}">
+                    <span class="badge bg-{{ $recMetrics['sla_variant'] ?? 'secondary' }} text-white" style="font-size: 0.68rem;">{{ $recMetrics['sla_label'] ?? 'SLA' }}</span>
+                    {{ \Illuminate\Support\Str::limit($recSupplier->nama_supplier, 22) }}
+                </small>
+            @endif
+        </td>
         <td class="text-right">{{ $ui['confidence'] === null ? '—' : $ui['confidence_label'] }}</td>
         <td>@if($ui['process_label'])<x-ui.badge variant="{{ $ui['process_variant'] }}">{{ $ui['process_label'] }}</x-ui.badge>@else<span class="text-muted">—</span>@endif</td>
-        <td><div class="prediction-row-actions"><button class="btn btn-sm btn-outline-secondary prediction-detail-toggle" type="button" aria-expanded="{{ $isFocused ? 'true' : 'false' }}" aria-controls="prediction-detail-{{ $prediction->id }}">Detail</button>@can('approve-restock')@if($prediction->recommended_restock > 0)<a href="{{ route('purchase-orders.create', ['from_prediction' => $prediction->id]) }}" class="btn btn-sm btn-primary text-nowrap" title="Buat Purchase Order otomatis dari rekomendasi ini"><i class="ti-shopping-cart me-1"></i> Buat PO</a>@endif @endcan @can('run-stock-prediction')<form method="POST" action="{{ route('stock-predictions.analyze',$prediction->barang) }}">@csrf<x-ui.button type="submit" size="sm" variant="outline-primary" :disabled="in_array($process?->status, ['waiting','processing'], true)">Analisis Ulang</x-ui.button></form>@endcan</div></td>
+        <td><div class="prediction-row-actions"><button class="btn btn-sm btn-outline-secondary prediction-detail-toggle" type="button" aria-expanded="{{ $isFocused ? 'true' : 'false' }}" aria-controls="prediction-detail-{{ $prediction->id }}">Detail</button>@can('approve-restock')@if($prediction->recommended_restock > 0)<a href="{{ route('purchase-orders.create', ['from_prediction' => $prediction->id]) }}" class="btn btn-sm btn-primary text-nowrap" title="1-Click Create PO otomatis dengan vendor SLA terbaik dan kuantitas optimal"><i class="ti-shopping-cart me-1"></i> 1-Click Create PO</a>@endif @endcan @can('run-stock-prediction')<form method="POST" action="{{ route('stock-predictions.analyze',$prediction->barang) }}">@csrf<x-ui.button type="submit" size="sm" variant="outline-primary" :disabled="in_array($process?->status, ['waiting','processing'], true)">Analisis Ulang</x-ui.button></form>@endcan</div></td>
     </tr>
     <tr id="prediction-detail-{{ $prediction->id }}" class="prediction-detail-row"{{ $isFocused ? '' : ' hidden' }}><td colspan="8"><section aria-label="Detail prediksi {{ $prediction->barang->nama_barang }}">
         <div class="prediction-detail-heading"><div><span class="section-eyebrow">Dasar analisis</span><h3>{{ $prediction->barang->nama_barang }}</h3></div><button class="prediction-detail-close" type="button" aria-label="Tutup detail {{ $prediction->barang->nama_barang }}"><i class="ti-close"></i></button></div>
@@ -63,8 +74,30 @@
         <div class="prediction-cold-start"><strong>Prediksi belum tersedia.</strong><p>Lengkapi {{ collect($ui['missing_inputs'])->map(fn($item) => str($item)->lower())->join(' dan ') ?: 'estimasi pemakaian harian dan lead time pemasok' }}.</p>@can('manage-barang')<a class="btn btn-sm btn-outline-primary" href="/barang/{{ $prediction->barang_id }}/edit">Lengkapi data</a>@endcan</div>
         @else<p class="prediction-cold-start"><strong>Tanggal habis belum dapat dipastikan.</strong> Data jumlah tersedia, tetapi belum cukup untuk menentukan tanggal.</p>@endif
         <div class="prediction-analysis-note"><strong>Alasan dan rekomendasi</strong><p>{{ $summary['reason'] ?? 'Analisis menggunakan histori transaksi barang keluar yang tersedia.' }}</p>@if($summary['fallback_used'] ?? false)<p class="text-warning">Perhitungan cadangan digunakan karena engine utama tidak dapat menyelesaikan analisis.</p>@endif @if($summary['anomaly_reason'] ?? false)<p class="text-danger">{{ $summary['anomaly_reason'] }}</p>@endif</div>
+        @if($prediction->recommended_restock > 0 && $recSupplier)
+        <div class="p-3 mb-3 rounded border bg-light" data-sla-vendor-recommendation>
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <div>
+                    <span class="text-uppercase small fw-bold text-primary d-block">Smart Restock AI + Best Vendor SLA</span>
+                    <strong>{{ $recSupplier->nama_supplier }}</strong> <span class="text-muted small">({{ $recSupplier->kode_supplier }})</span>
+                    @if($vendorRec['is_sla_upgrade'] ?? false)
+                        <span class="badge bg-info text-dark ms-1">Rekomendasi Terbaik SLA</span>
+                    @endif
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-{{ $recMetrics['sla_variant'] ?? 'secondary' }}">{{ $recMetrics['sla_label'] ?? 'Belum Ada Data' }}</span>
+                    @if(($recMetrics['total_po'] ?? 0) > 0)
+                        <span class="badge bg-white text-dark border">Skor SLA: {{ number_format((float) $recMetrics['performance_score'], 1, ',', '.') }}%</span>
+                        <span class="badge bg-white text-dark border">On-Time: {{ number_format((float) $recMetrics['on_time_rate'], 1, ',', '.') }}%</span>
+                        <span class="badge bg-white text-dark border">Fulfillment: {{ number_format((float) $recMetrics['fulfillment_rate'], 1, ',', '.') }}%</span>
+                    @endif
+                </div>
+            </div>
+            <p class="small text-muted mb-0">{{ $vendorRec['recommendation_reason'] }}</p>
+        </div>
+        @endif
         <details class="prediction-technical-audit"><summary>Rincian teknis dan audit</summary><dl><dt>Metode teknis</dt><dd><code>{{ $ui['technical_method'] }}</code></dd><dt>Minimal histori</dt><dd>{{ $summary['minimum_history_days'] ?? 30 }} hari</dd><dt>Status analisis</dt><dd>{{ $summary['analysis_status'] ?? $prediction->analysis_status ?? 'Tidak tersedia' }}</dd><dt>Fallback</dt><dd>{{ ($summary['fallback_used'] ?? false) ? 'Digunakan' : 'Tidak digunakan' }}</dd></dl></details>
-        <div class="prediction-detail-actions">@can('approve-restock')@if($prediction->recommended_restock > 0)<a href="{{ route('purchase-orders.create', ['from_prediction' => $prediction->id]) }}" class="btn btn-sm btn-primary"><i class="ti-shopping-cart me-1"></i> Buat PO dari Rekomendasi</a><form method="POST" action="{{ route('stock-predictions.approve',$prediction) }}" class="d-inline">@csrf<x-ui.button type="submit" size="sm" variant="outline-secondary">Setujui Restock Manual</x-ui.button></form>@endif @endcan</div>
+        <div class="prediction-detail-actions">@can('approve-restock')@if($prediction->recommended_restock > 0)<a href="{{ route('purchase-orders.create', ['from_prediction' => $prediction->id]) }}" class="btn btn-sm btn-primary"><i class="ti-shopping-cart me-1"></i> 1-Click Create PO · Buat PO dari Rekomendasi</a><form method="POST" action="{{ route('stock-predictions.approve',$prediction) }}" class="d-inline">@csrf<x-ui.button type="submit" size="sm" variant="outline-secondary">Setujui Restock Manual</x-ui.button></form>@endif @endcan</div>
     </section></td></tr>
     @empty<tr><td colspan="8"><x-ui.empty-state icon="ti-stats-up" title="Belum ada hasil prediksi" description="Admin atau Manager dapat menjalankan analisis untuk mulai melihat rekomendasi." /></td></tr>@endforelse
     </tbody></table></div>

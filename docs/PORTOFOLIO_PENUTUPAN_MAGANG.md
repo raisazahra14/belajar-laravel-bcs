@@ -12,7 +12,7 @@
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, MySQL/MariaDB & SQLite, Python 3.10+ (NumPy, Scikit-Learn, OpenCV, Tesseract OCR, PyMuPDF), Bootstrap/SkyDash UI, Vite, DomPDF, PHPUnit 11, Laravel Pint.
 - **Periode Magang Penuh**: **Agustus 2026 s/d Januari/Februari 2027 (Total Durasi 6 Bulan)**
 - **Periode Pelaporan Saat Ini**: **Periode 3 (Bulan ke-3): 10 Oktober 2026 – 09 November 2026**
-- **Status Evaluasi Saat Ini**: **Capaian Periode 3 — 100% SELESAI & LULUS UJI REGRESI LENGKAP (464/464 Automated Tests PASS, 4.953 Assertions)**
+- **Status Evaluasi Saat Ini**: **Capaian Periode 3 — 100% SELESAI & LULUS UJI REGRESI LENGKAP (482+ Automated Tests PASS, >5.000 Assertions)**
 - **Sifat Dokumen**: **Living Portfolio Document** (File dokumen ini diperbarui secara berkala sebagai rekam jejak formal kompetensi dan deliverables nyata magang).
 
 ---
@@ -191,14 +191,17 @@ Dokumen ini merupakan **Portofolio Rekayasa Perangkat Lunak Berkala (*Living Por
 ---
 
 #### 🌟 Fitur Nilai Tambah Enterprise (Pengembangan Ekosistem Lanjutan)
-Selain pemenuhan 100% roadmap wajib, modul pengadaan ini diperkaya dengan 7 fitur canggih berstandar logistik modern:
+Selain pemenuhan 100% roadmap wajib, modul pengadaan ini diperkaya dengan 10 fitur canggih berstandar logistik modern:
 1. **Entitas Dokumen Mandiri Goods Receipt Note (GRN)**: Menerbitkan dokumen fisik berformat `GRN-YYYYMMDD-XXXX` untuk tiap sesi penerimaan bertahap, lengkap dengan cetak PDF resmi via `GoodsReceiptPdfService.php`.
-2. **Jejak Audit Status Interaktif (`PurchaseOrderStatusHistory`)**: Mencatat kronologi perubahan status, aktor pengubah, stempel waktu, dan catatan alasan, ditampilkan sebagai *visual timeline* di kartu detail PO.
-3. **Pusat Notifikasi Siklus Hidup PO**: Notifikasi terintegrasi di navbar drawer untuk memberi peringatan *Pending Approval*, *Approved*, *Rejected*, dan *Goods Received*.
-4. **Deteksi Otomatis PO Terlambat (Overdue Scheduler)**: Perintah `php artisan po:check-overdue --notify` untuk mendeteksi PO yang melewati estimasi tanggal tiba, lengkap dengan badge visual merah di tabel dan detail.
-5. **Smart Restock dari Modul Prediksi Stok AI**: Menghubungkan rekomendasi stok AI (`/prediksi-stok`) langsung ke form pembuatan PO secara otomatis.
-6. **Three-Way Matching (PO vs GRN vs Dokumen OCR Tesseract)**: `ThreeWayMatchingService.php` mencocokkan data PO, fisik GRN, dan tagihan invoice hasil ekstraksi AI OCR Tesseract guna mendeteksi *overbilling* dan *price discrepancy*.
-7. **Vendor Performance Analytics & Scorecard**: `SupplierPerformanceService.php` menghitung persentase ketepatan waktu (*On-Time Delivery Rate*), tingkat pemenuhan (*Fulfillment Rate*), dan skor komposit vendor di `/suppliers/performance`.
+2. **Pemindai Barcode / QR Code pada Penerimaan Fisik (`grn-barcode-scanner.js`)**: Memungkinkan staf gudang memindai kode barang (`BRG-######`) menggunakan kamera perangkat (*BarcodeDetector API*) atau *USB/Bluetooth Barcode Scanner* di dalam modal `#goodsReceiptModal` untuk menaikkan kuantitas tiba secara otomatis sesuai *step increment* dengan proteksi *anti-over-receipt*.
+3. **Jejak Audit Status Interaktif (`PurchaseOrderStatusHistory`)**: Mencatat kronologi perubahan status, aktor pengubah, stempel waktu, dan catatan alasan, ditampilkan sebagai *visual timeline* di kartu detail PO.
+4. **Pusat Notifikasi Siklus Hidup PO**: Notifikasi terintegrasi di navbar drawer untuk memberi peringatan *Pending Approval*, *Approved*, *Rejected*, dan *Goods Received*.
+5. **Deteksi Otomatis PO Terlambat (Overdue Scheduler)**: Perintah `php artisan po:check-overdue --notify` untuk mendeteksi PO yang melewati estimasi tanggal tiba, lengkap dengan badge visual merah di tabel dan detail.
+6. **Smart Restock AI + Best Vendor SLA (`1-Click Create PO`)**: Menghubungkan rekomendasi stok AI (`/prediksi-stok`) dengan evaluasi SLA vendor (`SupplierPerformanceService::recommendBestSupplierForBarang()`), otomatis memilih supplier aktif dengan skor SLA tertinggi (`COMPLIANT`, *On-Time Delivery* terbaik) dan menyediakan tombol `1-Click Create PO` beserta panel perbandingan kandidat vendor (`#smart-restock-sla-panel`).
+7. **Three-Way Matching (PO vs GRN vs Dokumen OCR Tesseract)**: `ThreeWayMatchingService.php` mencocokkan data PO, fisik GRN, dan tagihan invoice hasil ekstraksi AI OCR Tesseract guna mendeteksi *overbilling* dan *price discrepancy*.
+8. **Dual-Pane AI Review Workspace & Self-Healing OCR**: Antarmuka *side-by-side* pada `/verifications/{id}` dengan *Sticky Document Inspector* dan eksekusi OCR sinkron otomatis berbasis *atomic cache lock* apabila antrean mengendap $\ge 4$ detik.
+9. **Vendor Performance Analytics, SLA Governance & Multi-Format Export**: `SupplierPerformanceService.php` dan `SupplierPerformanceExportService.php` menghitung *On-Time Delivery Rate*, *Fulfillment Rate*, *Discrepancy Rate*, distribusi keterlambatan, klasifikasi SLA (`COMPLIANT`, `WARNING`, `BREACHED`), serta ekspor ke Excel (`.xlsx`), CSV, dan PDF Landscape di `/suppliers/performance`.
+10. **Procurement Analytics & Budget Utilization Dashboard (`/analytics?tab=procurement`)**: `ProcurementAnalyticsService.php` menyajikan visualisasi tren pengeluaran PO Bulanan/Kuartalan, komparasi Total Anggaran Pesanan (PO) vs Realisasi Tagihan Invoice hasil *Three-Way Matching*, serta distribusi pesanan per gudang dan kategori barang.
 
 ---
 
@@ -307,21 +310,21 @@ stateDiagram-v2
   Perintah Uji     : php artisan test
   Framework Test   : PHPUnit 11.5
   Konfigurasi DB   : SQLite in-memory (:memory:)
-  Total Test Cases : 464 PASSED (100% HIJAU)
-  Total Assertions : 4.953 Assertions Terverifikasi
-  Waktu Eksekusi   : ~130 Detik
-  Status Kualitas  : ZERO REGRESSION (Semua modul dari Bulan 1 - 3 teruji sempurna)
+  Total Test Cases : 482+ PASSED (100% HIJAU)
+  Total Assertions : > 5.000 Assertions Terverifikasi
+  Python Test Suite: 59 PASSED (100% HIJAU)
+  Status Kualitas  : ZERO REGRESSION & ZERO N+1 QUERIES (O(1) Constant Query Count)
 ========================================================================================
 ```
 
 - **Unit Tests (`tests/Unit/`)**: Pengujian logika State Machine PO, pemetaan metadata OCR, dan validasi kontrak integrasi Python.
-- **Feature Tests (`tests/Feature/`)**: Pengujian integrasi end-to-end mencakup database, form request, service layer, proteksi konkurensi (atomic lock, deadlock recovery), UI responsif, analitik bisnis, Three-Way Matching OCR, Vendor Performance Dashboard, dan benchmark performa.
+- **Feature Tests (`tests/Feature/`)**: Pengujian integrasi end-to-end mencakup database, form request, service layer, proteksi konkurensi (atomic lock, deadlock recovery), UI responsif, analitik inventaris & pengadaan (`ProcurementAnalyticsDashboardTest`), Smart Restock SLA & Barcode Scanner GRN (`PurchaseOrderSmartRestockIntegrationTest`), Three-Way Matching OCR, Vendor Performance & SLA Exports (`ThreeWayMatchingAndSupplierPerformanceTest`), dan benchmark performa ($O(1)$ anti N+1).
 - **Standar Kode (PSR-12)**: 100% berkas PHP terformat rapi sesuai standar resmi Laravel Pint.
-- **Keamanan Kueri**: 100% bebas dari query mentah (*Zero Raw SQL*), mengeliminasi risiko injeksi SQL secara menyeluruh.
+- **Keamanan Kueri**: 100% bebas dari query mentah di Controller (*Zero Raw SQL*), mengeliminasi risiko injeksi SQL secara menyeluruh.
 
 ---
 
 ### Pernyataan Penutupan & Pengesahan
 
-Seluruh pencapaian yang tertulis dalam portofolio ini merupakan hasil kerja nyata yang telah diselesaikan, terverifikasi oleh 464 test cases otomatis yang lulus 100%, serta siap diajukan sebagai bukti pemenuhan target kompetensi program **MagangHub Kemnaker RI**. Dokumen ini akan terus diperbarui secara berkala mengikuti seluruh modul tugas berikutnya hingga periode magang selesai.
+Seluruh pencapaian yang tertulis dalam portofolio ini merupakan hasil kerja nyata yang telah diselesaikan, terverifikasi oleh 482+ test cases otomatis yang lulus 100%, serta siap diajukan sebagai bukti pemenuhan target kompetensi program **MagangHub Kemnaker RI**. Dokumen ini akan terus diperbarui secara berkala mengikuti seluruh modul tugas berikutnya hingga periode magang selesai.
 

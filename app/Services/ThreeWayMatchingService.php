@@ -348,7 +348,10 @@ class ThreeWayMatchingService
 
         // 2. Fallback berdasarkan urutan index bila jumlah item sepadan
         if (isset($ocrItems[$index])) {
-            return $ocrItems[$index];
+            $poItemsCount = $poItem->purchaseOrder?->items?->count();
+            if ($poItemsCount === null || count($ocrItems) === $poItemsCount) {
+                return $ocrItems[$index];
+            }
         }
 
         return null;

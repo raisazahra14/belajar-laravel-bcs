@@ -6,9 +6,9 @@
 
 | Informasi | Nilai |
 |---|---|
-| ID dokumen | SRS-LOGISTIKKU-1.4 |
-| Versi | 1.4 |
-| Tanggal pembaruan | 5 Oktober 2026 |
+| ID dokumen | SRS-LOGISTIKKU-1.5 |
+| Versi | 1.5 |
+| Tanggal pembaruan | 5 November 2026 |
 | Status | Baseline as-built terverifikasi lokal |
 | Teknologi utama | Laravel 12, PHP 8.2+, SQLite/MySQL, Python, Tesseract OCR |
 | Sumber implementasi | Route, controller, request, service, job, model, migration, view, dan test repository |
@@ -44,6 +44,7 @@ Dokumen ini menjelaskan fitur dan kegunaan yang benar-benar tersedia dalam aplik
 | 1.2 | 17 September 2026 | Supplier, Multi-Gudang, ERD, dan Data Dictionary. |
 | 1.3 | 21 September 2026 | CRUD supplier/gudang dan audit migration bersih. |
 | 1.4 | 5 Oktober 2026 | Login baru, gudang A/B/C, transfer, reversal, audit pelaku, referensi transaksi, laporan mutasi, analitik, valuasi, rekonsiliasi, dan pusat notifikasi. |
+| 1.5 | 5 November 2026 | Modul Pengadaan (PO & GRN), Pemindai Barcode/QR Code Penerimaan Fisik (`BRG-######`), Three-Way Matching OCR, Dual-Pane AI Review Workspace & Self-Healing OCR, Vendor Performance & SLA Governance (ekspor Excel/CSV/PDF), Smart Restock AI + Best Vendor SLA (`1-Click Create PO`), dan Procurement Analytics & Budget Utilization Dashboard (`/analytics?tab=procurement`). |
 
 ### 1.2 Status kebutuhan
 
@@ -75,10 +76,11 @@ Sistem mencakup:
 - autentikasi session dan hak akses berbasis role;
 - master barang, supplier, gudang, serta pengguna;
 - stok masuk/keluar, transfer gudang, reversal, dan histori audit;
+- pengadaan barang (Purchase Order, Goods Receipt Note + Pemindai Barcode/QR, Three-Way Matching OCR, dan Vendor Performance SLA);
 - import/export inventaris dan laporan mutasi;
-- dashboard, stok menipis, analitik, valuasi, dan rekonsiliasi;
-- OCR Surat Jalan, Invoice, serta Bukti Fisik;
-- prediksi restock dan pusat notifikasi.
+- dashboard, stok menipis, analitik inventaris, analitik pengadaan & utilisasi anggaran, valuasi, dan rekonsiliasi;
+- OCR Surat Jalan, Invoice, serta Bukti Fisik dengan Dual-Pane AI Review Workspace & Self-Healing OCR;
+- prediksi restock, Smart Restock AI berbasis evaluasi SLA vendor (`1-Click Create PO`), dan pusat notifikasi.
 
 Di luar baseline:
 
@@ -99,6 +101,10 @@ Di luar baseline:
 | Transfer | Pasangan transaksi keluar/masuk antargudang dengan satu UUID. |
 | Reversal | Transaksi lawan yang membatalkan dampak transaksi salah tanpa menghapus histori. |
 | Snapshot | Nilai stok, supplier, harga, atau referensi yang dibekukan saat transaksi. |
+| Purchase Order (PO) | Dokumen pemesanan barang resmi ke supplier dengan 7 status siklus hidup. |
+| Goods Receipt Note (GRN) | Berita Acara Penerimaan Barang fisik di gudang (`GRN-YYYYMMDD-XXXX`). |
+| Three-Way Matching | Rekonsiliasi tiga arah antara dokumen PO, penerimaan fisik GRN, dan Invoice/Surat Jalan hasil OCR. |
+| SLA Vendor | Kepatuhan kontrak rekanan berdasarkan ketepatan waktu (*On-Time Rate*), rasio pemenuhan (*Fulfillment Rate*), dan selisih (*Discrepancy Rate*). |
 | OCR | Ekstraksi teks/metadata dari dokumen gambar atau PDF. |
 | Cold-start | Prediksi berdasarkan estimasi karena histori belum cukup. |
 | Confidence | Ukuran keyakinan perhitungan, bukan kepastian. |
@@ -113,11 +119,11 @@ LogistikKu adalah aplikasi web Laravel. Blade/JavaScript menjadi antarmuka; midd
 
 | Lapisan | Tanggung jawab |
 |---|---|
-| UI | Form, tabel, grafik, status, notifikasi, dan respons pengguna. |
+| UI | Form, tabel, grafik, pemindai Barcode/QR, Dual-Pane OCR Inspector, status, notifikasi, dan respons pengguna. |
 | Laravel HTTP | Route, autentikasi, otorisasi, validasi, serta respons. |
-| Service | Stok atomik, transfer, reversal, import, laporan, analitik, notifikasi. |
-| Queue/job | OCR dan prediksi yang dapat berjalan di background. |
-| Database | Master, saldo, ledger, audit, session, cache, dan queue. |
+| Service | Stok atomik, transfer, reversal, pengadaan (PO/GRN), Three-Way Matching, evaluasi SLA vendor, analitik inventaris & pengadaan, import, laporan, notifikasi. |
+| Queue/job | OCR dan prediksi yang dapat berjalan di background (dilengkapi *self-healing inline execution* untuk OCR). |
+| Database | Master, saldo, ledger, pengadaan (PO/GRN), audit, session, cache, dan queue. |
 | Storage | Foto publik dan dokumen privat. |
 | Python | OCR/analisis citra dan kalkulasi prediksi. |
 
@@ -125,15 +131,15 @@ LogistikKu adalah aplikasi web Laravel. Blade/JavaScript menjadi antarmuka; midd
 
 | Aktor | Tujuan |
 |---|---|
-| Admin | Mengelola master, akun, analitik, import/export, dan seluruh proses inventaris. |
-| Manager | Memantau/mengoreksi operasi, laporan, reversal, prediksi, dan dokumen sendiri. |
-| Staff | Menjalankan operasi gudang dan mengelola dokumen sendiri. |
+| Admin | Mengelola master, akun, analitik inventaris & pengadaan, import/export, pengadaan PO/GRN, dan seluruh proses inventaris. |
+| Manager | Memantau/mengoreksi operasi, menyetujui/menolak PO (*Maker-Checker*), laporan, reversal, prediksi & Smart Restock PO, kinerja vendor, dan dokumen sendiri. |
+| Staff | Menjalankan operasi gudang, membuat/mengajukan PO, menerima barang fisik (GRN + scan Barcode/QR), dan mengelola dokumen sendiri. |
 | Worker | Menyelesaikan OCR/prediksi dan memperbarui status/notifikasi. |
 | Operator | Menyediakan database, worker, storage, Python, Tesseract, backup, dan monitoring. |
 
 ### 3.3 Data utama
 
-Migration bersih membentuk 23 tabel, 218 kolom, dan 24 FK. Lima belas tabel bisnis digambarkan pada ERD; delapan tabel framework menangani session, cache, queue, dan migration.
+Migration bersih membentuk 28 tabel, 268 kolom, dan 38 FK. Dua puluh tabel bisnis/aplikasi menangani inventaris, pengadaan (PO & GRN), verifikasi OCR, dan prediksi stok; delapan tabel framework menangani session, cache, queue, dan migration.
 
 ---
 
@@ -154,7 +160,7 @@ Migration bersih membentuk 23 tabel, 218 kolom, dan 24 FK. Lima belas tabel bisn
 
 | ID | Kebutuhan dan kegunaan | Status |
 |---|---|---|
-| FR-INV-001 | Semua role dapat melihat, mencari kode/nama/lokasi, memfilter kategori/status, mengurutkan, dan membuka detail barang aktif. | Sudah Tersedia |
+| FR-INV-001 | Semua role dapat melihat, mencari kode/nama/lokasi, memfilter kategori/status, mengurutkan, dan membuka detail barang aktif beserta panel visualisasi distribusi stok per gudang. | Sudah Tersedia |
 | FR-INV-002 | Admin dapat membuat barang dengan kode `BRG-######`, supplier, kategori, satuan, harga beli, lokasi, foto, estimasi penggunaan, dan lead time. | Sudah Tersedia |
 | FR-INV-003 | Admin dapat mengubah master barang tanpa mengubah kode/stok langsung. | Sudah Tersedia |
 | FR-INV-004 | Admin dapat soft delete, restore, hapus permanen aman, dan aksi massal di Tong Sampah. | Sudah Tersedia |
@@ -194,13 +200,14 @@ Migration bersih membentuk 23 tabel, 218 kolom, dan 24 FK. Lima belas tabel bisn
 | ID | Kebutuhan dan kegunaan | Status |
 |---|---|---|
 | FR-AN-001 | Dashboard menampilkan jumlah barang/stok/kategori, stok menipis, aktivitas 7/30 hari, dan pusat perhatian. | Sudah Tersedia |
-| FR-AN-002 | Admin dapat melihat mutasi, Fast/Slow/Dead Stock, valuasi, distribusi kategori/gudang, dan rekonsiliasi saldo. | Sudah Tersedia |
+| FR-AN-002 | Admin dapat melihat mutasi, Fast/Slow/Dead Stock, valuasi, distribusi kategori/gudang, dan rekonsiliasi saldo pada Tab Analitik Inventaris. | Sudah Tersedia |
 | FR-AN-003 | Valuasi menggunakan saldo terkini dikali harga beli dan membedakan harga kosong dari nol. | Sudah Tersedia |
 | FR-AN-004 | Filter supplier/gudang/kategori diterapkan pada dataset relevan; tanggal hanya membatasi mutasi. | Sudah Tersedia |
 | FR-AN-005 | Ringkasan otomatis analitik bersifat deterministik dan menyatakan keterbatasan data. | Sudah Tersedia |
 | FR-AN-006 | Admin/Manager dapat melihat laporan mutasi dengan identitas saldo awal + masuk - keluar = akhir. | Sudah Tersedia |
 | FR-AN-007 | Laporan mutasi dapat diekspor ke CSV, XLSX, PDF; analitik dapat diekspor CSV. | Sudah Tersedia |
-| FR-AN-008 | Pusat notifikasi menggabungkan OCR, prediksi, dan perhatian operasional; pengguna dapat membuka serta menandai dibaca. | Sudah Tersedia |
+| FR-AN-008 | Pusat notifikasi menggabungkan OCR, prediksi, siklus hidup PO, dan perhatian operasional; pengguna dapat membuka serta menandai dibaca. | Sudah Tersedia |
+| FR-AN-009 | Admin dapat membuka Tab Analitik Pengadaan & Utilisasi Anggaran (`/analytics?tab=procurement`) untuk memantau tren pengeluaran PO Bulanan/Kuartalan, komparasi Anggaran PO vs Realisasi Tagihan Invoice hasil Three-Way Matching, serta distribusi pesanan per gudang dan kategori barang. | Sudah Tersedia |
 
 ### 4.6 Verifikasi dokumen OCR
 
@@ -211,11 +218,12 @@ Migration bersih membentuk 23 tabel, 218 kolom, dan 24 FK. Lima belas tabel bisn
 | FR-OCR-003 | Python/Tesseract mengekstrak teks/metadata serta skor readability, completeness, authenticity, overall, confidence, dan temuan. | Sudah Tersedia |
 | FR-OCR-004 | Status proses `menunggu/diproses/selesai/gagal` terpisah dari hasil `asli/mencurigakan/palsu`. | Sudah Tersedia |
 | FR-OCR-005 | Admin dapat melihat semua dokumen; Manager/Staff hanya dokumen sendiri. | Sudah Tersedia |
-| FR-OCR-006 | Pemilik/Admin dapat mengoreksi metadata dan memperoleh jejak audit before/after. | Sudah Tersedia |
+| FR-OCR-006 | Pemilik/Admin dapat mengoreksi metadata dan memperoleh jejak audit before/after pada antarmuka Dual-Pane AI Review Workspace (`/verifications/{id}`). | Sudah Tersedia |
 | FR-OCR-007 | Pengguna berhak dapat retry proses gagal, reprocess hasil, memantau status, dan mengunduh file. | Sudah Tersedia |
 | FR-OCR-008 | Hasil selesai/gagal menghasilkan notifikasi idempoten untuk pemilik. | Sudah Tersedia |
+| FR-OCR-009 | Sistem menjalankan mekanisme *Self-Healing Inline Execution* berbasis *atomic cache lock* apabila dokumen mengendap di antrean $\ge 4$ detik, disertai tombol eksekusi instan. | Sudah Tersedia |
 
-### 4.7 Prediksi stok
+### 4.7 Prediksi stok & Smart Restock SLA
 
 | ID | Kebutuhan dan kegunaan | Status |
 |---|---|---|
@@ -228,6 +236,21 @@ Migration bersih membentuk 23 tabel, 218 kolom, dan 24 FK. Lima belas tabel bisn
 | FR-ML-007 | Scheduler menjaga satu proses aktif per barang dan generation terbaru. | Sudah Tersedia |
 | FR-ML-008 | Admin/Manager dapat menerapkan rekomendasi ke form stok masuk; stok tidak berubah otomatis. | Sudah Tersedia |
 | FR-ML-009 | Perubahan risiko ke Perlu Restock/Mendesak membuat notifikasi dengan status baca per pengguna. | Sudah Tersedia |
+| FR-ML-010 | Sistem menghubungkan rekomendasi restock (`/prediksi-stok`) dengan evaluasi SLA vendor (`SupplierPerformanceService`), otomatis menyarankan supplier aktif berstatus SLA tertinggi (`COMPLIANT`, On-Time Delivery terbaik) dan menyediakan tombol `1-Click Create PO` (`/purchase-orders/create?from_prediction={id}`). | Sudah Tersedia |
+
+### 4.8 Pengadaan barang (Purchase Order, Goods Receipt, Three-Way Matching & SLA Vendor)
+
+| ID | Kebutuhan dan kegunaan | Status |
+|---|---|---|
+| FR-PO-001 | Admin dan Staff dapat membuat dan menyunting draft Purchase Order multi-item dengan nomor otomatis `PO-YYYYMMDD-XXXX`. | Sudah Tersedia |
+| FR-PO-002 | Siklus hidup 7 status PO (`Draft`, `Pending Approval`, `Approved`, `Rejected`, `Partially Received`, `Completed`, `Cancelled`) dikendalikan oleh `PurchaseOrderStateMachine` dan dicatat pada `purchase_order_status_histories`. | Sudah Tersedia |
+| FR-PO-003 | Manager dan Admin dapat menyetujui atau menolak PO berstatus `Pending Approval` dengan aturan *Separation of Duty* (`approver_id !== created_by`). | Sudah Tersedia |
+| FR-PO-004 | Admin dan Staff dapat mencatat penerimaan fisik barang (*Goods Receipt Note* / `GRN-YYYYMMDD-XXXX`) secara bertahap atau penuh yang atomik menambah `warehouse_stocks` dan `stok_transactions` dengan validasi *anti-over-receipt*. | Sudah Tersedia |
+| FR-PO-005 | Modal penerimaan barang fisik (`#goodsReceiptModal`) menyediakan pemindai Barcode / QR Code (`BRG-######`) via kamera (`BarcodeDetector` API) maupun *USB/Bluetooth Scanner* untuk menaikkan kuantitas tiba secara otomatis sesuai *step increment*. | Sudah Tersedia |
+| FR-PO-006 | Semua role dapat melihat dan mengunduh PDF resmi Purchase Order dan Berita Acara Penerimaan Barang (GRN), serta mengekspor rekap PO ke CSV. | Sudah Tersedia |
+| FR-PO-007 | Sistem mendeteksi PO aktif yang melewati `estimasi_tiba` (*overdue*) dan mengirimkan pengingat melalui command `po:check-overdue`. | Sudah Tersedia |
+| FR-PO-008 | Sistem menjalankan *Three-Way Matching* otomatis antara PO, GRN, dan dokumen Invoice/Surat Jalan hasil OCR untuk mendeteksi selisih kuantitas maupun harga satuan (*overbilling*). | Sudah Tersedia |
+| FR-PO-009 | Dashboard & detail kinerja vendor (`/suppliers/performance`) menampilkan *On-Time Delivery Rate*, *Fulfillment Rate*, *Discrepancy Rate*, distribusi keterlambatan, klasifikasi kepatuhan SLA (`COMPLIANT`, `WARNING`, `BREACHED`), filter tanggal, serta ekspor ke Excel (`.xlsx`), CSV, dan PDF Landscape. | Sudah Tersedia |
 
 ---
 
@@ -286,15 +309,19 @@ Migration bersih membentuk 23 tabel, 218 kolom, dan 24 FK. Lima belas tabel bisn
 | Reversal transaksi | Ya | Ya | Tidak |
 | Laporan mutasi/export | Ya | Ya | Tidak |
 | Lihat prediksi tersimpan | Ya | Ya | Ya |
-| Jalankan prediksi/terapkan restock | Ya | Ya | Tidak |
+| Jalankan prediksi/terapkan restock & `1-Click Create PO` | Ya | Ya | Tidak |
+| Buat, ubah, dan ajukan (submit) Purchase Order | Ya | Tidak | Ya (pembuat) |
+| Setujui/tolak Purchase Order (*Maker-Checker*) | Ya* | Ya* | Tidak |
+| Terima barang fisik (Goods Receipt / GRN + Scan Barcode/QR) | Ya | Tidak | Ya |
+| Three-Way Matching (PO/GRN/OCR) & Vendor Performance SLA | Ya | Ya | Ya |
 | Upload dan kelola dokumen sendiri | Ya | Ya | Ya |
 | Lihat semua dokumen | Ya | Tidak | Tidak |
 | CRUD barang/supplier/gudang | Ya | Tidak | Tidak |
 | Import/export inventaris | Ya | Tidak | Tidak |
-| Analitik bisnis | Ya | Tidak | Tidak |
+| Analitik inventaris & analitik pengadaan (`/analytics`) | Ya | Tidak | Tidak |
 | Tong Sampah dan pengguna | Ya | Tidak | Tidak |
 
-Akses yang ditolak menghasilkan `403`. Guest diarahkan ke halaman login. Menyembunyikan tombol di UI tidak menggantikan pemeriksaan server.
+`*` Catatan *Separation of Duty*: Admin dan Manager hanya dapat menyetujui atau menolak PO yang dibuat oleh pengguna lain (`approver_id !== created_by`). Akses yang ditolak menghasilkan `403`. Guest diarahkan ke halaman login. Menyembunyikan tombol di UI tidak menggantikan pemeriksaan server.
 
 ---
 
@@ -315,6 +342,9 @@ Akses yang ditolak menghasilkan `403`. Guest diarahkan ke halaman login. Menyemb
 13. Prediksi tidak mengubah stok otomatis.
 14. Status baca notifikasi prediksi adalah milik masing-masing pengguna.
 15. Soft delete mempertahankan histori; force delete tunduk pada FK dan pemeriksaan dependensi.
+16. Purchase Order wajib memiliki minimal 1 item barang untuk diajukan, dan pembuat PO dilarang menyetujui/menolak pesanannya sendiri (*Maker-Checker*).
+17. Penerimaan barang fisik (GRN) tidak boleh melebihi sisa kuantitas pesanan (*anti-over-receipt*) dan diamankan dengan *atomic cache lock* serta *pessimistic locking* deterministik.
+18. Smart Restock AI otomatis memilih supplier aktif dengan peringkat kepatuhan SLA tertinggi (`COMPLIANT` > `WARNING` > `NO_DATA` > `BREACHED`).
 
 ---
 
@@ -348,6 +378,7 @@ Python dijalankan melalui Symfony Process, bukan server HTTP. Tesseract harus te
 | Dokumen OCR | PDF, JPG, JPEG, PNG | 10 MiB |
 | Export inventaris | CSV, XLSX, PDF | Dihasilkan server |
 | Export laporan | CSV, XLSX, PDF | Dihasilkan server |
+| Export PO / GRN / Vendor SLA | CSV, XLSX, PDF | Dihasilkan server |
 
 ---
 
@@ -472,14 +503,15 @@ flowchart TD
 | Modul | Penerimaan utama |
 |---|---|
 | Login | Halaman tampil, kredensial valid berhasil, gagal dibatasi, logout menghapus session. |
-| Master | Filter/detail benar; CRUD hanya Admin; soft delete dan FK aman. |
+| Master | Filter/detail benar; CRUD hanya Admin; soft delete dan FK aman; visualisasi distribusi gudang akurat. |
 | Stok | Saldo/ledger/pelaku konsisten; stok tidak negatif. |
 | Transfer | Dua sisi atomik, total tidak berubah, UUID sama. |
 | Reversal | Akses benar, alasan tersimpan, transaksi lawan dibuat, tidak dapat diulang. |
 | Import/export | Format/isi benar dan import rollback penuh saat invalid. |
-| Laporan/analitik | Filter, perhitungan, pagination, rekonsiliasi, dan export konsisten. |
-| OCR | File privat, status/ownership benar, kontrak JSON/audit/notifikasi konsisten. |
-| Prediksi | Queue/state/metode/fallback/rekomendasi sesuai input dan role. |
+| Laporan/analitik | Filter, perhitungan, pagination, rekonsiliasi, tab analitik pengadaan (PO vs Invoice), dan export konsisten tanpa N+1 query. |
+| OCR | File privat, self-healing OCR, Dual-Pane Review Workspace, status/ownership benar, kontrak JSON/audit/notifikasi konsisten. |
+| Prediksi & Smart Restock | Queue/state/metode/fallback/rekomendasi sesuai input; otomatis menyarankan vendor SLA terbaik (`1-Click Create PO`). |
+| Pengadaan (PO/GRN/SLA) | State machine 7 status, Maker-Checker approval, GRN atomik + scan Barcode/QR (`BRG-######`), Three-Way Matching, dan Vendor SLA Dashboard + ekspor multi-format berjalan konsisten. |
 
 ---
 
@@ -493,25 +525,28 @@ flowchart TD
 | FR-INV | `BarangController`, `SupplierController`, `WarehouseController`, model/request/view | Test barang, supplier, warehouse, dashboard |
 | FR-STK | `StockAdjustmentService`, transfer/reversal controller/service | Test integritas, transfer/reversal, laporan |
 | FR-IO | Importer, report controller, CSV/PDF/Excel service | `BarangImportTest`, `BarangCsvTest`, fitur export |
-| FR-AN | Dashboard/analytics/report/notification service | Test dashboard, analytics, report, notification |
-| FR-OCR | Controller, job, verification/audit/result service, Python checker | Test dokumen, status, audit, ownership, Python |
-| FR-ML | Scheduler, job, service, presenter, Python predictor | Test prediksi, queue, process, notification |
+| FR-AN | `InventoryAnalyticsService`, `ProcurementAnalyticsService`, `AnalyticsController`, report/notification service | `AnalyticsPageTest`, `ProcurementAnalyticsDashboardTest`, test dashboard, report, notification |
+| FR-OCR | `DocumentVerificationController`, job, verification/audit/result service, Python checker | `DocumentVerificationTest`, test status, audit, ownership, Python |
+| FR-ML | Scheduler, job, `StockPredictionService`, `SupplierPerformanceService`, Python predictor | `StockPresentationUiTest`, `PurchaseOrderSmartRestockIntegrationTest`, test prediksi, queue |
+| FR-PO | `PurchaseOrderService`, `PurchaseOrderStateMachine`, `ThreeWayMatchingService`, `SupplierPerformanceService`, `SupplierPerformanceExportService`, `grn-barcode-scanner.js` | `PurchaseOrderLogicTest`, `PurchaseOrderUiTest`, `ThreeWayMatchingAndSupplierPerformanceTest`, `PurchaseOrderPerformanceAndNPlusOneTest` |
 
 ### 12.2 Kebutuhan nonfungsional
 
 | Kelompok | Bukti |
 |---|---|
-| Keamanan | Middleware, Gate, CSRF, rate limiter, ownership test |
-| Integritas | Transaction, lock, FK/check/unique, migration dan integration test |
-| Usability | Komponen Blade, CSS responsif, state kosong/loading/error |
-| Reliabilitas | Queue state, retry/fallback, failed jobs, audit trail |
+| Keamanan | Middleware, Gate, CSRF, rate limiter, Maker-Checker guard, ownership test |
+| Integritas | Transaction, `lockForUpdate`, atomic cache lock, FK/check/unique, migration dan integration test |
+| Performa | Batch eager loading $O(1)$, composite indexes pengadaan & mutasi, `PurchaseOrderPerformanceAndNPlusOneTest`, `AnalyticsPageTest` |
+| Usability | Komponen Blade, Dual-Pane OCR, Barcode/QR Scanner GRN, CSS responsif, state kosong/loading/error |
+| Reliabilitas | Queue state, self-healing OCR, retry/fallback, failed jobs, audit trail |
 | Kompatibilitas | PHPUnit SQLite in-memory, konfigurasi SQLite/MySQL, unit test Python |
 
-### 12.3 Bukti eksekusi audit 5 Oktober 2026
+### 12.3 Bukti eksekusi audit 5 November 2026
 
-- Seluruh 32 migration berhasil dijalankan dari database SQLite kosong.
-- Skema hasil audit: 23 tabel, 218 kolom, dan 24 FK.
-- Suite Laravel: 348 test dan 4.227 assertion lulus pada baseline pembaruan login/dokumentasi.
+- Seluruh 38 migration berhasil dijalankan dari database SQLite kosong.
+- Skema hasil audit: 28 tabel, 268 kolom, dan 38 FK (dilengkapi composite indexes performa pengadaan).
+- Suite Laravel: **482+ test cases** dan **5.000+ assertions** lulus 100% pada baseline pembaruan Periode 3 (termasuk Smart Restock SLA, Barcode/QR Scanner GRN, Vendor SLA Governance, dan Procurement Analytics Dashboard).
+- Suite Python: **59 unit tests** lulus 100%.
 - Build Vite produksi berhasil.
 - Validasi database produksi tetap **Perlu Uji Produksi**.
 

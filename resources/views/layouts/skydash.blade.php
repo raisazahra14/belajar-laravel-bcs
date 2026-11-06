@@ -54,6 +54,7 @@
             <li class="nav-section-label" aria-hidden="true">Administrasi</li>
             <li class="nav-item {{ request()->is('users*') ? 'active' : '' }}"><a class="nav-link" href="/users"><i class="ti-user menu-icon"></i><span class="menu-title">Kelola Pengguna</span></a></li>
             <li class="nav-item {{ request()->routeIs('barang.trash.*') ? 'active' : '' }}"><a class="nav-link" href="{{ route('barang.trash.index') }}"><i class="ti-trash menu-icon"></i><span class="menu-title">Tong Sampah</span></a></li>
+            <li class="nav-item {{ request()->routeIs('system-health.*') ? 'active' : '' }}"><a class="nav-link" href="{{ route('system-health.index') }}"><i class="ti-pulse menu-icon"></i><span class="menu-title">Kesehatan Sistem</span></a></li>
             @endcan
         </ul></nav>
         <div class="main-panel"><main class="content-wrapper" id="main-content">@yield('content')</main><footer class="footer"><span>LogistikKu · Manajemen Stok Barang</span></footer></div>

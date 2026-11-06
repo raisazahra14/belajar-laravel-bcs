@@ -221,4 +221,169 @@ class PurchaseOrderRobustErrorHandlingTest extends TestCase
             ->assertSee('alert-danger', false)
             ->assertSee('Peringatan: Stok gudang terkunci oleh transaksi lain.');
     }
+
+    public function test_double_submit_prevention_via_idempotency_token(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-LCK5',
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouse->id,
+            'status' => PurchaseOrderStatus::APPROVED,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 2400000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+
+        $item = $po->items()->create([
+            'barang_id' => $this->barang->id,
+            'jumlah_pesan' => 5,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 480000,
+            'subtotal' => 2400000,
+        ]);
+
+        $token = 'test-token-uuid-12345';
+
+        // 1. Submit pertama dengan token berhasil
+        $response1 = $this->actingAs($this->staff)->post(route('purchase-orders.receive', $po), [
+            'tanggal_terima' => '2026-10-27',
+            'receipt_token' => $token,
+            'items' => [
+                [
+                    'purchase_order_item_id' => $item->id,
+                    'jumlah_diterima' => 2,
+                ],
+            ],
+        ]);
+
+        $response1->assertRedirect();
+        $response1->assertSessionHas('success');
+        $item->refresh();
+        $this->assertEquals(2, $item->jumlah_diterima);
+
+        // 2. Submit kedua dengan token yang sama persis (simulasi double-click/re-send)
+        $response2 = $this->actingAs($this->staff)->post(route('purchase-orders.receive', $po), [
+            'tanggal_terima' => '2026-10-27',
+            'receipt_token' => $token,
+            'items' => [
+                [
+                    'purchase_order_item_id' => $item->id,
+                    'jumlah_diterima' => 2,
+                ],
+            ],
+        ]);
+
+        // Harus ditolak dengan pesan ramah duplikasi token
+        $response2->assertRedirect();
+        $response2->assertSessionHas('error');
+        $sessionError = session('error');
+        $this->assertStringContainsString('sudah berhasil dicatat sebelumnya', $sessionError);
+        $this->assertStringContainsString('mencegah duplikasi saldo', $sessionError);
+
+        // Saldo tidak bertambah ganda
+        $item->refresh();
+        $this->assertEquals(2, $item->jumlah_diterima);
+    }
+
+    public function test_deadlock_or_database_conflict_returns_friendly_user_flash_message(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-LCK6',
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouse->id,
+            'status' => PurchaseOrderStatus::APPROVED,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 1200000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+
+        $item = $po->items()->create([
+            'barang_id' => $this->barang->id,
+            'jumlah_pesan' => 2,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 600000,
+            'subtotal' => 1200000,
+        ]);
+
+        // Mock PurchaseOrderService untuk mensimulasikan database deadlock (SQLSTATE 40001 / Error 1213)
+        $mockService = $this->createMock(PurchaseOrderService::class);
+        $mockService->method('receiveItems')
+            ->willThrowException(new \Illuminate\Database\QueryException(
+                'sqlite',
+                'UPDATE warehouse_stocks SET quantity = ...',
+                [],
+                new \PDOException('Deadlock found when trying to get lock; try restarting transaction', 1213)
+            ));
+
+        $this->app->instance(PurchaseOrderService::class, $mockService);
+
+        $response = $this->actingAs($this->staff)->post(route('purchase-orders.receive', $po), [
+            'tanggal_terima' => '2026-10-27',
+            'items' => [
+                [
+                    'purchase_order_item_id' => $item->id,
+                    'jumlah_diterima' => 1,
+                ],
+            ],
+        ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('error');
+        $sessionError = session('error');
+        $this->assertStringContainsString('kepadatan transaksi pada database', $sessionError);
+        $this->assertStringContainsString('dibatalkan dengan aman untuk menjaga integritas saldo', $sessionError);
+    }
+
+    public function test_api_deadlock_or_database_conflict_returns_409_conflict(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-LCK7',
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouse->id,
+            'status' => PurchaseOrderStatus::APPROVED,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 1200000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+
+        $item = $po->items()->create([
+            'barang_id' => $this->barang->id,
+            'jumlah_pesan' => 2,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 600000,
+            'subtotal' => 1200000,
+        ]);
+
+        $mockService = $this->createMock(PurchaseOrderService::class);
+        $mockService->method('receiveItems')
+            ->willThrowException(new \Illuminate\Database\QueryException(
+                'sqlite',
+                'UPDATE warehouse_stocks SET quantity = ...',
+                [],
+                new \PDOException('Deadlock found when trying to get lock; try restarting transaction', 1213)
+            ));
+
+        $this->app->instance(PurchaseOrderService::class, $mockService);
+
+        $response = $this->actingAs($this->staff)->postJson(route('api.purchase-orders.receive', $po), [
+            'tanggal_terima' => '2026-10-27',
+            'items' => [
+                [
+                    'purchase_order_item_id' => $item->id,
+                    'jumlah_diterima' => 1,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(409);
+        $response->assertJson([
+            'error_code' => 'database_conflict',
+        ]);
+        $response->assertJsonFragment([
+            'message' => 'Sistem mendeteksi kepadatan transaksi pada database saat memperbarui saldo stok di gudang. Transaksi dibatalkan dengan aman untuk menjaga integritas saldo. Silakan coba kembali beberapa saat lagi.',
+        ]);
+    }
 }

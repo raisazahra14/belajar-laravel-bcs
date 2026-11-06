@@ -17,7 +17,7 @@ class AutoLoginForLocal
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if (config('app.auto_login', true) && ! app()->runningUnitTests() && ! defined('PHPUNIT_COMPOSER_INSTALL')) {
+        if (app()->isLocal() && config('app.auto_login', false) && ! app()->runningUnitTests() && ! defined('PHPUNIT_COMPOSER_INSTALL')) {
             if ($request->has('auto')) {
                 $request->session()->forget('manual_logout');
             }

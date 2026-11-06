@@ -94,7 +94,7 @@ class WarehouseInitialStockIntegrationTest extends TestCase
             ->assertSee('GDG-UTAMA')
             ->assertSee('GDG-A')
             ->assertSee('GDG-B')
-            ->assertSee('Belum ada saldo');
+            ->assertSee('Belum ada stok');
         $this->assertSame(1, $barang->warehouseStocks()->count());
     }
 
@@ -163,7 +163,7 @@ class WarehouseInitialStockIntegrationTest extends TestCase
         $this->assertSame(8, $stock->fresh()->stok);
         $this->assertDatabaseCount('stok_transactions', 1);
         $this->get('/barang/'.$barang->id.'/edit')->assertOk()
-            ->assertSee('Saldo per Gudang')
+            ->assertSee('Stok per Gudang')
             ->assertSee('Rak/Lokasi Detail')
             ->assertDontSee('name="warehouse_id"', false);
     }

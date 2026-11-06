@@ -12,8 +12,10 @@ use App\Models\StockPrediction;
 use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Services\BarangCodeGenerator;
+use App\Services\InventoryAnalyticsService;
 use App\Services\InventoryDashboardService;
 use App\Services\InventoryMasterDataService;
+use App\Services\PurchaseOrderService;
 use App\Services\StockAdjustmentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -31,6 +33,7 @@ class BarangController extends Controller
         InventoryFilterRequest $request,
         InventoryDashboardService $dashboard,
         InventoryMasterDataService $masterData,
+        PurchaseOrderService $poService,
     ): View {
         $filters = $request->safe()->only(['search', 'kategori', 'status', 'supplier_id', 'warehouse_id', 'sort']);
         $barang = $this->filteredInventory($filters)->paginate(5)->withQueryString();
@@ -66,6 +69,7 @@ class BarangController extends Controller
             'without_photo_count' => $metrics['tanpa_foto'],
             'prediction_counts' => $predictionCounts,
         ]);
+        $procurementKpis = $poService->getProcurementKpis();
 
         return view('barang.index', compact(
             'barang',
@@ -81,7 +85,8 @@ class BarangController extends Controller
             'attentionItems',
             'filters',
             'supplier_options',
-            'warehouse_options'
+            'warehouse_options',
+            'procurementKpis'
         ));
     }
 

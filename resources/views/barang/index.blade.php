@@ -49,6 +49,75 @@
     </x-ui.card>
 </div>
 
+@if(isset($procurementKpis))
+<div class="procurement-dashboard-panel mb-4">
+    <x-ui.card>
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+            <div>
+                <h2 class="fs-6 fw-bold mb-0">Ringkasan Pengadaan & Rantai Pasok (Purchase Orders)</h2>
+                <p class="text-muted small mb-0">Realisasi belanja pengadaan dan status penerimaan fisik barang multi-gudang.</p>
+            </div>
+            <x-ui.button :href="route('purchase-orders.index')" variant="outline-primary" size="sm" icon="ti-arrow-right">
+                Kelola Purchase Order
+            </x-ui.button>
+        </div>
+        <div class="row g-3">
+            <div class="col-lg-3 col-sm-6">
+                <a href="{{ route('purchase-orders.index', ['status' => 'pending_approval']) }}" class="text-decoration-none d-block h-100">
+                    <div class="p-3 border rounded bg-light h-100">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="text-muted small fw-semibold">Butuh Approval</span>
+                            <i class="ti-clipboard text-warning fs-5"></i>
+                        </div>
+                        <div class="fs-4 fw-bold text-dark">{{ number_format($procurementKpis['pending_approval'] ?? 0, 0, ',', '.') }}</div>
+                        <small class="text-warning fw-semibold">Persetujuan manajer &rarr;</small>
+                    </div>
+                </a>
+            </div>
+
+            <div class="col-lg-3 col-sm-6">
+                <a href="{{ route('purchase-orders.index', ['status' => 'approved', 'overdue' => 1]) }}" class="text-decoration-none d-block h-100">
+                    <div class="p-3 border rounded bg-light h-100">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="text-muted small fw-semibold">PO Terlambat (Overdue)</span>
+                            <i class="ti-timer text-danger fs-5"></i>
+                        </div>
+                        <div class="fs-4 fw-bold {{ ($procurementKpis['overdue'] ?? 0) > 0 ? 'text-danger' : 'text-dark' }}">
+                            {{ number_format($procurementKpis['overdue'] ?? 0, 0, ',', '.') }}
+                        </div>
+                        <small class="{{ ($procurementKpis['overdue'] ?? 0) > 0 ? 'text-danger' : 'text-muted' }} fw-semibold">
+                            {{ ($procurementKpis['overdue'] ?? 0) > 0 ? 'Lewat estimasi tiba &rarr;' : 'Tepat jadwal vendor' }}
+                        </small>
+                    </div>
+                </a>
+            </div>
+
+            <div class="col-lg-3 col-sm-6">
+                <div class="p-3 border rounded bg-light h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="text-muted small fw-semibold">Tingkat Kedatangan (Fulfillment)</span>
+                        <i class="ti-package text-success fs-5"></i>
+                    </div>
+                    <div class="fs-4 fw-bold text-success">{{ number_format($procurementKpis['fulfillment_rate'] ?? 0, 1, ',', '.') }}%</div>
+                    <small class="text-muted">{{ number_format($procurementKpis['active_po_count'] ?? 0, 0, ',', '.') }} PO aktif berjalan</small>
+                </div>
+            </div>
+
+            <div class="col-lg-3 col-sm-6">
+                <div class="p-3 border rounded bg-light h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="text-muted small fw-semibold">Belanja Bulan Ini</span>
+                        <i class="ti-wallet text-primary fs-5"></i>
+                    </div>
+                    <div class="fs-4 fw-bold text-primary">Rp {{ number_format(($procurementKpis['monthly_spend'] ?? 0) / 1000000, 1, ',', '.') }} jt</div>
+                    <small class="text-muted">Total: Rp {{ number_format($procurementKpis['monthly_spend'] ?? 0, 0, ',', '.') }}</small>
+                </div>
+            </div>
+        </div>
+    </x-ui.card>
+</div>
+@endif
+
 <div class="stats-grid prediction-stats">
     <a href="{{ route('stock-predictions.index', ['status' => 'Perlu Restock']) }}" class="stat-link"><x-ui.card class="stat-card stat-warning"><div class="stat-icon"><i class="ti-stats-down"></i></div><p>Diprediksi Perlu Restock</p><strong>{{ number_format($predictedRestockCount, 0, ',', '.') }}</strong><small>Peringatan sebelum stok minimum</small></x-ui.card></a>
     <a href="{{ route('stock-predictions.index', ['status' => 'Mendesak']) }}" class="stat-link"><x-ui.card class="stat-card stat-danger"><div class="stat-icon"><i class="ti-alarm-clock"></i></div><p>Prediksi Mendesak</p><strong>{{ number_format($urgentPredictionCount, 0, ',', '.') }}</strong><small>Perlu tindakan segera</small></x-ui.card></a>

@@ -20,7 +20,7 @@
                 <p class="login-intro-copy">Kelola barang, gudang, supplier, pergerakan stok, dan laporan operasional dari satu tempat.</p>
             </div>
             <ul class="login-benefits" aria-label="Fitur utama">
-                <li><i class="ti-check" aria-hidden="true"></i> Pantau saldo setiap gudang</li>
+                <li><i class="ti-check" aria-hidden="true"></i> Pantau stok setiap gudang</li>
                 <li><i class="ti-check" aria-hidden="true"></i> Telusuri mutasi dan riwayat stok</li>
                 <li><i class="ti-check" aria-hidden="true"></i> Dapatkan peringatan serta prediksi restock</li>
             </ul>

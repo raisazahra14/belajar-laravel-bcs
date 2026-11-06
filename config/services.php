@@ -14,7 +14,7 @@ return [
     'document_checker' => [
         'python_executable' => env(
             'PYTHON_EXECUTABLE',
-            PHP_OS_FAMILY === 'Windows' && is_file(base_path('python/.venv/Scripts/python.exe'))
+            PHP_OS_FAMILY === 'Windows' && is_file(base_path('python/.venv/Lib/site-packages/pymupdf/__init__.py'))
                 ? base_path('python/.venv/Scripts/python.exe')
                 : 'python',
         ),

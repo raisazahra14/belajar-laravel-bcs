@@ -65,7 +65,7 @@ class SupplierWarehouseOperationalIntegrationTest extends TestCase
             ->assertDontSee($deletedWarehouse->nama_gudang)
             ->assertSee($activeSupplier->nama_supplier)
             ->assertDontSee($inactiveSupplier->nama_supplier)
-            ->assertSee('Saldo gudang dipilih');
+            ->assertSee('Stok gudang dipilih');
     }
 
     public function test_incoming_and_outgoing_update_only_selected_warehouse_and_consolidated_total(): void
