@@ -20,9 +20,13 @@ class PurchaseOrderPerformanceAndNPlusOneTest extends TestCase
     use RefreshDatabase;
 
     private User $staff;
+
     private User $manager;
+
     private Supplier $supplier;
+
     private Warehouse $warehouse;
+
     private Barang $barang;
 
     protected function setUp(): void

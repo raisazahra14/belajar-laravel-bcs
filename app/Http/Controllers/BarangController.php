@@ -12,7 +12,6 @@ use App\Models\StockPrediction;
 use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Services\BarangCodeGenerator;
-use App\Services\InventoryAnalyticsService;
 use App\Services\InventoryDashboardService;
 use App\Services\InventoryMasterDataService;
 use App\Services\PurchaseOrderService;

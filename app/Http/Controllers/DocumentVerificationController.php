@@ -17,12 +17,12 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use RuntimeException;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
@@ -146,13 +146,14 @@ class DocumentVerificationController extends Controller
                         $fresh = $documentVerification->fresh();
                         if ($fresh && $fresh->process_status === DocumentVerification::PROCESS_WAITING) {
                             // Hapus job dari tabel queue database hanya bila menggunakan database queue driver
-                            if (config('queue.default') === 'database' && \Illuminate\Support\Facades\Schema::hasTable('jobs')) {
+                            if (config('queue.default') === 'database' && Schema::hasTable('jobs')) {
                                 try {
                                     DB::table('jobs')
                                         ->where('payload', 'like', '%ProcessDocumentVerification%')
                                         ->where('payload', 'like', '%"verificationId":'.$documentVerification->id.'%')
                                         ->delete();
-                                } catch (Throwable) {}
+                                } catch (Throwable) {
+                                }
                             }
 
                             ProcessDocumentVerification::dispatchSync($documentVerification->id);

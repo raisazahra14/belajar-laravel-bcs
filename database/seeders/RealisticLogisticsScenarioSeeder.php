@@ -578,7 +578,7 @@ class RealisticLogisticsScenarioSeeder extends Seeder
 
                 for ($i = 0; $i < $count; $i++) {
                     $selectedWarehouse = $warehouses[$poIndex % $warehouses->count()];
-                    
+
                     // Ambil barang acak 1-3 item
                     $numItems = rand(1, 3);
                     $poItemsBarang = $savedBarangs->random($numItems);
@@ -596,7 +596,7 @@ class RealisticLogisticsScenarioSeeder extends Seeder
 
                     $tanggalPesan = $baseDate->copy()->subDays($daysAgo);
                     $leadTime = rand(3, 7);
-                    
+
                     // Untuk PO Approved overdue: estimasi tiba diset 2 hari setelah pesan (sudah lewat)
                     if ($targetStatus === PurchaseOrderStatus::APPROVED && $i < (int) ($count / 2)) {
                         $estimasiTiba = $tanggalPesan->copy()->addDays(2);
@@ -620,7 +620,7 @@ class RealisticLogisticsScenarioSeeder extends Seeder
                         'approved_by' => in_array($targetStatus, [
                             PurchaseOrderStatus::APPROVED,
                             PurchaseOrderStatus::PARTIALLY_RECEIVED,
-                            PurchaseOrderStatus::COMPLETED
+                            PurchaseOrderStatus::COMPLETED,
                         ], true) ? $manager->id : null,
                         'created_at' => $tanggalPesan,
                         'updated_at' => $tanggalPesan,
@@ -705,7 +705,7 @@ class RealisticLogisticsScenarioSeeder extends Seeder
                     if (in_array($targetStatus, [
                         PurchaseOrderStatus::APPROVED,
                         PurchaseOrderStatus::PARTIALLY_RECEIVED,
-                        PurchaseOrderStatus::COMPLETED
+                        PurchaseOrderStatus::COMPLETED,
                     ], true)) {
                         $approveTime = $tanggalPesan->copy()->addHours(6);
                         PurchaseOrderStatusHistory::create([

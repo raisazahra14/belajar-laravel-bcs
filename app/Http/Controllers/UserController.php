@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\GoodsReceipt;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -65,13 +67,13 @@ class UserController extends Controller
             return back()->with('error', 'User tidak dapat dihapus karena tercatat memiliki riwayat pembuatan Purchase Order.');
         }
 
-        if (\App\Models\GoodsReceipt::where('received_by', $user->id)->exists()) {
+        if (GoodsReceipt::where('received_by', $user->id)->exists()) {
             return back()->with('error', 'User tidak dapat dihapus karena tercatat sebagai penerima barang fisik (Goods Receipt).');
         }
 
         try {
             $user->delete();
-        } catch (\Illuminate\Database\QueryException) {
+        } catch (QueryException) {
             return back()->with('error', 'User tidak dapat dihapus karena masih terhubung dengan data operasional.');
         }
 

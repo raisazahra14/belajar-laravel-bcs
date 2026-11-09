@@ -10,6 +10,7 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\PurchaseOrderService;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
@@ -310,7 +311,7 @@ class PurchaseOrderRobustErrorHandlingTest extends TestCase
         // Mock PurchaseOrderService untuk mensimulasikan database deadlock (SQLSTATE 40001 / Error 1213)
         $mockService = $this->createMock(PurchaseOrderService::class);
         $mockService->method('receiveItems')
-            ->willThrowException(new \Illuminate\Database\QueryException(
+            ->willThrowException(new QueryException(
                 'sqlite',
                 'UPDATE warehouse_stocks SET quantity = ...',
                 [],
@@ -359,7 +360,7 @@ class PurchaseOrderRobustErrorHandlingTest extends TestCase
 
         $mockService = $this->createMock(PurchaseOrderService::class);
         $mockService->method('receiveItems')
-            ->willThrowException(new \Illuminate\Database\QueryException(
+            ->willThrowException(new QueryException(
                 'sqlite',
                 'UPDATE warehouse_stocks SET quantity = ...',
                 [],

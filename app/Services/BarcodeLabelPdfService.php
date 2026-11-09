@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Barang;
 use App\Models\PurchaseOrder;
 use BaconQrCode\Common\ErrorCorrectionLevel;
+use BaconQrCode\Encoder\ByteMatrix;
 use BaconQrCode\Encoder\Encoder;
 use Illuminate\Support\Collection;
 
@@ -13,9 +14,10 @@ class BarcodeLabelPdfService
     /**
      * Cache matriks QR Code per kode_barang agar pembuatan puluhan label berlangsung instan (< 50 ms).
      *
-     * @var array<string, \BaconQrCode\Encoder\ByteMatrix>
+     * @var array<string, ByteMatrix>
      */
     private array $matrixCache = [];
+
     /**
      * Menghasilkan dokumen PDF lembar label stiker QR Code untuk satu Barang.
      * Menggunakan matriks QR Code yang identik dengan BarangQrCodeService (ErrorCorrectionLevel::M).

@@ -386,7 +386,7 @@ class PurchaseOrderService
             $tokenKey = "purchase_order:receipt_token:{$receiptToken}";
             if (Cache::has($tokenKey)) {
                 throw ValidationException::withMessages([
-                    'double_submit' => "Penerimaan barang dengan nomor bukti/token ini sudah berhasil dicatat sebelumnya. Halaman diperbarui untuk mencegah duplikasi saldo.",
+                    'double_submit' => 'Penerimaan barang dengan nomor bukti/token ini sudah berhasil dicatat sebelumnya. Halaman diperbarui untuk mencegah duplikasi saldo.',
                 ]);
             }
         }
@@ -742,14 +742,14 @@ class PurchaseOrderService
         $today = today()->toDateString();
 
         $poStats = DB::table('purchase_orders')
-            ->selectRaw("
+            ->selectRaw('
                 COUNT(CASE WHEN status = ? THEN 1 END) as pending_approval,
                 COUNT(CASE WHEN status = ? THEN 1 END) as approved,
                 COUNT(CASE WHEN status = ? THEN 1 END) as partially_received,
                 COUNT(CASE WHEN status = ? THEN 1 END) as completed,
                 COUNT(CASE WHEN status = ? AND estimasi_tiba < ? THEN 1 END) as overdue,
                 COALESCE(SUM(CASE WHEN status IN (?, ?, ?) AND tanggal_pesan BETWEEN ? AND ? THEN total_biaya ELSE 0 END), 0) as monthly_spend
-            ", [
+            ', [
                 PurchaseOrderStatus::PENDING_APPROVAL->value,
                 PurchaseOrderStatus::APPROVED->value,
                 PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
@@ -822,7 +822,7 @@ class PurchaseOrderService
             }
 
             // Tulis UTF-8 Byte Order Mark (BOM) agar Microsoft Excel mengenali karakter dengan benar
-            fputs($handle, "\xEF\xBB\xBF");
+            fwrite($handle, "\xEF\xBB\xBF");
 
             // Header Kolom CSV
             fputcsv($handle, [

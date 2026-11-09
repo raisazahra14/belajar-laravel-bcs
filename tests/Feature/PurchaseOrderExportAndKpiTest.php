@@ -17,11 +17,17 @@ class PurchaseOrderExportAndKpiTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $manager;
+
     private User $staff;
+
     private Supplier $supplierA;
+
     private Supplier $supplierB;
+
     private Warehouse $warehouse;
+
     private Barang $barang;
 
     protected function setUp(): void

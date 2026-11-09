@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -390,7 +391,7 @@ class ProcurementAnalyticsExportService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $pageRows
+     * @param  Collection<int, array<string, mixed>>  $pageRows
      * @param  array<string, mixed>  $procurement
      * @param  array<string, mixed>  $filters
      */

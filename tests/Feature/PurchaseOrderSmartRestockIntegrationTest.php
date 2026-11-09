@@ -15,7 +15,6 @@ use App\Models\WarehouseStock;
 use App\Services\PurchaseOrderService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PurchaseOrderSmartRestockIntegrationTest extends TestCase

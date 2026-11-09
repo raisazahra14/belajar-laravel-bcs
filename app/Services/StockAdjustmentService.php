@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Models\Barang;
+use App\Models\PurchaseOrder;
 use App\Models\StokTransaction;
 use App\Models\Supplier;
 use App\Models\User;
@@ -291,7 +293,7 @@ class StockAdjustmentService
             $original->update(['reversed_at' => now(), 'reversed_by' => $userId]);
 
             if ($original->reference_type === 'PO' && $original->reference_number) {
-                $po = \App\Models\PurchaseOrder::where('nomor_po', $original->reference_number)->first();
+                $po = PurchaseOrder::where('nomor_po', $original->reference_number)->first();
                 if ($po) {
                     $poItem = $po->items()->where('barang_id', $original->barang_id)->first();
                     if ($poItem) {
@@ -301,8 +303,8 @@ class StockAdjustmentService
                     $totalPesan = (int) $po->items()->sum('jumlah_pesan');
                     $totalTerima = (int) $po->items()->sum('jumlah_diterima');
                     $newStatus = $totalTerima <= 0
-                        ? \App\Enums\PurchaseOrderStatus::APPROVED
-                        : ($totalTerima < $totalPesan ? \App\Enums\PurchaseOrderStatus::PARTIALLY_RECEIVED : \App\Enums\PurchaseOrderStatus::COMPLETED);
+                        ? PurchaseOrderStatus::APPROVED
+                        : ($totalTerima < $totalPesan ? PurchaseOrderStatus::PARTIALLY_RECEIVED : PurchaseOrderStatus::COMPLETED);
 
                     if ($po->status !== $newStatus) {
                         $oldStatus = $po->status;
@@ -311,7 +313,7 @@ class StockAdjustmentService
                         $po->recordStatusHistory(
                             $oldStatus,
                             $newStatus,
-                            \App\Models\User::find($userId),
+                            User::find($userId),
                             'Penyesuaian status akibat reversal mutasi stok #'.$original->id,
                         );
                     }
