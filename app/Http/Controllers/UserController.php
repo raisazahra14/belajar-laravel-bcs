@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\GoodsReceipt;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
@@ -24,7 +25,7 @@ class UserController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'role' => ['required', Rule::in(['admin', 'staff'])],
+            'role' => ['required', Rule::in(['admin', 'manager', 'staff'])],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
@@ -43,7 +44,7 @@ class UserController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
-            'role' => ['required', Rule::in(['admin', 'staff'])],
+            'role' => ['required', Rule::in(['admin', 'manager', 'staff'])],
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
         ]);
 
@@ -62,7 +63,19 @@ class UserController extends Controller
             return back()->with('error', 'Anda tidak dapat menghapus akun sendiri.');
         }
 
-        $user->delete();
+        if ($user->createdPurchaseOrders()->exists()) {
+            return back()->with('error', 'User tidak dapat dihapus karena tercatat memiliki riwayat pembuatan Purchase Order.');
+        }
+
+        if (GoodsReceipt::where('received_by', $user->id)->exists()) {
+            return back()->with('error', 'User tidak dapat dihapus karena tercatat sebagai penerima barang fisik (Goods Receipt).');
+        }
+
+        try {
+            $user->delete();
+        } catch (QueryException) {
+            return back()->with('error', 'User tidak dapat dihapus karena masih terhubung dengan data operasional.');
+        }
 
         return redirect('/users')->with('success', 'User berhasil dihapus.');
     }

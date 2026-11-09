@@ -1,0 +1,26 @@
+/*
+ * Bundle CSS utama aplikasi. Urutan import mempertahankan cascade layout lama,
+ * sementara Vite menangani minifikasi, fingerprint, dan cache busting produksi.
+ */
+@import '../../public/assets/vendors/ti-icons/css/themify-icons.css';
+@import '../../public/assets/vendors/css/vendor.bundle.base.css';
+@import '../../public/assets/css/style.css';
+@import '../../public/css/skydash-logistics.css';
+
+/*
+ * Gunakan font sistem agar halaman tidak menunggu empat varian webfont Nunito
+ * (sekitar 220 KiB WOFF2). Selector tambahan menimpa deklarasi eksplisit tema.
+ */
+:root {
+    --app-font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body,
+code,
+.footer,
+.icon-data-list,
+.sidebar,
+.settings-panel .settings-heading,
+.settings-panel .events p {
+    font-family: var(--app-font-sans);
+}

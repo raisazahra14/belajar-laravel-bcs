@@ -1,0 +1,37 @@
+# Pre-commit configuration for repository hygiene and quality standards
+# See https://pre-commit.com for more information
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--unsafe']
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=5120']
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: php-lint
+        name: PHP Syntax Check (php -l)
+        entry: php -l
+        language: system
+        files: '\.php$'
+
+      - id: laravel-pint
+        name: Laravel Pint (PHP Style Fixer)
+        entry: php vendor/bin/pint --test
+        language: system
+        files: '\.php$'
+        pass_filenames: false
