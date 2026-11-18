@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PurchaseOrderStatus;
+use App\Services\ProcurementAnalyticsService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -44,6 +45,14 @@ class PurchaseOrder extends Model
             if (empty($po->nomor_po)) {
                 $po->nomor_po = static::generateNomorPo($po->tanggal_pesan);
             }
+        });
+
+        static::saved(function (): void {
+            ProcurementAnalyticsService::clearCache();
+        });
+
+        static::deleted(function (): void {
+            ProcurementAnalyticsService::clearCache();
         });
     }
 

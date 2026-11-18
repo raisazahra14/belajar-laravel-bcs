@@ -225,6 +225,11 @@ class PurchaseOrderExportAndKpiTest extends TestCase
 
         // Fulfillment rate: 6 diterima / 20 dipesan = 30.0%
         $this->assertEquals(30.0, $kpis['fulfillment_rate']);
+
+        // PO PARTIALLY_RECEIVED yang melewati estimasi_tiba juga harus terhitung sebagai overdue
+        $poPartial->update(['estimasi_tiba' => now()->subDays(2)->toDateString()]);
+        $kpisWithPartialOverdue = $service->getProcurementKpis();
+        $this->assertSame(2, $kpisWithPartialOverdue['overdue']);
     }
 
     public function test_purchase_orders_index_renders_kpi_cards_and_export_button(): void

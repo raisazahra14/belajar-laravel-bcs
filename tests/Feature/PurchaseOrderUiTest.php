@@ -643,4 +643,60 @@ class PurchaseOrderUiTest extends TestCase
             ->assertSee('Diajukan ke Manager')
             ->assertSee('Disetujui untuk pemenuhan gudang');
     }
+
+    public function test_creator_can_withdraw_pending_po_and_revise_rejected_po_via_ui(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-3099',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'status' => PurchaseOrderStatus::PENDING_APPROVAL,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 900000,
+            'created_by' => $this->staff->id,
+        ]);
+
+        $po->items()->create([
+            'barang_id' => $this->barangA->id,
+            'jumlah_pesan' => 2,
+            'jumlah_diterima' => 0,
+            'harga_satuan' => 450000,
+            'subtotal' => 900000,
+        ]);
+
+        // Creator melihat tombol Tarik Pengajuan pada PO PENDING_APPROVAL
+        $this->actingAs($this->staff)
+            ->get(route('purchase-orders.show', $po))
+            ->assertOk()
+            ->assertSee('Tarik Pengajuan');
+
+        // Aksi withdraw mengembalikan status ke DRAFT
+        $this->actingAs($this->staff)
+            ->post(route('purchase-orders.withdraw', $po))
+            ->assertRedirect(route('purchase-orders.show', $po))
+            ->assertSessionHas('success');
+
+        $this->assertSame(PurchaseOrderStatus::DRAFT, $po->fresh()->status);
+
+        // Ajukan ulang lalu tolak sebagai Manager
+        $this->actingAs($this->staff)->post(route('purchase-orders.submit', $po));
+        $this->actingAs($this->manager)->post(route('purchase-orders.reject', $po), [
+            'reason' => 'Perlu penyesuaian kuantitas',
+        ]);
+        $this->assertSame(PurchaseOrderStatus::REJECTED, $po->fresh()->status);
+
+        // Creator melihat tombol Revisi ke Draft pada PO REJECTED
+        $this->actingAs($this->staff)
+            ->get(route('purchase-orders.show', $po))
+            ->assertOk()
+            ->assertSee('Revisi ke Draft');
+
+        // Aksi revise mengembalikan status ke DRAFT agar bisa diedit kembali
+        $this->actingAs($this->staff)
+            ->post(route('purchase-orders.revise', $po))
+            ->assertRedirect(route('purchase-orders.show', $po))
+            ->assertSessionHas('success');
+
+        $this->assertSame(PurchaseOrderStatus::DRAFT, $po->fresh()->status);
+    }
 }

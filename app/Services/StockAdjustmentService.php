@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Enums\PurchaseOrderStatus;
 use App\Models\Barang;
+use App\Models\GoodsReceipt;
+use App\Models\GoodsReceiptItem;
 use App\Models\PurchaseOrder;
 use App\Models\StokTransaction;
 use App\Models\Supplier;
@@ -293,33 +295,92 @@ class StockAdjustmentService
             $original->update(['reversed_at' => now(), 'reversed_by' => $userId]);
 
             if ($original->reference_type === 'PO' && $original->reference_number) {
-                $po = PurchaseOrder::where('nomor_po', $original->reference_number)->first();
-                if ($po) {
-                    $poItem = $po->items()->where('barang_id', $original->barang_id)->first();
-                    if ($poItem) {
-                        $poItem->jumlah_diterima = max(0, (int) $poItem->jumlah_diterima - (int) $original->jumlah);
-                        $poItem->save();
-                    }
-                    $totalPesan = (int) $po->items()->sum('jumlah_pesan');
-                    $totalTerima = (int) $po->items()->sum('jumlah_diterima');
-                    $newStatus = $totalTerima <= 0
-                        ? PurchaseOrderStatus::APPROVED
-                        : ($totalTerima < $totalPesan ? PurchaseOrderStatus::PARTIALLY_RECEIVED : PurchaseOrderStatus::COMPLETED);
-
-                    if ($po->status !== $newStatus) {
-                        $oldStatus = $po->status;
-                        $po->status = $newStatus;
-                        $po->save();
-                        $po->recordStatusHistory(
-                            $oldStatus,
-                            $newStatus,
-                            User::find($userId),
-                            'Penyesuaian status akibat reversal mutasi stok #'.$original->id,
-                        );
-                    }
-                }
+                $this->syncPurchaseOrderOnReversal($original, $userId);
             }
         });
+    }
+
+    private function syncPurchaseOrderOnReversal(StokTransaction $original, int $userId): void
+    {
+        $po = PurchaseOrder::where('nomor_po', $original->reference_number)->lockForUpdate()->first();
+        if (! $po) {
+            return;
+        }
+
+        $poItem = $po->items()->where('barang_id', $original->barang_id)->lockForUpdate()->first();
+        if ($poItem) {
+            $poItem->jumlah_diterima = max(0, (int) $poItem->jumlah_diterima - (int) $original->jumlah);
+            $poItem->save();
+        }
+
+        $this->syncGoodsReceiptsOnReversal($po, $original);
+
+        $poItems = $po->items()->get();
+        $totalTerima = (int) $poItems->sum('jumlah_diterima');
+        $allComplete = $poItems->isNotEmpty()
+            && $poItems->every(fn ($item): bool => (int) $item->jumlah_diterima >= (int) $item->jumlah_pesan);
+
+        $newStatus = $totalTerima <= 0
+            ? PurchaseOrderStatus::APPROVED
+            : ($allComplete ? PurchaseOrderStatus::COMPLETED : PurchaseOrderStatus::PARTIALLY_RECEIVED);
+
+        if ($po->status !== $newStatus) {
+            $oldStatus = $po->status;
+            $po->status = $newStatus;
+            $po->save();
+            $po->recordStatusHistory(
+                $oldStatus,
+                $newStatus,
+                User::find($userId),
+                'Penyesuaian status akibat reversal mutasi stok #'.$original->id,
+            );
+        }
+    }
+
+    private function syncGoodsReceiptsOnReversal(PurchaseOrder $po, StokTransaction $original): void
+    {
+        $remainingToReverse = (int) $original->jumlah;
+        if ($remainingToReverse <= 0) {
+            return;
+        }
+
+        $grnItems = GoodsReceiptItem::query()
+            ->whereHas('goodsReceipt', fn ($q) => $q->where('purchase_order_id', $po->id))
+            ->where('barang_id', $original->barang_id)
+            ->orderByDesc('id')
+            ->lockForUpdate()
+            ->get();
+
+        $affectedGrnIds = [];
+
+        foreach ($grnItems as $grnItem) {
+            if ($remainingToReverse <= 0) {
+                break;
+            }
+
+            $affectedGrnIds[] = (int) $grnItem->goods_receipt_id;
+            $currentQty = (int) $grnItem->jumlah_diterima;
+
+            if ($currentQty <= $remainingToReverse) {
+                $remainingToReverse -= $currentQty;
+                $grnItem->delete();
+            } else {
+                $grnItem->jumlah_diterima = $currentQty - $remainingToReverse;
+                $grnItem->catatan_kondisi = trim(
+                    ($grnItem->catatan_kondisi ? $grnItem->catatan_kondisi.' | ' : '')
+                    .'Reversal stok #'.$original->id
+                );
+                $grnItem->save();
+                $remainingToReverse = 0;
+            }
+        }
+
+        foreach (array_unique($affectedGrnIds) as $grnId) {
+            $grn = GoodsReceipt::lockForUpdate()->find($grnId);
+            if ($grn && $grn->items()->count() === 0) {
+                $grn->delete();
+            }
+        }
     }
 
     private function reverseTransfer(string $group, string $reason, int $userId): void

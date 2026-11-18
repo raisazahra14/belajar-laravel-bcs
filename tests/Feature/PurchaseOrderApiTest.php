@@ -306,4 +306,43 @@ class PurchaseOrderApiTest extends TestCase
             ->assertJsonPath('data.nomor_po', 'PO-20261027-API6')
             ->assertJsonPath('data.status.value', 'draft');
     }
+
+    public function test_api_withdraw_and_revise_actions(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-API7',
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouse->id,
+            'status' => PurchaseOrderStatus::PENDING_APPROVAL,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 700000,
+            'created_by' => $this->staff->id,
+        ]);
+
+        $po->items()->create([
+            'barang_id' => $this->barang1->id,
+            'jumlah_pesan' => 2,
+            'harga_satuan' => 350000,
+            'subtotal' => 700000,
+        ]);
+
+        // Manager (bukan pembuat) ditolak menarik pengajuan PO milik staf
+        $this->actingAs($this->manager)
+            ->postJson("/api/purchase-orders/{$po->id}/withdraw")
+            ->assertForbidden();
+
+        // Pembuat menarik pengajuan ke Draft
+        $this->actingAs($this->staff)
+            ->postJson("/api/purchase-orders/{$po->id}/withdraw", ['reason' => 'Revisi item via API'])
+            ->assertOk()
+            ->assertJsonPath('data.status.value', 'draft');
+
+        $po->update(['status' => PurchaseOrderStatus::REJECTED]);
+
+        // Pembuat merevisi PO yang ditolak kembali ke Draft
+        $this->actingAs($this->staff)
+            ->postJson("/api/purchase-orders/{$po->id}/revise")
+            ->assertOk()
+            ->assertJsonPath('data.status.value', 'draft');
+    }
 }

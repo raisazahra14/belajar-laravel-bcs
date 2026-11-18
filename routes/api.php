@@ -14,6 +14,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/purchase-orders', [PurchaseOrderApiController::class, 'store'])->name('api.purchase-orders.store');
     Route::get('/purchase-orders/{purchaseOrder}', [PurchaseOrderApiController::class, 'show'])->name('api.purchase-orders.show');
     Route::match(['put', 'patch'], '/purchase-orders/{purchaseOrder}', [PurchaseOrderApiController::class, 'update'])->name('api.purchase-orders.update');
+    Route::post('/purchase-orders/{purchaseOrder}/revise', [PurchaseOrderApiController::class, 'revise'])->name('api.purchase-orders.revise');
+    Route::post('/purchase-orders/{purchaseOrder}/withdraw', [PurchaseOrderApiController::class, 'withdraw'])->name('api.purchase-orders.withdraw');
     Route::post('/purchase-orders/{purchaseOrder}/approve', [PurchaseOrderApiController::class, 'approve'])->name('api.purchase-orders.approve');
     Route::post('/purchase-orders/{purchaseOrder}/reject', [PurchaseOrderApiController::class, 'reject'])->name('api.purchase-orders.reject');
     Route::post('/purchase-orders/{purchaseOrder}/receive', [PurchaseOrderApiController::class, 'receive'])->name('api.purchase-orders.receive');

@@ -33,6 +33,21 @@
             </form>
         @endif
 
+        {{-- Kembalikan ke Draft (Revisi PO Ditolak / Tarik Pengajuan) --}}
+        @if(in_array(\App\Enums\PurchaseOrderStatus::DRAFT, $availableTransitions ?? [], true))
+            @if($purchaseOrder->status === \App\Enums\PurchaseOrderStatus::REJECTED)
+                <form action="{{ route('purchase-orders.revise', $purchaseOrder) }}" method="POST" class="d-inline">
+                    @csrf
+                    <x-ui.button type="submit" variant="warning" icon="ti-reload">Revisi ke Draft</x-ui.button>
+                </form>
+            @elseif($purchaseOrder->status === \App\Enums\PurchaseOrderStatus::PENDING_APPROVAL)
+                <form action="{{ route('purchase-orders.withdraw', $purchaseOrder) }}" method="POST" class="d-inline">
+                    @csrf
+                    <x-ui.button type="submit" variant="outline-warning" icon="ti-back-left">Tarik Pengajuan</x-ui.button>
+                </form>
+            @endif
+        @endif
+
         {{-- Tombol Setujui Pesanan (Approve) --}}
         @if(in_array(\App\Enums\PurchaseOrderStatus::APPROVED, $availableTransitions ?? [], true))
             <x-ui.button type="button" variant="success" icon="ti-check-box" data-bs-toggle="modal" data-bs-target="#approvePoModal" data-toggle="modal" data-target="#approvePoModal">

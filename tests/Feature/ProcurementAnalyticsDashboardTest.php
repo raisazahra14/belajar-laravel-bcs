@@ -275,4 +275,49 @@ class ProcurementAnalyticsDashboardTest extends TestCase
 
         $this->assertLessThanOrEqual(42, count($queries), 'Jumlah kueri dashboard analitik dengan tab pengadaan tetap konstan O(1).');
     }
+
+    public function test_procurement_analytics_summary_uses_versioned_cache_and_invalidates_on_model_changes(): void
+    {
+        $service = app(ProcurementAnalyticsService::class);
+
+        $emptySummary = $service->summary();
+        $this->assertFalse($emptySummary['has_data']);
+        $this->assertSame(0, $emptySummary['kpis']['total_po_count']);
+
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261110-CACHE1',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseUtama->id,
+            'status' => PurchaseOrderStatus::COMPLETED,
+            'tanggal_pesan' => '2026-11-10',
+            'estimasi_tiba' => '2026-11-12',
+            'total_biaya' => 2000000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'barang_id' => $this->barangElektronik->id,
+            'jumlah_pesan' => 2,
+            'jumlah_diterima' => 2,
+            'harga_satuan' => 1000000,
+            'subtotal' => 2000000,
+        ]);
+
+        // Hook model otomatis menginvalidasi versi cache sehingga data baru langsung terlihat
+        $populatedSummary = $service->summary();
+        $this->assertTrue($populatedSummary['has_data']);
+        $this->assertSame(1, $populatedSummary['kpis']['total_po_count']);
+        $this->assertSame(2000000.0, $populatedSummary['kpis']['total_po_budget']);
+
+        // Panggilan kedua dengan parameter sama dilayani dari cache tanpa query SQL
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $cachedSummary = $service->summary();
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $this->assertSame($populatedSummary, $cachedSummary);
+        $this->assertCount(0, $queries);
+    }
 }

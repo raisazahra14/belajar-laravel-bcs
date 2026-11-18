@@ -107,7 +107,7 @@ class SystemHealthService
 
             $coreTablesReady = Schema::hasTable('barang')
                 && Schema::hasTable('purchase_orders')
-                && Schema::hasTable('goods_receipt_notes')
+                && Schema::hasTable('goods_receipts')
                 && Schema::hasTable('document_verifications')
                 && Schema::hasTable('stock_predictions');
 

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\ProcurementAnalyticsService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -43,6 +44,14 @@ class GoodsReceipt extends Model
             if (empty($grn->nomor_grn)) {
                 $grn->nomor_grn = static::generateNomorGrn($grn->tanggal_terima);
             }
+        });
+
+        static::saved(function (): void {
+            ProcurementAnalyticsService::clearCache();
+        });
+
+        static::deleted(function (): void {
+            ProcurementAnalyticsService::clearCache();
         });
     }
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\PurchaseOrderStatus;
 use App\Exceptions\InvalidPurchaseOrderTransitionException;
 use App\Models\Barang;
+use App\Models\GoodsReceipt;
 use App\Models\PurchaseOrder;
 use App\Models\StokTransaction;
 use App\Models\Supplier;
@@ -12,6 +13,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
 use App\Services\PurchaseOrderService;
+use App\Services\StockAdjustmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -415,6 +417,123 @@ class PurchaseOrderLogicTest extends TestCase
             'user_id' => $this->staff->id,
             'reason' => 'Penerimaan batch 1',
         ]);
+    }
+
+    public function test_withdraw_and_revise_po_transition_back_to_draft_and_enforce_creator_authorization(): void
+    {
+        $po = $this->createDraftPO();
+
+        // Policy submit selaras dengan state machine: creator & admin boleh submit, manager non-creator tidak
+        $this->assertTrue($this->staff->can('submit', $po));
+        $this->assertFalse($this->manager->can('submit', $po));
+        $this->assertTrue($this->admin->can('submit', $po));
+
+        $this->service->submitPO($po, $this->staff);
+        $this->assertSame(PurchaseOrderStatus::PENDING_APPROVAL, $po->fresh()->status);
+
+        // Policy withdraw
+        $this->assertTrue($this->staff->can('withdraw', $po->fresh()));
+        $this->assertFalse($this->manager->can('withdraw', $po->fresh()));
+
+        $withdrawn = $this->service->withdrawPO($po, $this->staff, 'Ingin menambah item barang');
+        $this->assertSame(PurchaseOrderStatus::DRAFT, $withdrawn->status);
+        $this->assertNull($withdrawn->approved_by);
+        $this->assertDatabaseHas('purchase_order_status_histories', [
+            'purchase_order_id' => $po->id,
+            'from_status' => PurchaseOrderStatus::PENDING_APPROVAL->value,
+            'to_status' => PurchaseOrderStatus::DRAFT->value,
+            'user_id' => $this->staff->id,
+            'reason' => 'Ingin menambah item barang',
+        ]);
+
+        // Ajukan ulang lalu tolak oleh Manager -> revisi kembali ke Draft
+        $this->service->submitPO($withdrawn, $this->staff);
+        $this->service->rejectPO($withdrawn, $this->manager, 'Harga perlu negosiasi ulang');
+
+        $this->assertTrue($this->staff->can('revise', $withdrawn->fresh()));
+        $this->assertFalse($this->manager->can('revise', $withdrawn->fresh()));
+
+        $revised = $this->service->revisePO($withdrawn, $this->staff, 'Revisi harga sesuai penawaran baru');
+        $this->assertSame(PurchaseOrderStatus::DRAFT, $revised->status);
+        $this->assertDatabaseHas('purchase_order_status_histories', [
+            'purchase_order_id' => $po->id,
+            'from_status' => PurchaseOrderStatus::REJECTED->value,
+            'to_status' => PurchaseOrderStatus::DRAFT->value,
+            'user_id' => $this->staff->id,
+            'reason' => 'Revisi harga sesuai penawaran baru',
+        ]);
+    }
+
+    public function test_receive_items_updates_barang_harga_beli_with_weighted_moving_average(): void
+    {
+        // barangA awal: stok 10, harga_beli 1.200.000
+        $po = $this->service->createPO([
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouse->id,
+            'tanggal_pesan' => '2026-10-27',
+            'items' => [
+                ['barang_id' => $this->barangA->id, 'jumlah_pesan' => 10, 'harga_satuan' => 1400000],
+            ],
+        ], $this->staff);
+
+        $this->service->submitPO($po, $this->staff);
+        $this->service->approvePO($po, $this->manager);
+
+        $itemA = $po->items->firstWhere('barang_id', $this->barangA->id);
+        $this->service->receiveItems($po, [
+            ['purchase_order_item_id' => $itemA->id, 'jumlah_diterima' => 10],
+        ], $this->staff);
+
+        // Weighted Moving Average: ((10 * 1.200.000) + (10 * 1.400.000)) / 20 = 1.300.000
+        $this->assertEquals(1300000.00, (float) $this->barangA->fresh()->harga_beli);
+        $this->assertSame(20, $this->barangA->fresh()->stok);
+    }
+
+    public function test_reversing_po_stock_transaction_synchronizes_goods_receipts_and_po_status(): void
+    {
+        $po = $this->createDraftPO();
+        $this->service->submitPO($po, $this->staff);
+        $this->service->approvePO($po, $this->manager);
+
+        $itemA = $po->items->firstWhere('barang_id', $this->barangA->id);
+        $itemB = $po->items->firstWhere('barang_id', $this->barangB->id);
+
+        $this->service->receiveItems($po, [
+            ['purchase_order_item_id' => $itemA->id, 'jumlah_diterima' => 5],
+            ['purchase_order_item_id' => $itemB->id, 'jumlah_diterima' => 10],
+        ], $this->staff);
+
+        $this->assertSame(PurchaseOrderStatus::COMPLETED, $po->fresh()->status);
+        $grn = GoodsReceipt::where('purchase_order_id', $po->id)->firstOrFail();
+        $this->assertCount(2, $grn->items);
+
+        $txA = StokTransaction::where('reference_type', 'PO')
+            ->where('reference_number', $po->nomor_po)
+            ->where('barang_id', $this->barangA->id)
+            ->firstOrFail();
+
+        $txB = StokTransaction::where('reference_type', 'PO')
+            ->where('reference_number', $po->nomor_po)
+            ->where('barang_id', $this->barangB->id)
+            ->firstOrFail();
+
+        $stockAdjustment = app(StockAdjustmentService::class);
+
+        // 1. Reverse item A -> status PO turun ke PARTIALLY_RECEIVED dan item GRN A terhapus
+        $stockAdjustment->reverse($txA, 'Salah input penerimaan kabel', $this->manager->id);
+
+        $this->assertSame(PurchaseOrderStatus::PARTIALLY_RECEIVED, $po->fresh()->status);
+        $this->assertSame(0, $itemA->fresh()->jumlah_diterima);
+        $this->assertNotNull($grn->fresh());
+        $this->assertSame(1, $grn->fresh()->items()->count());
+        $this->assertSame(0, $grn->fresh()->items()->where('barang_id', $this->barangA->id)->count());
+
+        // 2. Reverse item B -> seluruh penerimaan batal, GRN kosong terhapus, status kembali APPROVED
+        $stockAdjustment->reverse($txB, 'Salah input penerimaan konektor', $this->manager->id);
+
+        $this->assertSame(PurchaseOrderStatus::APPROVED, $po->fresh()->status);
+        $this->assertSame(0, $itemB->fresh()->jumlah_diterima);
+        $this->assertSame(0, GoodsReceipt::where('purchase_order_id', $po->id)->count());
     }
 
     private function createDraftPO(): PurchaseOrder

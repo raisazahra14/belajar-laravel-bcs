@@ -132,6 +132,56 @@ class PurchaseOrderApiController extends Controller
     }
 
     /**
+     * Kembalikan Purchase Order berstatus Ditolak ke Draft untuk revisi ulang.
+     */
+    public function revise(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service,
+    ): PurchaseOrderResource|JsonResponse {
+        return $this->runDraftTransition(
+            $request,
+            fn () => $service->revisePO($purchaseOrder, $request->user(), $request->input('reason')),
+        );
+    }
+
+    /**
+     * Tarik kembali pengajuan Purchase Order ke status Draft.
+     */
+    public function withdraw(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service,
+    ): PurchaseOrderResource|JsonResponse {
+        return $this->runDraftTransition(
+            $request,
+            fn () => $service->withdrawPO($purchaseOrder, $request->user(), $request->input('reason')),
+        );
+    }
+
+    /**
+     * @param  callable(): PurchaseOrder  $action
+     */
+    private function runDraftTransition(Request $request, callable $action): PurchaseOrderResource|JsonResponse
+    {
+        $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $po = $action();
+            $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+
+            return new PurchaseOrderResource($po);
+        } catch (InvalidPurchaseOrderTransitionException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error_code' => $e->errorCode,
+            ], $e->httpStatus());
+        }
+    }
+
+    /**
      * Catat penerimaan fisik barang (Goods Receipt).
      */
     public function receive(

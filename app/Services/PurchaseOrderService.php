@@ -5,6 +5,7 @@ namespace App\Services;
 use App\DTO\PurchaseOrderData;
 use App\Enums\PurchaseOrderStatus;
 use App\Exceptions\InvalidPurchaseOrderTransitionException;
+use App\Models\Barang;
 use App\Models\GoodsReceipt;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -356,6 +357,83 @@ class PurchaseOrderService
     }
 
     /**
+     * Mengembalikan Purchase Order berstatus REJECTED ke status DRAFT untuk revisi ulang.
+     *
+     * @throws InvalidPurchaseOrderTransitionException
+     */
+    public function revisePO(PurchaseOrder $po, User $actor, ?string $reason = null): PurchaseOrder
+    {
+        return $this->transitionToDraft(
+            po: $po,
+            actor: $actor,
+            expectedFrom: PurchaseOrderStatus::REJECTED,
+            defaultReason: 'Dikembalikan ke status Draft untuk revisi ulang',
+            reason: $reason,
+        );
+    }
+
+    /**
+     * Menarik kembali pengajuan Purchase Order (PENDING_APPROVAL -> DRAFT).
+     *
+     * @throws InvalidPurchaseOrderTransitionException
+     */
+    public function withdrawPO(PurchaseOrder $po, User $actor, ?string $reason = null): PurchaseOrder
+    {
+        return $this->transitionToDraft(
+            po: $po,
+            actor: $actor,
+            expectedFrom: PurchaseOrderStatus::PENDING_APPROVAL,
+            defaultReason: 'Pengajuan ditarik kembali ke status Draft',
+            reason: $reason,
+        );
+    }
+
+    /**
+     * Menjalankan transisi balik menuju status DRAFT secara atomik dengan pencatatan audit trail.
+     *
+     * @throws InvalidPurchaseOrderTransitionException
+     */
+    private function transitionToDraft(
+        PurchaseOrder $po,
+        User $actor,
+        PurchaseOrderStatus $expectedFrom,
+        string $defaultReason,
+        ?string $reason = null,
+    ): PurchaseOrder {
+        return DB::transaction(function () use ($po, $actor, $expectedFrom, $defaultReason, $reason): PurchaseOrder {
+            $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
+            $oldStatus = $lockedPo->status;
+
+            if ($oldStatus !== $expectedFrom) {
+                throw InvalidPurchaseOrderTransitionException::notAllowed($oldStatus, PurchaseOrderStatus::DRAFT);
+            }
+
+            $newStatus = $this->stateMachine->transition(
+                from: $oldStatus,
+                to: PurchaseOrderStatus::DRAFT,
+                role: $actor->role,
+                actorIsCreator: $lockedPo->created_by === $actor->id,
+                reason: $reason,
+                itemCount: $lockedPo->items()->count(),
+            );
+
+            $lockedPo->status = $newStatus;
+            $lockedPo->approved_by = null;
+            $lockedPo->save();
+
+            $trimmedReason = trim((string) $reason);
+            $lockedPo->recordStatusHistory(
+                from: $oldStatus,
+                to: $newStatus,
+                user: $actor,
+                reason: $trimmedReason !== '' ? $trimmedReason : $defaultReason,
+            );
+
+            return $lockedPo->fresh(['items.barang', 'statusHistories.user']);
+        });
+    }
+
+    /**
      * Mencatat penerimaan fisik barang (Goods Receipt), menambah saldo warehouse_stocks,
      * mencatat mutasi masuk pada stok_transactions, dan memperbarui status PO secara otomatis.
      * Dilengkapi proteksi double-submit via atomic lock, deterministik lockForUpdate, dan auto-retry deadlock.
@@ -449,6 +527,11 @@ class PurchaseOrderService
                     $item = $row['item'];
                     $qty = $row['qty'];
 
+                    $lockedBarang = Barang::lockForUpdate()->find($item->barang_id);
+                    $newHargaBeli = $lockedBarang !== null
+                        ? $this->calculateWeightedPurchasePrice($lockedBarang, $qty, (float) $item->harga_satuan)
+                        : null;
+
                     // Tambahkan saldo stok ke warehouse_stocks dan catat stok_transactions jenis masuk
                     $this->stockAdjustmentService->adjust(
                         barang: $item->barang_id,
@@ -467,6 +550,14 @@ class PurchaseOrderService
                             'document_date' => $tanggal,
                         ],
                     );
+
+                    if (
+                        $lockedBarang !== null
+                        && $newHargaBeli !== null
+                        && ($lockedBarang->harga_beli === null || (float) $lockedBarang->harga_beli !== $newHargaBeli)
+                    ) {
+                        $lockedBarang->update(['harga_beli' => $newHargaBeli]);
+                    }
 
                     // Akumulasi jumlah_diterima pada item PO
                     $item->jumlah_diterima += $qty;
@@ -601,6 +692,25 @@ class PurchaseOrderService
         });
 
         return $result;
+    }
+
+    /**
+     * Menghitung harga beli rata-rata tertimbang (Weighted Moving Average Cost) saat menerima barang PO.
+     */
+    private function calculateWeightedPurchasePrice(Barang $barang, int $incomingQty, float $unitPrice): ?float
+    {
+        if ($unitPrice <= 0 || $incomingQty <= 0) {
+            return null;
+        }
+
+        $oldStock = max(0, (int) $barang->stok);
+        $oldPrice = $barang->harga_beli !== null ? (float) $barang->harga_beli : null;
+
+        if ($oldPrice === null || $oldStock <= 0) {
+            return round($unitPrice, 2);
+        }
+
+        return round((($oldStock * $oldPrice) + ($incomingQty * $unitPrice)) / ($oldStock + $incomingQty), 2);
     }
 
     /**
@@ -747,7 +857,7 @@ class PurchaseOrderService
                 COUNT(CASE WHEN status = ? THEN 1 END) as approved,
                 COUNT(CASE WHEN status = ? THEN 1 END) as partially_received,
                 COUNT(CASE WHEN status = ? THEN 1 END) as completed,
-                COUNT(CASE WHEN status = ? AND estimasi_tiba < ? THEN 1 END) as overdue,
+                COUNT(CASE WHEN status IN (?, ?) AND estimasi_tiba IS NOT NULL AND estimasi_tiba < ? THEN 1 END) as overdue,
                 COALESCE(SUM(CASE WHEN status IN (?, ?, ?) AND tanggal_pesan BETWEEN ? AND ? THEN total_biaya ELSE 0 END), 0) as monthly_spend
             ', [
                 PurchaseOrderStatus::PENDING_APPROVAL->value,
@@ -755,6 +865,7 @@ class PurchaseOrderService
                 PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
                 PurchaseOrderStatus::COMPLETED->value,
                 PurchaseOrderStatus::APPROVED->value,
+                PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
                 $today,
                 PurchaseOrderStatus::APPROVED->value,
                 PurchaseOrderStatus::PARTIALLY_RECEIVED->value,

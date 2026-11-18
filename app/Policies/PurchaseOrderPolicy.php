@@ -53,7 +53,31 @@ class PurchaseOrderPolicy
             return false;
         }
 
-        return in_array($user->role, ['admin', 'manager'], true) || $purchaseOrder->created_by === $user->id;
+        return $user->role === 'admin' || $purchaseOrder->created_by === $user->id;
+    }
+
+    /**
+     * Menentukan apakah pengguna boleh merevisi PO yang ditolak kembali ke Draft (Rejected -> Draft).
+     */
+    public function revise(User $user, PurchaseOrder $purchaseOrder): bool
+    {
+        if ($purchaseOrder->status !== PurchaseOrderStatus::REJECTED) {
+            return false;
+        }
+
+        return $user->role === 'admin' || $purchaseOrder->created_by === $user->id;
+    }
+
+    /**
+     * Menentukan apakah pengguna boleh menarik pengajuan PO kembali ke Draft (Pending Approval -> Draft).
+     */
+    public function withdraw(User $user, PurchaseOrder $purchaseOrder): bool
+    {
+        if ($purchaseOrder->status !== PurchaseOrderStatus::PENDING_APPROVAL) {
+            return false;
+        }
+
+        return $user->role === 'admin' || $purchaseOrder->created_by === $user->id;
     }
 
     /**

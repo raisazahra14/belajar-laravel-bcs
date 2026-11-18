@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\ProcurementAnalyticsService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -84,6 +85,14 @@ class DocumentVerification extends Model
             } elseif ($verification->authenticity_status !== null) {
                 throw new InvalidArgumentException('Hasil keaslian hanya boleh disimpan setelah proses OCR selesai.');
             }
+        });
+
+        static::saved(function (): void {
+            ProcurementAnalyticsService::clearCache();
+        });
+
+        static::deleted(function (): void {
+            ProcurementAnalyticsService::clearCache();
         });
     }
 

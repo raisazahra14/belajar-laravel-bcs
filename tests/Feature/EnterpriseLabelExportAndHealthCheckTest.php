@@ -217,6 +217,8 @@ class EnterpriseLabelExportAndHealthCheckTest extends TestCase
 
         $jsonResponse = $this->actingAs($admin)->getJson(route('system-health.json'));
         $jsonResponse->assertOk();
+        $jsonResponse->assertJsonPath('components.database.status', 'healthy');
+        $jsonResponse->assertJsonPath('components.database.metrics.core_tables_ready', true);
         $jsonResponse->assertJsonStructure([
             'checked_at',
             'environment' => ['app_env', 'php_version', 'laravel_version', 'os_family'],

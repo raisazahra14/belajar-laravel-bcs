@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\ProcurementAnalyticsService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -33,6 +34,14 @@ class PurchaseOrderItem extends Model
     {
         static::saving(function (self $item): void {
             $item->subtotal = $item->jumlah_pesan * $item->harga_satuan;
+        });
+
+        static::saved(function (): void {
+            ProcurementAnalyticsService::clearCache();
+        });
+
+        static::deleted(function (): void {
+            ProcurementAnalyticsService::clearCache();
         });
     }
 

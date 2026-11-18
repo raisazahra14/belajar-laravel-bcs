@@ -7,16 +7,25 @@ use App\Models\DocumentVerification;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 class ProcurementAnalyticsService
 {
+    public const SUMMARY_CACHE_TTL = 300;
+
     public function __construct(
         protected DocumentMetadataMapper $metadataMapper,
     ) {}
 
+    public static function clearCache(): void
+    {
+        $current = (int) Cache::get('procurement:analytics:version', 1);
+        Cache::forever('procurement:analytics:version', $current + 1);
+    }
+
     /**
      * Menghasilkan ringkasan analitik pengadaan (Procurement Analytics & Budget Utilization)
-     * dalam jumlah kueri konstan O(1) tanpa N+1 query.
+     * dalam jumlah kueri konstan O(1) tanpa N+1 query, dilindungi cache berversi.
      *
      * @return array{
      *     has_data: bool,
@@ -29,6 +38,53 @@ class ProcurementAnalyticsService
      * }
      */
     public function summary(
+        ?int $warehouseId = null,
+        ?int $supplierId = null,
+        ?string $category = null,
+        ?string $startDate = null,
+        ?string $endDate = null,
+    ): array {
+        $cacheKey = $this->cacheKey($warehouseId, $supplierId, $category, $startDate, $endDate);
+
+        return Cache::remember(
+            $cacheKey,
+            self::SUMMARY_CACHE_TTL,
+            fn (): array => $this->computeSummary($warehouseId, $supplierId, $category, $startDate, $endDate),
+        );
+    }
+
+    private function cacheKey(
+        ?int $warehouseId,
+        ?int $supplierId,
+        ?string $category,
+        ?string $startDate,
+        ?string $endDate,
+    ): string {
+        $version = (int) Cache::get('procurement:analytics:version', 1);
+
+        return sprintf(
+            'procurement:analytics:summary:v%d:w_%s:s_%s:c_%s:from_%s:to_%s',
+            $version,
+            $warehouseId ?? 'all',
+            $supplierId ?? 'all',
+            $category === null || $category === '' ? 'all' : md5($category),
+            $startDate === null || $startDate === '' ? 'none' : $startDate,
+            $endDate === null || $endDate === '' ? 'none' : $endDate,
+        );
+    }
+
+    /**
+     * @return array{
+     *     has_data: bool,
+     *     kpis: array<string, mixed>,
+     *     monthly_trend: array<string, mixed>,
+     *     quarterly_trend: array<string, mixed>,
+     *     budget_comparison: array<string, mixed>,
+     *     warehouse_distribution: array<string, mixed>,
+     *     category_distribution: array<string, mixed>
+     * }
+     */
+    private function computeSummary(
         ?int $warehouseId = null,
         ?int $supplierId = null,
         ?string $category = null,

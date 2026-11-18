@@ -472,6 +472,81 @@ class PurchaseOrderController extends Controller
         }
     }
 
+    public function revise(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service
+    ): RedirectResponse|PurchaseOrderResource|JsonResponse {
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ], [
+            'reason.max' => 'Catatan alasan revisi maksimal 1.000 karakter.',
+        ]);
+
+        return $this->runDraftTransition(
+            request: $request,
+            action: fn () => $service->revisePO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
+            successMessage: fn (PurchaseOrder $po) => "Purchase Order {$po->nomor_po} dikembalikan ke status Draft untuk direvisi.",
+            conflictMessage: 'Terjadi kepadatan transaksi saat merevisi Purchase Order. Silakan coba kembali.',
+        );
+    }
+
+    public function withdraw(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service
+    ): RedirectResponse|PurchaseOrderResource|JsonResponse {
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ], [
+            'reason.max' => 'Catatan alasan penarikan pengajuan maksimal 1.000 karakter.',
+        ]);
+
+        return $this->runDraftTransition(
+            request: $request,
+            action: fn () => $service->withdrawPO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
+            successMessage: fn (PurchaseOrder $po) => "Pengajuan Purchase Order {$po->nomor_po} berhasil ditarik kembali ke status Draft.",
+            conflictMessage: 'Terjadi kepadatan transaksi saat menarik pengajuan Purchase Order. Silakan coba kembali.',
+        );
+    }
+
+    /**
+     * @param  callable(): PurchaseOrder  $action
+     * @param  callable(PurchaseOrder): string  $successMessage
+     */
+    private function runDraftTransition(
+        Request $request,
+        callable $action,
+        callable $successMessage,
+        string $conflictMessage,
+    ): RedirectResponse|PurchaseOrderResource|JsonResponse {
+        try {
+            $po = $action();
+
+            if ($request->wantsJson()) {
+                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
+
+                return new PurchaseOrderResource($po);
+            }
+
+            return redirect()
+                ->route('purchase-orders.show', $po)
+                ->with('success', $successMessage($po));
+        } catch (InvalidPurchaseOrderTransitionException $e) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
+            }
+
+            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
+        } catch (QueryException $e) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $conflictMessage, 'error_code' => 'database_conflict'], 409);
+            }
+
+            return back()->with('error', $conflictMessage);
+        }
+    }
+
     public function receive(
         ReceivePurchaseOrderItemRequest $request,
         PurchaseOrder $purchaseOrder,

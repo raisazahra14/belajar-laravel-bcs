@@ -425,8 +425,8 @@ Direktori `bootstrap/cache` dan `storage` harus dapat ditulis oleh pengguna pros
 | Upload dan melihat verifikasi dokumen sendiri | Ya | Ya | Ya |
 | Melihat semua verifikasi dokumen | Ya | Tidak | Tidak |
 | Melihat daftar dan detail Purchase Order | Ya | Ya | Ya |
-| Membuat dan mengubah draft Purchase Order | Ya | Tidak | Ya (pembuat) |
-| Mengajukan (submit) Purchase Order | Ya | Tidak | Ya (pembuat) |
+| Membuat dan mengubah draft Purchase Order | Ya | Ya | Ya (pembuat) |
+| Mengajukan (submit), menarik (withdraw), dan merevisi PO | Ya | Ya (pembuat) | Ya (pembuat) |
 | Menyetujui dan menolak Purchase Order | Ya* | Ya* | Tidak |
 | Mencatat penerimaan fisik barang (Goods Receipt) | Ya | Tidak | Ya |
 | Melihat dan mencetak PDF Goods Receipt Note (GRN) | Ya | Ya | Ya |
