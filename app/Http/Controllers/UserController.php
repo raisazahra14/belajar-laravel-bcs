@@ -6,6 +6,7 @@ use App\Models\GoodsReceipt;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
@@ -22,6 +23,8 @@ class UserController extends Controller
 
     public function store(Request $request)
     {
+        $this->normalizeEmail($request);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
@@ -41,6 +44,8 @@ class UserController extends Controller
 
     public function update(Request $request, User $user)
     {
+        $this->normalizeEmail($request);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
@@ -78,5 +83,12 @@ class UserController extends Controller
         }
 
         return redirect('/users')->with('success', 'User berhasil dihapus.');
+    }
+
+    private function normalizeEmail(Request $request): void
+    {
+        $request->merge([
+            'email' => Str::lower(trim((string) $request->input('email'))),
+        ]);
     }
 }

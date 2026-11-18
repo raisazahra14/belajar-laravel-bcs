@@ -92,7 +92,7 @@ class DocumentVerificationController extends Controller
         DocumentMetadataMapper $mapper,
         ThreeWayMatchingService $matchingService
     ): View {
-        $this->authorizeAccess($documentVerification);
+        $this->authorizeViewAccess($documentVerification);
 
         $documentVerification->load(['ocrCorrector', 'audits.user']);
 
@@ -194,7 +194,7 @@ class DocumentVerificationController extends Controller
 
     public function download(DocumentVerification $documentVerification): StreamedResponse
     {
-        $this->authorizeAccess($documentVerification);
+        $this->authorizeViewAccess($documentVerification);
         abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
 
         return Storage::disk('local')->download(
@@ -205,7 +205,7 @@ class DocumentVerificationController extends Controller
 
     public function preview(Request $request, DocumentVerification $documentVerification): StreamedResponse
     {
-        $this->authorizeAccess($documentVerification);
+        $this->authorizeViewAccess($documentVerification);
         abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
 
         if ($request->hasSession()) {
@@ -343,6 +343,15 @@ class DocumentVerificationController extends Controller
     {
         abort_unless(
             auth()->user()->role === 'admin' || $documentVerification->user_id === auth()->id(),
+            403,
+        );
+    }
+
+    private function authorizeViewAccess(DocumentVerification $documentVerification): void
+    {
+        abort_unless(
+            in_array(auth()->user()->role, ['admin', 'manager'], true)
+                || $documentVerification->user_id === auth()->id(),
             403,
         );
     }

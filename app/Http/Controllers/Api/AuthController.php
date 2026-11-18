@@ -7,6 +7,8 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -15,19 +17,35 @@ class AuthController extends Controller
      */
     public function login(Request $request): JsonResponse
     {
+        $request->merge(['email' => Str::lower(trim((string) $request->input('email')))]);
+
         $validated = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
             'device_name' => ['nullable', 'string', 'max:100'],
         ]);
 
+        $throttleKey = sha1($validated['email'].'|'.$request->ip());
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
+            return response()->json([
+                'message' => "Terlalu banyak percobaan login. Coba lagi dalam {$seconds} detik.",
+            ], 429);
+        }
+
         $user = User::where('email', $validated['email'])->first();
 
         if (! $user || ! Hash::check($validated['password'], $user->password)) {
+            RateLimiter::hit($throttleKey, 60);
+
             return response()->json([
                 'message' => 'Kredensial yang diberikan tidak cocok.',
             ], 401);
         }
+
+        RateLimiter::clear($throttleKey);
 
         $deviceName = $validated['device_name'] ?? 'external-client';
         $token = $user->createToken($deviceName)->plainTextToken;

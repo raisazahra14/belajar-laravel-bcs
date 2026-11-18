@@ -35,4 +35,41 @@ class LoginPageTest extends TestCase
             ->get('/login')
             ->assertRedirect('/');
     }
+
+    public function test_admin_creating_and_updating_user_normalizes_email_to_lowercase_for_login(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->post('/users', [
+            'name' => 'Staff Baru',
+            'email' => '  StaffBaru@LogistikKu.test  ',
+            'role' => 'staff',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ])->assertRedirect('/users');
+
+        $created = User::where('email', 'staffbaru@logistikku.test')->firstOrFail();
+
+        $this->actingAs($admin)->put("/users/{$created->id}", [
+            'name' => 'Staff Diubah',
+            'email' => '  StaffUpdated@LogistikKu.test  ',
+            'role' => 'staff',
+            'password' => '',
+            'password_confirmation' => '',
+        ])->assertRedirect('/users');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $created->id,
+            'email' => 'staffupdated@logistikku.test',
+        ]);
+
+        // Logout admin lalu login sebagai user yang baru diubah
+        $this->post('/logout');
+        $this->post('/login', [
+            'email' => 'STAFFUPDATED@logistikku.test',
+            'password' => 'password123',
+        ])->assertRedirect('/barang');
+
+        $this->assertAuthenticatedAs($created->fresh());
+    }
 }

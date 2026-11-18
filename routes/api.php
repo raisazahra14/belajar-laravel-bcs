@@ -2,7 +2,12 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\PurchaseOrderApiController;
+use App\Http\Controllers\Api\V1\ApiStatusController;
 use Illuminate\Support\Facades\Route;
+
+Route::prefix('v1')->name('api.v1.')->group(function () {
+    Route::get('/status', ApiStatusController::class)->name('status');
+});
 
 Route::post('/login', [AuthController::class, 'login'])->name('api.login');
 

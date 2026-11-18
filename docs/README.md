@@ -37,6 +37,8 @@ LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python unt
 | [ERD](./database/erd.md) | Diagram relasi tabel bisnis, fungsi tabel, FK, dan integritas data. | 20 tabel bisnis/aplikasi. |
 | [Data Dictionary](./data_dictionary.md) | Definisi seluruh tabel, kolom, kunci, indeks, dan aturan data. | 28 tabel, 268 kolom, 38 FK. |
 | [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) | Alur bisnis, status, matriks transisi, hak akses, skema database, GRN + Barcode Scanner, Three-Way Matching, Smart Restock SLA, dan Procurement Analytics. | Modul Pengadaan & GRN. |
+| [Arsitektur RESTful API v1](./arsitektur_rest_api.md) | Konvensi endpoint `/api/v1`, standar HTTP status code, Unified JSON Envelope (`ApiResponses`), Global Exception Handler, dan matriks hak akses API per role. | Periode 4 (Minggu 1), aktif. |
+| [Laporan Kegiatan Periode 4 MagangHub](./LAPORAN_KEGIATAN_PERIODE_4_MAGANGHUB.md) | Landasan teori RESTful API (Materi 1), realisasi implementasi Minggu 1, verifikasi otomatis, serta ruang bukti Postman & OpenAPI Periode 4. | Periode 4 (Minggu 1 selesai; Living Report). |
 | [Portofolio Penutupan Magang](./PORTOFOLIO_PENUTUPAN_MAGANG.md) | Rekapitulasi komprehensif pencapaian rekayasa perangkat lunak, milestone, metrik pengujian regresi, dan kontribusi bisnis. | Laporan Akhir Magang. |
 
 ## Peta fitur dan dokumentasinya
@@ -95,6 +97,8 @@ Skema tersebut diverifikasi dengan menjalankan seluruh migration pada SQLite kos
 | [Activity Stok](./images/tugas-1-2-activity-stok.svg) | Stok masuk/keluar, transfer, reversal, dan pencatatan audit. |
 | [Activity Verifikasi](./images/tugas-1-2-activity-verifikasi.svg) | Upload, queue, Python/Tesseract, hasil, dan notifikasi. |
 | [ERD Database](./images/database-erd.svg) | Relasi inti seluruh tabel bisnis. |
+| [Alur RESTful API v1](./images/periode-4-restful-api-flow.png) | Alur kerja integrasi `/api/v1` dari klien eksternal, gerbang keamanan, endpoint inti, hingga dokumentasi OpenAPI/Postman. |
+| [Infografis Teori RESTful API Minggu 1](./images/teori-arsitektur-restful-api-minggu-1.png) | Rangkuman visual 4 pilar Materi 1: Stateless & RMM Level 2–3, Semantik HTTP (RFC 9110), Unified JSON Contract, dan Exception Gate & RBAC. |
 
 Source diagram formal berada dalam blok Mermaid pada [SRS](./srs.md) dan [ERD](./database/erd.md). SVG disediakan sebagai fallback untuk renderer yang tidak mendukung Mermaid.
 

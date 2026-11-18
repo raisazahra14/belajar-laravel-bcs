@@ -345,4 +345,41 @@ class PurchaseOrderApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status.value', 'draft');
     }
+
+    public function test_api_transition_errors_return_proper_http_status_codes(): void
+    {
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261027-API8',
+            'supplier_id' => $this->supplier->id,
+            'warehouse_id' => $this->warehouse->id,
+            'status' => PurchaseOrderStatus::PENDING_APPROVAL,
+            'tanggal_pesan' => '2026-10-27',
+            'total_biaya' => 700000,
+            'created_by' => $this->manager->id,
+        ]);
+
+        $po->items()->create([
+            'barang_id' => $this->barang1->id,
+            'jumlah_pesan' => 2,
+            'harga_satuan' => 350000,
+            'subtotal' => 700000,
+        ]);
+
+        // Staff tidak berwenang menyetujui PO -> 403 Forbidden (bukan 500)
+        $this->actingAs($this->staff)
+            ->postJson("/api/purchase-orders/{$po->id}/approve")
+            ->assertForbidden()
+            ->assertJsonPath('error_code', 'unauthorized_role');
+
+        // Manager tidak boleh menyetujui/menolak PO buatannya sendiri (SoD) -> 422 (bukan 500)
+        $this->actingAs($this->manager)
+            ->postJson("/api/purchase-orders/{$po->id}/approve")
+            ->assertUnprocessable()
+            ->assertJsonPath('error_code', 'guard_failed');
+
+        $this->actingAs($this->manager)
+            ->postJson("/api/purchase-orders/{$po->id}/reject", ['reason' => 'Coba tolak sendiri'])
+            ->assertUnprocessable()
+            ->assertJsonPath('error_code', 'guard_failed');
+    }
 }

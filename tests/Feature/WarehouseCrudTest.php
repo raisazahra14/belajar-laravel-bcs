@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Models\Barang;
+use App\Models\PurchaseOrder;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
@@ -102,6 +105,48 @@ class WarehouseCrudTest extends TestCase
             $this->actingAs($user)->put(route('warehouses.update', $warehouse), [])->assertForbidden();
             $this->actingAs($user)->delete(route('warehouses.destroy', $warehouse))->assertForbidden();
         }
+    }
+
+    public function test_warehouse_cannot_be_deleted_while_having_active_purchase_order(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $supplier = Supplier::create([
+            'kode_supplier' => 'SUP-WH-GUARD',
+            'nama_supplier' => 'Supplier Guard Gudang',
+            'is_active' => true,
+        ]);
+        $warehouse = $this->warehouse([
+            'kode_gudang' => 'GDG-GUARD-01',
+            'nama_gudang' => 'Gudang Dengan PO Aktif',
+        ]);
+
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261118-WH01',
+            'supplier_id' => $supplier->id,
+            'warehouse_id' => $warehouse->id,
+            'status' => PurchaseOrderStatus::APPROVED,
+            'tanggal_pesan' => '2026-11-18',
+            'total_biaya' => 500000,
+            'created_by' => $admin->id,
+        ]);
+
+        // Ditolak saat PO masih aktif
+        $this->actingAs($admin)
+            ->from(route('warehouses.show', $warehouse))
+            ->delete(route('warehouses.destroy', $warehouse))
+            ->assertRedirect(route('warehouses.show', $warehouse))
+            ->assertSessionHas('error');
+
+        $this->assertNotSoftDeleted('warehouses', ['id' => $warehouse->id]);
+
+        // Setelah PO selesai, gudang dapat dihapus dengan aman
+        $po->update(['status' => PurchaseOrderStatus::COMPLETED]);
+        $this->actingAs($admin)
+            ->delete(route('warehouses.destroy', $warehouse))
+            ->assertRedirect(route('warehouses.index'))
+            ->assertSessionHas('success');
+
+        $this->assertSoftDeleted('warehouses', ['id' => $warehouse->id]);
     }
 
     private function warehouse(array $overrides = []): Warehouse
