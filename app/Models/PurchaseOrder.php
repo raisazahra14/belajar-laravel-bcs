@@ -189,6 +189,8 @@ class PurchaseOrder extends Model
     public function scopeFilter($query, array $filters)
     {
         $searchTerm = trim((string) ($filters['search'] ?? $filters['nomor_po'] ?? ''));
+        $dateFrom = $filters['tanggal_dari'] ?? $filters['date_from'] ?? null;
+        $dateTo = $filters['tanggal_sampai'] ?? $filters['date_to'] ?? null;
 
         return $query
             ->when($searchTerm !== '', function ($q) use ($searchTerm): void {
@@ -213,6 +215,12 @@ class PurchaseOrder extends Model
             })
             ->when(! empty($filters['status']), function ($q) use ($filters): void {
                 $q->where('status', $filters['status']);
+            })
+            ->when(! empty($dateFrom), function ($q) use ($dateFrom): void {
+                $q->whereDate('tanggal_pesan', '>=', $dateFrom);
+            })
+            ->when(! empty($dateTo), function ($q) use ($dateTo): void {
+                $q->whereDate('tanggal_pesan', '<=', $dateTo);
             })
             ->when(! empty($filters['overdue']), function ($q): void {
                 $q->overdue();

@@ -11,7 +11,7 @@
 - **Nama Aplikasi / Proyek**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang, & Analitik Logistik Terpadu)
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, Laravel Sanctum 4, MySQL/MariaDB & SQLite, Python 3.10+ (OCR Tesseract & Prediksi ML), PHPUnit 11, Laravel Pint
 - **Acuan Roadmap Teknis**: GitHub Issue `#12` — *Arsitektur RESTful API, Integrasi Endpoint Internal, Pengujian Postman & Dokumentasi OpenAPI*
-- **Status Capaian Saat Ini *(per 18 November 2026)***: **Minggu 1 (Materi 1 — Teori & Desain Arsitektur API) 100% SELESAI & TERVERIFIKASI** (`517 Automated Tests PASS`, `5.509 Assertions`, `Laravel Pint PASSED`, `route:cache READY`)
+- **Status Capaian Saat Ini *(per 19 November 2026)***: **Minggu 1 & Minggu 2 (Materi 1 & 2) 100% SELESAI & TERVERIFIKASI** (`529 Automated Tests PASS`, `5.810 Assertions`, `Laravel Pint PASSED`, `route:cache READY`)
 - **Sifat Dokumen**: **Living Report Document** (Diperbarui bertahap setiap penyelesaian minggu hingga penutupan Periode 4 lengkap dengan bukti Postman & tautan OpenAPI).
 
 ---
@@ -25,8 +25,8 @@ Laporan ini mendokumentasikan landasan teori ilmiah, keputusan arsitektural, rea
 | Minggu | Materi Kurikulum Kemnaker RI | Fokus Pekerjaan & Output Utama | Status Saat Ini |
 |---|---|---|---|
 | **Minggu 1** | **Materi 1 (Teori & Desain Arsitektur)** — *4–5 Hari* | Konvensi endpoint `/api/v1`, standar HTTP Verbs & Status Code, `app/Traits/ApiResponses.php`, `ApiStatusController`, Global Exception Handler (`bootstrap/app.php`), & `docs/arsitektur_rest_api.md` + `ApiV1ArchitectureContractTest` | **Selesai 100%** |
-| **Minggu 2** | **Materi 2 (Praktik Backend Endpoint)** — *4–5 Hari* | Endpoint `/api/v1/barang`, `/api/v1/barang/{id}/check-stock`, `/api/v1/stok/adjust`, `/api/v1/stok/transfer`, `/api/v1/purchase-orders`, & `JsonResource` | *Tahap Berikutnya* |
-| **Minggu 3** | **Materi 3 (Keamanan Data & Pengujian Postman)** — *4–5 Hari* | Token Abilities Sanctum `/api/v1/auth/login`, Rate Limiter global, `config/cors.php`, Data Masking, Postman Collection (`docs/postman/LogistikKu_API_v1.postman_collection.json`), & `ApiEndpointsSecurityTest` | *Tahap Berikutnya* |
+| **Minggu 2** | **Materi 2 (Praktik Backend Endpoint)** — *4–5 Hari* | Endpoint `/api/v1/auth/*`, `/api/v1/barang`, `/api/v1/barang/{barang}`, `/api/v1/barang/{barang}/check-stock`, `/api/v1/stok/adjust`, `/api/v1/stok/transfer`, `/api/v1/purchase-orders`, `/api/v1/purchase-orders/{purchaseOrder}/receive`, `BarangResource`, `StockTransactionResource`, `PurchaseOrderResource`, & 12 test baru | **Selesai 100%** |
+| **Minggu 3** | **Materi 3 (Keamanan Data & Pengujian Postman)** — *4–5 Hari* | Token Abilities Sanctum, Rate Limiter API global, `config/cors.php`, Data Masking, Postman Collection (`docs/postman/LogistikKu_API_v1.postman_collection.json`), bukti tangkapan layar Postman Runner, & `ApiEndpointsSecurityTest` | *Tahap Berikutnya* |
 | **Minggu 4** | **Materi 4 (Dokumentasi OpenAPI & Finalisasi)** — *4–5 Hari* | Spesifikasi `docs/openapi.yaml`, Swagger UI `/docs/api`, Panduan Developer `docs/api_integration_guide.md`, & kelengkapan akhir laporan ini | *Tahap Berikutnya* |
 
 ![Alur Kerja RESTful API LogistikKu — Periode 4 (/api/v1)](./images/periode-4-restful-api-flow.png)
@@ -200,27 +200,96 @@ Seluruh rancangan teoretis di atas telah diimplementasikan menjadi artefak kode 
 
 ---
 
-## 4. Rangkuman Lanjutan Periode 4 *(Tahap Minggu 2 s/d Minggu 4)*
+## 4. Realisasi Minggu 2 & Rencana Lanjutan Periode 4
 
-Bagian ini disiapkan sesuai ketentuan **Tugas 4.4** untuk melengkapi laporan akhir Periode 4 seiring penyelesaian minggu berikutnya:
+### 4.1 🛠️ Materi 2 (Praktik | Minggu 2): Implementasi Endpoint API Integrasi Sistem Internal (`/api/v1/*`) — **Selesai 100%**
 
-### 4.1 Minggu 2 — Implementasi Endpoint Integrasi Sistem Internal (`/api/v1/*`)
-- *Status: Menunggu eksekusi Minggu 2.*
-- Target cakupan:
-  - API Master Barang & Cek Stok Real-Time (`GET /api/v1/barang`, `/api/v1/barang/{id}`, `/api/v1/barang/{id}/check-stock`).
-  - API Mutasi & Transfer Stok Antar-Gudang (`POST /api/v1/stok/adjust`, `/api/v1/stok/transfer`).
-  - API Pengadaan & Goods Receipt Scanner (`GET/POST /api/v1/purchase-orders`, `POST /api/v1/purchase-orders/{id}/receive`) dengan pembungkusan penuh `JsonResource`.
+> **Status:** **Selesai 100% & Terverifikasi (19 November 2026)**  
+> Seluruh endpoint bisnis Minggu 2 (Tugas 2.1, 2.2, 2.3, dan 2.4) telah diimplementasikan di namespace `/api/v1` menggunakan kontrak `ApiResponses`, validasi `FormRequest` khusus API tanpa duplikasi logika, dan pembungkusan penuh `JsonResource`.
 
-### 4.2 Minggu 3 — Keamanan Data & Bukti Pengujian Postman
-- *Status: Menunggu eksekusi Minggu 3.*
-- Target dokumen & bukti yang akan dilampirkan di bagian ini:
+![Animasi Alur Endpoint RESTful API LogistikKu — Minggu 2 (/api/v1)](./images/alur-endpoint-api-minggu-2.gif)
+
+#### A. Peta Endpoint Aktif `/api/v1/*` (13 Rute Terdaftar)
+
+| Modul / Tugas | Metode & URI | Nama Rute | Controller | Akses & Respon Utama |
+|---|---|---|---|---|
+| **Fondasi** | `GET /api/v1/status` | `api.v1.status` | `ApiStatusController` | Publik · `200 OK` |
+| **Autentikasi** | `POST /api/v1/auth/login` | `api.v1.auth.login` | `AuthApiController@login` | Publik (Rate Limit 5x/60d) · `200 OK` / `401` / `429` |
+| **Autentikasi** | `POST /api/v1/auth/logout` | `api.v1.auth.logout` | `AuthApiController@logout` | `auth:sanctum` · `200 OK` |
+| **Autentikasi** | `GET /api/v1/auth/me` | `api.v1.auth.me` | `AuthApiController@me` | `auth:sanctum` · `200 OK` |
+| **Tugas 2.1** | `GET /api/v1/barang` | `api.v1.barang.index` | `BarangApiController@index` | `auth:sanctum` · `BarangResource` terpaginasi (`per_page` max 100) + HATEOAS `links` |
+| **Tugas 2.1** | `GET /api/v1/barang/{barang}` | `api.v1.barang.show` | `BarangApiController@show` | `auth:sanctum` · Detail `BarangResource` + distribusi `warehouse_stocks` · `200` / `404` |
+| **Tugas 2.1** | `GET /api/v1/barang/{barang}/check-stock` | `api.v1.barang.check-stock` | `BarangApiController@checkStock` | `auth:sanctum` · Cek ketersediaan stok real-time (`warehouse_id`, `qty`) · `200` / `422` |
+| **Tugas 2.2** | `POST /api/v1/stok/adjust` | `api.v1.stok.adjust` | `StockApiController@adjust` | `auth:sanctum` (`update-stock`) · `201 Created` (`StockTransactionResource`) |
+| **Tugas 2.2** | `POST /api/v1/stok/transfer` | `api.v1.stok.transfer` | `StockApiController@transfer` | `auth:sanctum` (`update-stock`) · `201 Created` (`TRF-YYYYMMDD-XXXXXX` unik) / `409` duplikat |
+| **Tugas 2.3** | `GET /api/v1/purchase-orders` | `api.v1.purchase-orders.index` | `V1\PurchaseOrderApiController@index` | `auth:sanctum` (`viewAny`) · Filter `tanggal_dari`/`tanggal_sampai`, `status`, & paginasi |
+| **Tugas 2.3** | `POST /api/v1/purchase-orders` | `api.v1.purchase-orders.store` | `V1\PurchaseOrderApiController@store` | `auth:sanctum` (`StorePurchaseOrderRequest`) · `201 Created` + header `Location` |
+| **Tugas 2.3** | `GET /api/v1/purchase-orders/{purchaseOrder}` | `api.v1.purchase-orders.show` | `V1\PurchaseOrderApiController@show` | `auth:sanctum` (`view`) · Detail `PurchaseOrderResource` + `goods_receipts` |
+| **Tugas 2.3** | `POST /api/v1/purchase-orders/{purchaseOrder}/receive` | `api.v1.purchase-orders.receive` | `V1\PurchaseOrderApiController@receive` | `auth:sanctum` (`admin`/`staff`) · Scan `barcode`/`kode_barang` atau batch `items[]` + `receipt_token` |
+
+#### B. Daftar Artefak Kode & Desain Tanpa Duplikasi (Minggu 2)
+
+| Lapisan | Artefak yang Dibuat / Diperbarui | Peran Teknis & Penghindaran Duplikasi |
+|---|---|---|
+| **Model & Service** | [`app/Models/Barang.php`](../app/Models/Barang.php) · [`app/Http/Controllers/BarangController.php`](../app/Http/Controllers/BarangController.php) | Menyatukan logika pencarian, filter, dan pengurutan ke dalam `Barang::scopeFilter()` + `Barang::apiDetailRelations()`, sehingga Web `BarangController` dan `BarangApiController` berbagi query yang sama tanpa duplikasi. |
+| **Model PO** | [`app/Models/PurchaseOrder.php`](../app/Models/PurchaseOrder.php) | Memperluas `PurchaseOrder::scopeFilter()` dengan filter rentang tanggal berbasis `whereDate('tanggal_pesan', ...)` (`tanggal_dari`/`tanggal_sampai` serta alias `date_from`/`date_to`). |
+| **Service Stok** | [`app/Services/StockAdjustmentService.php`](../app/Services/StockAdjustmentService.php) | Mengekstrak inti atomik `executeAdjust()` dan `executeTransfer()` sehingga `adjustWithTransaction()` dan `transferWithTransactions()` mengembalikan record `StokTransaction` beserta jaminan nomor referensi transfer unik (`TRF-YYYYMMDD-XXXXXX` atau `409 ConflictHttpException` bila duplikat) tanpa mematahkan pemanggil Web/legacy maupun menggandakan invalidasi cache valuasi. |
+| **API Resources (Tugas 2.4)** | [`app/Http/Resources/BarangResource.php`](../app/Http/Resources/BarangResource.php) · [`app/Http/Resources/StockTransactionResource.php`](../app/Http/Resources/StockTransactionResource.php) · [`app/Http/Resources/PurchaseOrderResource.php`](../app/Http/Resources/PurchaseOrderResource.php) | Membungkus model domain secara eksplisit (tidak pernah mengembalikan model Eloquent mentah), menyertakan distribusi `warehouse_stocks` lengkap (`zone`, `rack_location`, `bin_code`), detail transaksi mutasi + pelaku, serta perluasan opsional `goods_receipts` (`whenLoaded`) pada `PurchaseOrderResource`. |
+| **FormRequests API v1** | [`IndexBarangRequest.php`](../app/Http/Requests/Api/V1/IndexBarangRequest.php) · [`CheckStockRequest.php`](../app/Http/Requests/Api/V1/CheckStockRequest.php) · [`AdjustStockApiRequest.php`](../app/Http/Requests/Api/V1/AdjustStockApiRequest.php) · [`TransferStockApiRequest.php`](../app/Http/Requests/Api/V1/TransferStockApiRequest.php) · [`IndexPurchaseOrderRequest.php`](../app/Http/Requests/Api/V1/IndexPurchaseOrderRequest.php) · [`ReceivePurchaseOrderApiRequest.php`](../app/Http/Requests/Api/V1/ReceivePurchaseOrderApiRequest.php) | FormRequest mutasi & penerimaan barang mewarisi langsung aturan validasi/otorisasi kelas induk (`AdjustStockRequest`, `TransferStockRequest`, `ReceivePurchaseOrderItemRequest`), menambahkan validasi `barang_id` aktif, serta resolusi pemindaian `barcode`/`kode_barang` otomatis terhadap item PO di `ReceivePurchaseOrderApiRequest`. |
+| **Controllers & Routes** | [`AuthApiController.php`](../app/Http/Controllers/Api/V1/AuthApiController.php) · [`BarangApiController.php`](../app/Http/Controllers/Api/V1/BarangApiController.php) · [`StockApiController.php`](../app/Http/Controllers/Api/V1/StockApiController.php) · [`V1/PurchaseOrderApiController.php`](../app/Http/Controllers/Api/V1/PurchaseOrderApiController.php) · [`routes/api.php`](../routes/api.php) | Seluruh controller mewarisi `App\Traits\ApiResponses`, memakai `ConcurrencyErrorDetector` Laravel untuk benturan deadlock database pada `/receive`, dan mempertahankan rute pra-v1 (`/api/*`) tetap *backward-compatible*. |
+| **Visualisasi Animasi** | [`docs/images/alur-endpoint-api-minggu-2.gif`](./images/alur-endpoint-api-minggu-2.gif) | Diagram animasi bergerak 4 skenario (Tugas 2.1 Cek Stok POS, Tugas 2.2 Transfer Atomik, Tugas 2.3 Barcode GRN, dan Tugas 2.4 JsonResource + HATEOAS). |
+| **Automated Tests** | [`ApiV1BarangEndpointsTest.php`](../tests/Feature/ApiV1BarangEndpointsTest.php) · [`ApiV1StockEndpointsTest.php`](../tests/Feature/ApiV1StockEndpointsTest.php) · [`ApiV1PurchaseOrderEndpointsTest.php`](../tests/Feature/ApiV1PurchaseOrderEndpointsTest.php) | 12 skenario pengujian fitur baru (301 assertion) yang memverifikasi kontrak JSON `200`/`201`/`401`/`403`/`404`/`409`/`422`/`429`, paginasi, filter tanggal & kategori, nomor referensi transfer unik, pemindai *barcode*, dan idempotensi `receipt_token`. |
+
+#### C. Contoh Respon Aktual Endpoint Minggu 2
+
+1. **Pemeriksaan Stok Real-Time (`GET /api/v1/barang/{barang}/check-stock?warehouse_id=1&qty=6`):**
+
+```json
+{
+  "success": true,
+  "message": "Stok mencukupi di gudang terpilih",
+  "data": {
+    "barang": { "id": 1, "kode_barang": "BRG-000101", "nama_barang": "Monitor LED 24 Inch", "satuan": "Unit" },
+    "warehouse": { "id": 1, "kode_gudang": "GDG-BRG-A", "nama_gudang": "Gudang Utama Jakarta", "alamat": "Jl. Industri No. 10" },
+    "requested_qty": 6,
+    "available_stock": 10,
+    "is_available": true,
+    "shortage": 0,
+    "minimum_stock": 3,
+    "total_stock_all_warehouses": 15
+  },
+  "meta": { "timestamp": "2026-11-19T09:30:00+07:00", "version": "v1.0" }
+}
+```
+
+2. **Penerimaan Barang via Barcode Scanner (`POST /api/v1/purchase-orders/{purchaseOrder}/receive`):**
+   - Payload ringkas pemindai *handheld*: `{"barcode": "BRG-PO-001", "nomor_surat_jalan": "SJ-SCAN-01", "receipt_token": "SCAN-TOKEN-001"}` (otomatis mendefaultkan `jumlah_diterima = 1` bila tidak dikirim, atau mendukung payload batch `items[]` dengan `kode_barang` / `purchase_order_item_id`).
+
+#### D. Hasil Verifikasi & Kualitas Kode Minggu 2
+
+```text
+========================================================================================
+                        HASIL VERIFIKASI OTOMATIS MINGGU 2
+========================================================================================
+  Route Cache Check : php artisan route:cache & route:list --path=api/v1 -> PASSED (13 routes, 0 closures)
+  Code Style (PSR)  : php vendor/bin/pint --test --format=json -> {"tool":"pint","result":"passed"}
+  Uji API v1 Suite  : 4 files (Contract, Barang, Stock, PO) -> OK (20 tests, 471 assertions)
+  Uji Regresi Penuh : php vendor/bin/phpunit --do-not-cache-result -> OK (529 tests, 5810 assertions)
+========================================================================================
+```
+
+---
+
+### 4.2 Minggu 3 — Keamanan Data & Bukti Pengujian Postman *(Tahap Berikutnya)*
+- *Status: Menunggu eksekusi Minggu 3 (belum dibuat).*
+- Target dokumen & bukti tangkapan layar yang akan dilampirkan di bagian ini pada Minggu 3:
   - Koleksi Postman & Environment: `docs/postman/LogistikKu_API_v1.postman_collection.json`.
-  - Tangkapan layar (*screenshot*) hasil eksekusi **Postman Collection Runner** (status test script `200`, `201`, `401`, `403`, `422`, `429`).
+  - Tangkapan layar (*screenshot*) hasil eksekusi **Postman Collection Runner** (status test script `200`, `201`, `401`, `403`, `409`, `422`, `429`).
   - Ringkasan hasil uji keamanan otomatis (`tests/Feature/ApiEndpointsSecurityTest.php`), konfigurasi `config/cors.php`, `RateLimiter::for('api', ...)`, serta *token abilities* Laravel Sanctum.
 
-### 4.3 Minggu 4 — Tautan Dokumentasi OpenAPI 3.0 & Panduan Developer
-- *Status: Menunggu eksekusi Minggu 4.*
-- Target tautan yang akan dilampirkan di bagian ini:
+### 4.3 Minggu 4 — Tautan Dokumentasi OpenAPI 3.0 & Panduan Developer *(Tahap Berikutnya)*
+- *Status: Menunggu eksekusi Minggu 4 (belum dibuat).*
+- Target tautan yang akan dilampirkan di bagian ini pada Minggu 4:
   - Spesifikasi OpenAPI 3.0 / Swagger: `docs/openapi.yaml`
   - Portal Dokumentasi API Interaktif (Swagger UI): `/docs/api`
   - Panduan Integrasi Pengembang (*cURL*, Python `requests`, JavaScript `fetch`/`axios`): `docs/api_integration_guide.md`

@@ -1,9 +1,9 @@
 # Arsitektur RESTful API LogistikKu (`/api/v1`)
 
-> **Dokumen Arsitektur Teknis — Periode 4 (Minggu 1)**  
-> **Target:** Perancangan Arsitektur RESTful API, Unified API Response Contract, Penanganan Exception Global, & Matriks Hak Akses API  
+> **Dokumen Arsitektur Teknis — Periode 4 (Minggu 1 & Minggu 2)**  
+> **Target:** Perancangan Arsitektur RESTful API, Unified API Response Contract, Penanganan Exception Global, Matriks Hak Akses API, & Implementasi Endpoint Integrasi Internal `/api/v1/*`  
 > **Referensi Standar Industri:** [Microsoft Azure Architecture Center — Desain Web API Terbaik](https://learn.microsoft.com/id-id/azure/architecture/best-practices/api-design)  
-> **Artefak Kode Terkait:** [`app/Traits/ApiResponses.php`](../app/Traits/ApiResponses.php) · [`app/Http/Controllers/Controller.php`](../app/Http/Controllers/Controller.php) · [`app/Http/Controllers/Api/V1/ApiStatusController.php`](../app/Http/Controllers/Api/V1/ApiStatusController.php) · [`bootstrap/app.php`](../bootstrap/app.php) · [`routes/api.php`](../routes/api.php)
+> **Artefak Kode Terkait:** [`app/Traits/ApiResponses.php`](../app/Traits/ApiResponses.php) · [`app/Http/Controllers/Controller.php`](../app/Http/Controllers/Controller.php) · [`app/Http/Controllers/Api/V1/`](../app/Http/Controllers/Api/V1/) · [`app/Http/Requests/Api/V1/`](../app/Http/Requests/Api/V1/) · [`app/Http/Resources/`](../app/Http/Resources/) · [`bootstrap/app.php`](../bootstrap/app.php) · [`routes/api.php`](../routes/api.php)
 
 ![Alur Kerja RESTful API LogistikKu — Periode 4 (/api/v1)](./images/periode-4-restful-api-flow.png)
 
@@ -52,11 +52,13 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
 ### 2.2 Peta Status Implementasi Endpoint
 - **Aktif pada Minggu 1 (Fondasi Kontrak & Status API):**
   - `GET /api/v1/status` (`api.v1.status`) — Endpoint informasi layanan, arsitektur, tingkat kematangan REST, kata kerja HTTP yang didukung, dan tautan *self*.
-- **Rancangan Endpoint Bisnis Minggu 2 & Minggu 3 (Mengikuti Kontrak Minggu 1):**
-  - Autentikasi: `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`
-  - Master Barang & Ketersediaan Stok Real-Time: `GET /api/v1/barang`, `GET /api/v1/barang/{id}`, `GET /api/v1/barang/{id}/check-stock`
+- **Aktif pada Minggu 2 (Endpoint Integrasi Sistem Internal — 12 Rute Terlindungi & Autentikasi):**
+  - Autentikasi: `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`
+  - Master Barang & Ketersediaan Stok Real-Time: `GET /api/v1/barang`, `GET /api/v1/barang/{barang}`, `GET /api/v1/barang/{barang}/check-stock`
   - Mutasi & Transfer Stok Antar-Gudang: `POST /api/v1/stok/adjust`, `POST /api/v1/stok/transfer`
-  - Pengadaan & Penerimaan Barang: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `POST /api/v1/purchase-orders/{id}/receive`
+  - Pengadaan & Penerimaan Barang: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `GET /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/receive`
+- **Target Penguatan Minggu 3 (Keamanan Data & Pengujian Postman):**
+  - Penegakan granular *Sanctum Token Abilities*, `RateLimiter` API global, konfigurasi `config/cors.php`, serta *Postman Collection Runner*.
 
 ---
 

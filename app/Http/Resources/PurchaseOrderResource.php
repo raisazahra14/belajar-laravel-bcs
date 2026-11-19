@@ -99,6 +99,34 @@ class PurchaseOrderResource extends JsonResource
                     'created_at' => $history->created_at?->toIso8601String(),
                 ]);
             }),
+            'goods_receipts' => $this->whenLoaded('goodsReceipts', function () {
+                return $this->resource->goodsReceipts->map(fn ($receipt) => [
+                    'id' => $receipt->id,
+                    'nomor_grn' => $receipt->nomor_grn,
+                    'tanggal_terima' => $receipt->tanggal_terima?->format('Y-m-d'),
+                    'nomor_surat_jalan' => $receipt->nomor_surat_jalan,
+                    'catatan' => $receipt->catatan,
+                    'received_by' => $receipt->relationLoaded('receivedBy') && $receipt->receivedBy
+                        ? [
+                            'id' => $receipt->receivedBy->id,
+                            'name' => $receipt->receivedBy->name,
+                            'role' => $receipt->receivedBy->role,
+                        ]
+                        : null,
+                    'items' => $receipt->relationLoaded('items')
+                        ? $receipt->items->map(fn ($item) => [
+                            'id' => $item->id,
+                            'purchase_order_item_id' => (int) $item->purchase_order_item_id,
+                            'barang_id' => (int) $item->barang_id,
+                            'kode_barang' => $item->relationLoaded('barang') ? $item->barang?->kode_barang : null,
+                            'nama_barang' => $item->relationLoaded('barang') ? $item->barang?->nama_barang : null,
+                            'jumlah_diterima' => (int) $item->jumlah_diterima,
+                            'catatan_kondisi' => $item->catatan_kondisi,
+                        ])->values()->all()
+                        : [],
+                    'created_at' => $receipt->created_at?->toIso8601String(),
+                ])->values()->all();
+            }),
             'items_count' => $this->whenCounted('items', $this->resource->items_count),
             'items' => PurchaseOrderItemResource::collection($this->whenLoaded('items')),
             'available_transitions' => $availableTransitions,
