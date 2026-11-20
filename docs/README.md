@@ -101,6 +101,7 @@ Skema tersebut diverifikasi dengan menjalankan seluruh migration pada SQLite kos
 | [Infografis Teori RESTful API Minggu 1](./images/teori-arsitektur-restful-api-minggu-1.png) | Rangkuman visual 4 pilar Materi 1: Stateless & RMM Level 2–3, Semantik HTTP (RFC 9110), Unified JSON Contract, dan Exception Gate & RBAC. |
 | [Animasi Alur Endpoint API Minggu 2](./images/alur-endpoint-api-minggu-2.gif) | Animasi alur kerja 4 tugas Minggu 2 (`/api/v1`): Cek Stok Real-Time POS, Transfer Stok Atomik, Barcode GRN PO, dan JsonResource + HATEOAS. |
 | [Animasi Alur Keamanan & Postman Minggu 3](./images/alur-keamanan-postman-minggu-3.gif) | Animasi alur kerja 4 pilar & inovasi Minggu 3 (`/api/v1`): Scoped Sanctum Token Abilities (`abilities[]`), OWASP Security Headers (`nosniff`, `DENY`), Rate Limiting (`60/m`) + CORS + Data Masking, serta Postman Folder 06 OWASP & `ApiEndpointsSecurityTest`. |
+| [Animasi Problem Solving Inovasi Minggu 3](./images/inovasi-problem-solving-minggu-3.gif) | Animasi alur Masalah (Before) -> Mekanisme & Tech Stack -> Solusi & Kelebihan (After) untuk 4 inovasi Minggu 3 (Scoped Token, Idempotency Guard 409, OWASP Headers, & Postman Folder 06 Attack QA). |
 
 Source diagram formal berada dalam blok Mermaid pada [SRS](./srs.md) dan [ERD](./database/erd.md). SVG disediakan sebagai fallback untuk renderer yang tidak mendukung Mermaid.
 

@@ -297,6 +297,8 @@ Seluruh rancangan teoretis di atas telah diimplementasikan menjadi artefak kode 
 
 #### B. Inovasi Tambahan & Problem Solving Minggu 3 (*Engineering Value-Add*)
 
+![Animasi Problem Solving & Inovasi Keamanan API — Minggu 3 (/api/v1)](./images/inovasi-problem-solving-minggu-3.gif)
+
 **Tech Stack Keamanan & Pengujian yang Digunakan:**
 - **Auth & Fine-Grained Scope:** `Laravel 12` · `Laravel Sanctum 4` (`HasApiTokens`, `PersonalAccessToken`, middleware `CheckForAnyAbility` / `ability:<scope>`)
 - **Anti-Abuse & Protokol Keamanan:** `Illuminate\Support\Facades\RateLimiter` (`throttle:api` 60 req/m) · `Laravel CORS Middleware` (`config/cors.php`) · `OWASP HTTP Security Headers` (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`) · `Pessimistic DB Locking` (`lockForUpdate` + `reference_number` idempotency)
