@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthApiController extends Controller
 {
@@ -67,12 +68,17 @@ class AuthApiController extends Controller
 
         $deviceName = $validated['device_name'] ?? 'external-client';
         $abilities = $user->resolveApiAbilities($requestedAbilities);
-        $token = $user->createToken($deviceName, $abilities)->plainTextToken;
+        $expirationMinutes = $this->configuredExpirationMinutes();
+        $expiresAt = $expirationMinutes !== null
+            ? now()->addMinutes($expirationMinutes)
+            : null;
+        $newAccessToken = $user->createToken($deviceName, $abilities, $expiresAt);
 
         return $this->successResponse([
-            'token' => $token,
+            'token' => $newAccessToken->plainTextToken,
             'token_type' => 'Bearer',
             'abilities' => $abilities,
+            'expires_at' => $newAccessToken->accessToken->expires_at?->toIso8601String(),
             'user' => [
                 'id' => (int) $user->id,
                 'name' => $user->name,
@@ -105,16 +111,45 @@ class AuthApiController extends Controller
     {
         $user = $request->user();
         $accessToken = $user->currentAccessToken();
+        $tokenAbilities = $user->defaultApiAbilities();
+        $tokenExpiresAt = null;
+
+        if ($accessToken instanceof PersonalAccessToken) {
+            if (is_array($accessToken->abilities)) {
+                $tokenAbilities = array_values($accessToken->abilities);
+            }
+
+            $tokenExpiresAt = $accessToken->expires_at;
+
+            if ($tokenExpiresAt === null && $accessToken->created_at !== null) {
+                $expirationMinutes = $this->configuredExpirationMinutes();
+
+                if ($expirationMinutes !== null) {
+                    $tokenExpiresAt = $accessToken->created_at->copy()->addMinutes($expirationMinutes);
+                }
+            }
+        }
 
         return $this->successResponse([
             'id' => (int) $user->id,
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role,
-            'token_abilities' => is_array($accessToken?->abilities)
-                ? array_values($accessToken->abilities)
-                : $user->defaultApiAbilities(),
+            'token_abilities' => $tokenAbilities,
+            'token_expires_at' => $tokenExpiresAt?->toIso8601String(),
             'created_at' => $user->created_at?->toIso8601String(),
         ], 'Profil pengguna berhasil diambil');
+    }
+
+    /**
+     * Ambil masa berlaku token Sanctum (menit) yang terkonfigurasi, atau null bila tidak dibatasi.
+     */
+    private function configuredExpirationMinutes(): ?int
+    {
+        $expiration = config('sanctum.expiration');
+
+        return is_numeric($expiration) && (int) $expiration > 0
+            ? (int) $expiration
+            : null;
     }
 }

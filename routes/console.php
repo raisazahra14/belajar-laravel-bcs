@@ -11,3 +11,7 @@ Artisan::command('inspire', function () {
 Schedule::command('po:check-overdue --notify')
     ->dailyAt('08:00')
     ->description('Pemeriksaan harian PO yang melewati estimasi tanggal tiba');
+
+Schedule::command('sanctum:prune-expired --hours=24')
+    ->daily()
+    ->description('Pembersihan harian token Sanctum yang telah kedaluwarsa lebih dari 24 jam');

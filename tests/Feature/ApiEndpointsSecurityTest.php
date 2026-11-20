@@ -12,6 +12,7 @@ use App\Models\WarehouseStock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Laravel\Sanctum\PersonalAccessToken;
 use Tests\TestCase;
 
 class ApiEndpointsSecurityTest extends TestCase
@@ -368,5 +369,72 @@ class ApiEndpointsSecurityTest extends TestCase
             ->getJson('/api/v1/barang')
             ->assertStatus(401)
             ->assertJsonPath('code', 'UNAUTHENTICATED');
+    }
+
+    public function test_sanctum_token_expiration_populates_expires_at_and_rejects_expired_tokens(): void
+    {
+        $this->assertSame(1440, config('sanctum.expiration'));
+
+        $login = $this->postJson('/api/v1/auth/login', [
+            'email' => 'staff.sec@logistikku.test',
+            'password' => 'StaffSecret123!',
+            'device_name' => 'Scanner-TTL',
+        ]);
+
+        $login->assertOk()
+            ->assertJsonPath('success', true);
+
+        $expiresAt = $login->json('data.expires_at');
+        $this->assertIsString($expiresAt);
+        $this->assertNotSame('', $expiresAt);
+
+        $storedToken = PersonalAccessToken::query()->latest('id')->first();
+        $this->assertNotNull($storedToken);
+        $this->assertNotNull($storedToken->expires_at);
+        $this->assertSame($storedToken->expires_at->toIso8601String(), $expiresAt);
+
+        $token = (string) $login->json('data.token');
+
+        $this->withToken($token)
+            ->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.token_expires_at', $expiresAt);
+
+        // Lewati masa berlaku token (1440 menit) -> token otomatis ditolak dengan 401 UNAUTHENTICATED
+        $this->travel(1441)->minutes();
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($token)
+            ->getJson('/api/v1/auth/me')
+            ->assertStatus(401)
+            ->assertJsonPath('code', 'UNAUTHENTICATED');
+
+        $this->travelBack();
+
+        // Saat SANCTUM_TOKEN_EXPIRATION dinonaktifkan (null), expires_at & token_expires_at bernilai null
+        config(['sanctum.expiration' => null]);
+        $this->withoutToken();
+        $this->app['auth']->forgetGuards();
+
+        $unlimitedLogin = $this->postJson('/api/v1/auth/login', [
+            'email' => 'staff.sec@logistikku.test',
+            'password' => 'StaffSecret123!',
+            'device_name' => 'Scanner-Unlimited',
+        ]);
+
+        $unlimitedLogin->assertOk()
+            ->assertJsonPath('data.expires_at', null);
+
+        $unlimitedStoredToken = PersonalAccessToken::query()->latest('id')->first();
+        $this->assertNotNull($unlimitedStoredToken);
+        $this->assertNull($unlimitedStoredToken->expires_at);
+
+        $unlimitedToken = (string) $unlimitedLogin->json('data.token');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($unlimitedToken)
+            ->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.token_expires_at', null);
     }
 }

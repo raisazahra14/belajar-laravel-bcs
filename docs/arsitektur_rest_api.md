@@ -247,9 +247,9 @@ Autentikasi menggunakan **Laravel Sanctum Bearer Token** yang terhubung pada tab
 | **Status Layanan** | | | | | |
 | `/api/v1/status` | `GET` | Publik | Publik | Publik | Cek konektivitas, versi kontrak (`v1.0`), dan tautan *self*. |
 | **Autentikasi (`/api/v1/auth`)** | | | | | |
-| `/api/v1/auth/login` | `POST` | Publik | Publik | Publik | Menghasilkan Sanctum Bearer Token sesuai role & dilindungi rate limiter. |
-| `/api/v1/auth/logout` | `POST` | Ya | Ya | Ya | Mencabut token aktif (`currentAccessToken()->delete()`). |
-| `/api/v1/auth/me` *(atau `/user`)* | `GET` | Ya | Ya | Ya | Mengambil profil & role user aktif tanpa membocorkan kolom sensitif (`password`, `remember_token`). |
+| `/api/v1/auth/login` | `POST` | Publik | Publik | Publik | Menghasilkan Sanctum Bearer Token sesuai role (atau *custom scoped* `abilities[]`), dilengkapi TTL terkonfigurasi (`SANCTUM_TOKEN_EXPIRATION`, default `1440` menit / 24 jam) pada `expires_at` & dilindungi rate limiter. |
+| `/api/v1/auth/logout` | `POST` | Ya | Ya | Ya | Mencabut token aktif (`currentAccessToken()->delete()`), atau seluruh perangkat bila `all_devices: true`. |
+| `/api/v1/auth/me` *(atau `/user`)* | `GET` | Ya | Ya | Ya | Mengambil profil, role, `token_abilities`, dan `token_expires_at` user aktif tanpa membocorkan kolom sensitif (`password`, `remember_token`). |
 | **Master Barang & Cek Stok Real-Time** | | | | | |
 | `/api/v1/barang` | `GET` | Ya | Ya | Ya | `barang:read` — Daftar barang dengan pencarian, filter kategori, sorting, & paginasi + HATEOAS `links`. |
 | `/api/v1/barang/{id}` | `GET` | Ya | Ya | Ya | `barang:read` — Detail barang lengkap beserta distribusi saldo per gudang (`warehouse_stocks`). |

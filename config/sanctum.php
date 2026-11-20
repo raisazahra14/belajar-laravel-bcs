@@ -5,6 +5,11 @@ use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
 use Laravel\Sanctum\Sanctum;
 
+$rawSanctumExpiration = env('SANCTUM_TOKEN_EXPIRATION', 1440);
+$sanctumExpiration = is_numeric($rawSanctumExpiration) && (int) $rawSanctumExpiration > 0
+    ? (int) $rawSanctumExpiration
+    : null;
+
 return [
 
     /*
@@ -50,7 +55,7 @@ return [
     |
     */
 
-    'expiration' => null,
+    'expiration' => $sanctumExpiration,
 
     /*
     |--------------------------------------------------------------------------

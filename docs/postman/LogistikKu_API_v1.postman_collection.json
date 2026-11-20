@@ -83,6 +83,7 @@
                   "    pm.expect(json.data.token).to.be.a('string').and.not.empty;",
                   "    pm.expect(json.data.token_type).to.eql('Bearer');",
                   "    pm.expect(json.data.abilities).to.be.an('array').and.not.empty;",
+                  "    pm.expect(json.data).to.have.property('expires_at');",
                   "    pm.expect(json.data.user).to.not.have.property('password');",
                   "    pm.environment.set('bearer_token', json.data.token);",
                   "});"
@@ -131,6 +132,7 @@
                   "    const json = pm.response.json();",
                   "    pm.expect(json.success).to.be.true;",
                   "    pm.expect(json.data).to.have.property('token_abilities');",
+                  "    pm.expect(json.data).to.have.property('token_expires_at');",
                   "    pm.expect(json.data).to.not.have.property('password');",
                   "    pm.expect(json.data).to.not.have.property('remember_token');",
                   "});"
