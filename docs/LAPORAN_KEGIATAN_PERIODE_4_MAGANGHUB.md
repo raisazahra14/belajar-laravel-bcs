@@ -11,7 +11,7 @@
 - **Nama Aplikasi / Proyek**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang, & Analitik Logistik Terpadu)
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, Laravel Sanctum 4, MySQL/MariaDB & SQLite, Python 3.10+ (OCR Tesseract & Prediksi ML), PHPUnit 11, Laravel Pint
 - **Acuan Roadmap Teknis**: GitHub Issue `#12` — *Arsitektur RESTful API, Integrasi Endpoint Internal, Pengujian Postman & Dokumentasi OpenAPI*
-- **Status Capaian Saat Ini *(per 19 November 2026)***: **Minggu 1 & Minggu 2 (Materi 1 & 2) 100% SELESAI & TERVERIFIKASI** (`529 Automated Tests PASS`, `5.810 Assertions`, `Laravel Pint PASSED`, `route:cache READY`)
+- **Status Capaian Saat Ini *(per 20 November 2026)***: **Minggu 1, Minggu 2, & Minggu 3 (Materi 1, 2, & 3) 100% SELESAI & TERVERIFIKASI** (`536 Automated Tests PASS`, `5.940 Assertions`, `Laravel Pint PASSED`, `route:cache READY`)
 - **Sifat Dokumen**: **Living Report Document** (Diperbarui bertahap setiap penyelesaian minggu hingga penutupan Periode 4 lengkap dengan bukti Postman & tautan OpenAPI).
 
 ---
@@ -26,7 +26,7 @@ Laporan ini mendokumentasikan landasan teori ilmiah, keputusan arsitektural, rea
 |---|---|---|---|
 | **Minggu 1** | **Materi 1 (Teori & Desain Arsitektur)** — *4–5 Hari* | Konvensi endpoint `/api/v1`, standar HTTP Verbs & Status Code, `app/Traits/ApiResponses.php`, `ApiStatusController`, Global Exception Handler (`bootstrap/app.php`), & `docs/arsitektur_rest_api.md` + `ApiV1ArchitectureContractTest` | **Selesai 100%** |
 | **Minggu 2** | **Materi 2 (Praktik Backend Endpoint)** — *4–5 Hari* | Endpoint `/api/v1/auth/*`, `/api/v1/barang`, `/api/v1/barang/{barang}`, `/api/v1/barang/{barang}/check-stock`, `/api/v1/stok/adjust`, `/api/v1/stok/transfer`, `/api/v1/purchase-orders`, `/api/v1/purchase-orders/{purchaseOrder}/receive`, `BarangResource`, `StockTransactionResource`, `PurchaseOrderResource`, & 12 test baru | **Selesai 100%** |
-| **Minggu 3** | **Materi 3 (Keamanan Data & Pengujian Postman)** — *4–5 Hari* | Token Abilities Sanctum, Rate Limiter API global, `config/cors.php`, Data Masking, Postman Collection (`docs/postman/LogistikKu_API_v1.postman_collection.json`), bukti tangkapan layar Postman Runner, & `ApiEndpointsSecurityTest` | *Tahap Berikutnya* |
+| **Minggu 3** | **Materi 3 (Keamanan Data & Pengujian Postman)** — *4–5 Hari* | Token Abilities Sanctum (`User::ROLE_API_ABILITIES` + `ability:<scope>`), `RateLimiter::for('api', 60/m)`, `config/cors.php`, SQLi Sanitization & Data Masking (`harga_beli` & email internal), Postman Collection (`docs/postman/LogistikKu_API_v1.postman_collection.json`), Environment, animasi alur Minggu 3, & `ApiEndpointsSecurityTest` | **Selesai 100%** |
 | **Minggu 4** | **Materi 4 (Dokumentasi OpenAPI & Finalisasi)** — *4–5 Hari* | Spesifikasi `docs/openapi.yaml`, Swagger UI `/docs/api`, Panduan Developer `docs/api_integration_guide.md`, & kelengkapan akhir laporan ini | *Tahap Berikutnya* |
 
 ![Alur Kerja RESTful API LogistikKu — Periode 4 (/api/v1)](./images/periode-4-restful-api-flow.png)
@@ -280,12 +280,33 @@ Seluruh rancangan teoretis di atas telah diimplementasikan menjadi artefak kode 
 
 ---
 
-### 4.2 Minggu 3 — Keamanan Data & Bukti Pengujian Postman *(Tahap Berikutnya)*
-- *Status: Menunggu eksekusi Minggu 3 (belum dibuat).*
-- Target dokumen & bukti tangkapan layar yang akan dilampirkan di bagian ini pada Minggu 3:
-  - Koleksi Postman & Environment: `docs/postman/LogistikKu_API_v1.postman_collection.json`.
-  - Tangkapan layar (*screenshot*) hasil eksekusi **Postman Collection Runner** (status test script `200`, `201`, `401`, `403`, `409`, `422`, `429`).
-  - Ringkasan hasil uji keamanan otomatis (`tests/Feature/ApiEndpointsSecurityTest.php`), konfigurasi `config/cors.php`, `RateLimiter::for('api', ...)`, serta *token abilities* Laravel Sanctum.
+### 4.2 🛡️ Materi 3 (Praktik | Minggu 3): Keamanan Data (OWASP API Security) & Pengujian Postman — **Selesai 100%**
+
+> **Status:** **Selesai 100% & Terverifikasi (20 November 2026)**  
+> Seluruh target pengamanan endpoint Minggu 3 (Tugas 3.1, 3.2, dan 3.3) serta penutupan gap idempotensi mutasi stok (`POST /api/v1/stok/adjust` via `reference_number`) telah diimplementasikan secara *Defense in Depth* dan diuji otomatis.
+
+![Animasi Alur Keamanan API & Pengujian Postman — Minggu 3 (/api/v1)](./images/alur-keamanan-postman-minggu-3.gif)
+
+#### A. Daftar Artefak Keamanan & Pengujian Minggu 3
+
+| Sub-Tugas | Artefak yang Dibuat / Diperbarui | Realisasi Teknis & Kepatuhan OWASP API Security |
+|---|---|---|
+| **Tugas 3.1 (Sanctum & Token Abilities)** | [`app/Models/User.php`](../app/Models/User.php) · [`AuthApiController.php`](../app/Http/Controllers/Api/V1/AuthApiController.php) · [`bootstrap/app.php`](../bootstrap/app.php) · [`routes/api.php`](../routes/api.php) | Mendefinisikan *single source of truth* `User::ROLE_API_ABILITIES` (`admin`: 12 ability, `manager`: 9 ability tanpa `po:receive`/`barang:write`, `staff`: 9 ability tanpa `po:approve`/`stok:reverse`). `POST /api/v1/auth/login` menerbitkan token dengan abilities sesuai role, `/auth/me` menampilkan `token_abilities`, `/auth/logout` mencabut token aktif, dan seluruh rute privat `/api/v1/*` dilindungi middleware `ability:<scope>` (`MissingAbilityException` → `403 FORBIDDEN`). |
+| **Tugas 3.2 (Rate Limiting, SQLi Sanitization, Data Masking & CORS)** | [`AppServiceProvider.php`](../app/Providers/AppServiceProvider.php) · [`IndexBarangRequest.php`](../app/Http/Requests/Api/V1/IndexBarangRequest.php) · [`IndexPurchaseOrderRequest.php`](../app/Http/Requests/Api/V1/IndexPurchaseOrderRequest.php) · [`BarangResource.php`](../app/Http/Resources/BarangResource.php) · [`PurchaseOrderResource.php`](../app/Http/Resources/PurchaseOrderResource.php) · [`config/cors.php`](../config/cors.php) | • **Rate Limiting:** `RateLimiter::for('api')` membatasi **60 request/menit** per user ID atau IP (`429 TOO_MANY_REQUESTS` + `Retry-After`).<br>• **Input Sanitization:** Membersihkan tag HTML & karakter kontrol ASCII pada parameter query (`search`, `nomor_po`) serta *whitelist* `Rule::in(...)` pada `sort`.<br>• **Data Masking:** Menyembunyikan `password`/`remember_token`, menyembunyikan nilai `harga_beli` (`null`) dari role `staff` di `BarangResource`, dan menghapus ekspose `email` internal pegawai pada `creator` & `approver` di `PurchaseOrderResource`.<br>• **CORS:** Membatasi `allowed_origins` pada origin terpercaya (`CORS_ALLOWED_ORIGINS` tanpa wildcard `*`) dan mengekspos `X-API-Version`, `Location`, `Retry-After`. |
+| **Tugas 3.3 (Postman Collection, Environment & Security Tests)** | [`docs/postman/LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) · [`docs/postman/LogistikKu_Local.postman_environment.json`](./postman/LogistikKu_Local.postman_environment.json) · [`tests/Feature/ApiEndpointsSecurityTest.php`](../tests/Feature/ApiEndpointsSecurityTest.php) · [`docs/images/alur-keamanan-postman-minggu-3.gif`](./images/alur-keamanan-postman-minggu-3.gif) | Koleksi resmi Postman v2.1 mencakup 12 request terstruktur dalam 5 modul dengan script pengujian otomatis `pm.test(...)` di tiap request & *auto-save* `bearer_token`, didampingi environment lokal serta 6 skenario pengujian keamanan komprehensif di `ApiEndpointsSecurityTest`. |
+
+#### B. Hasil Verifikasi & Kualitas Kode Minggu 3
+
+```text
+========================================================================================
+                        HASIL VERIFIKASI OTOMATIS MINGGU 3
+========================================================================================
+  Route Cache Check : php artisan route:list --path=api/v1 -> PASSED (13 routes, throttle:api + ability:<scope>)
+  Code Style (PSR)  : vendor/bin/pint --test -> PASS (273 files)
+  Uji API & Sekuriti: 6 files (Contract, Barang, Stock, PO, Security, Legacy PO) -> OK (35 tests, 669 assertions)
+  Uji Regresi Penuh : php artisan test -> OK (536 tests, 5940 assertions)
+========================================================================================
+```
 
 ### 4.3 Minggu 4 — Tautan Dokumentasi OpenAPI 3.0 & Panduan Developer *(Tahap Berikutnya)*
 - *Status: Menunggu eksekusi Minggu 4 (belum dibuat).*

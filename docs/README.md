@@ -37,8 +37,8 @@ LogistikKu adalah aplikasi inventaris berbasis Laravel dengan bantuan Python unt
 | [ERD](./database/erd.md) | Diagram relasi tabel bisnis, fungsi tabel, FK, dan integritas data. | 20 tabel bisnis/aplikasi. |
 | [Data Dictionary](./data_dictionary.md) | Definisi seluruh tabel, kolom, kunci, indeks, dan aturan data. | 28 tabel, 268 kolom, 38 FK. |
 | [Arsitektur Modul Purchase Order](./arsitektur_modul_purchase_order.md) | Alur bisnis, status, matriks transisi, hak akses, skema database, GRN + Barcode Scanner, Three-Way Matching, Smart Restock SLA, dan Procurement Analytics. | Modul Pengadaan & GRN. |
-| [Arsitektur RESTful API v1](./arsitektur_rest_api.md) | Konvensi endpoint `/api/v1`, standar HTTP status code, Unified JSON Envelope (`ApiResponses`), Global Exception Handler, peta 13 rute aktif `/api/v1/*`, dan matriks hak akses API per role. | Periode 4 (Minggu 1–2), aktif. |
-| [Laporan Kegiatan Periode 4 MagangHub](./LAPORAN_KEGIATAN_PERIODE_4_MAGANGHUB.md) | Landasan teori RESTful API (Materi 1), realisasi implementasi endpoint internal Minggu 2, hasil verifikasi otomatis, serta ruang bukti Postman & OpenAPI Periode 4. | Periode 4 (Minggu 1 & 2 selesai; Living Report). |
+| [Arsitektur RESTful API v1](./arsitektur_rest_api.md) | Konvensi endpoint `/api/v1`, standar HTTP status code, Unified JSON Envelope (`ApiResponses`), Global Exception Handler, peta 13 rute aktif `/api/v1/*`, dan matriks hak akses API & Sanctum Token Abilities per role. | Periode 4 (Minggu 1–3), aktif. |
+| [Laporan Kegiatan Periode 4 MagangHub](./LAPORAN_KEGIATAN_PERIODE_4_MAGANGHUB.md) | Landasan teori RESTful API (Materi 1), realisasi endpoint internal Minggu 2, keamanan Sanctum/OWASP & Postman Collection Minggu 3, serta ruang dokumentasi OpenAPI Periode 4. | Periode 4 (Minggu 1, 2 & 3 selesai; Living Report). |
 | [Portofolio Penutupan Magang](./PORTOFOLIO_PENUTUPAN_MAGANG.md) | Rekapitulasi komprehensif pencapaian rekayasa perangkat lunak, milestone, metrik pengujian regresi, dan kontribusi bisnis. | Laporan Akhir Magang. |
 
 ## Peta fitur dan dokumentasinya
@@ -100,6 +100,7 @@ Skema tersebut diverifikasi dengan menjalankan seluruh migration pada SQLite kos
 | [Alur RESTful API v1](./images/periode-4-restful-api-flow.png) | Alur kerja integrasi `/api/v1` dari klien eksternal, gerbang keamanan, endpoint inti, hingga dokumentasi OpenAPI/Postman. |
 | [Infografis Teori RESTful API Minggu 1](./images/teori-arsitektur-restful-api-minggu-1.png) | Rangkuman visual 4 pilar Materi 1: Stateless & RMM Level 2–3, Semantik HTTP (RFC 9110), Unified JSON Contract, dan Exception Gate & RBAC. |
 | [Animasi Alur Endpoint API Minggu 2](./images/alur-endpoint-api-minggu-2.gif) | Animasi alur kerja 4 tugas Minggu 2 (`/api/v1`): Cek Stok Real-Time POS, Transfer Stok Atomik, Barcode GRN PO, dan JsonResource + HATEOAS. |
+| [Animasi Alur Keamanan & Postman Minggu 3](./images/alur-keamanan-postman-minggu-3.gif) | Animasi alur kerja 4 pilar Minggu 3 (`/api/v1`): Sanctum Role Token Abilities, Middleware Scope Guard (`403`), Rate Limiting (`60/m`) + CORS + Data Masking, serta Postman Collection Runner & `ApiEndpointsSecurityTest`. |
 
 Source diagram formal berada dalam blok Mermaid pada [SRS](./srs.md) dan [ERD](./database/erd.md). SVG disediakan sebagai fallback untuk renderer yang tidak mendukung Mermaid.
 
