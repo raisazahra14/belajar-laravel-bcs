@@ -52,11 +52,12 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
 ### 2.2 Peta Status Implementasi Endpoint
 - **Aktif pada Minggu 1 (Fondasi Kontrak & Status API):**
   - `GET /api/v1/status` (`api.v1.status`) — Endpoint informasi layanan, arsitektur, tingkat kematangan REST, kata kerja HTTP yang didukung, dan tautan *self*.
-- **Aktif pada Minggu 2 (Endpoint Integrasi Sistem Internal — 12 Rute Terlindungi & Autentikasi):**
+- **Aktif pada Minggu 2 (Endpoint Integrasi Sistem Internal — 12 Rute: 1 Login Publik + 11 Rute Terlindungi `auth:sanctum`):**
   - Autentikasi: `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`
   - Master Barang & Ketersediaan Stok Real-Time: `GET /api/v1/barang`, `GET /api/v1/barang/{barang}`, `GET /api/v1/barang/{barang}/check-stock`
   - Mutasi & Transfer Stok Antar-Gudang: `POST /api/v1/stok/adjust`, `POST /api/v1/stok/transfer`
   - Pengadaan & Penerimaan Barang: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `GET /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/receive`
+- **Belum tersedia di `/api/v1` (hanya di rute legacy `/api/purchase-orders/*` atau modul web):** `PUT`/`PATCH` PO, `revise`, `withdraw`, `approve`, `reject`, CRUD master barang, dan reversal transaksi stok. Perluasan ke v1 dicatat sebagai *roadmap* pasca-Periode 4 dan **bukan** bagian dari 12 rute aktif di atas.
 - **Target Penguatan Minggu 3 (Keamanan Data & Pengujian Postman):**
   - Penegakan granular *Sanctum Token Abilities*, `RateLimiter` API global, konfigurasi `config/cors.php`, serta *Postman Collection Runner*.
 
@@ -74,7 +75,7 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
 | `PATCH` | Memperbarui sebagian atribut resource secara parsial | Tidak | Tidak selalu** | `200 OK` / `204 No Content` | Memperbarui hanya field yang dikirim di body tanpa menimpa field lain. |
 | `DELETE` | Menghapus / membatalkan resource pada URI terkait | Tidak | Ya | `200 OK` / `204 No Content` | Menghapus resource target atau menandainya terhapus (*soft delete* yang aman dipanggil ulang). |
 
-> `*` & `**` **Strategi *Idempotency* pada Aksi Transaksional Kritis LogistikKu:** Karena gangguan jaringan atau double-tap *barcode scanner* di gudang bisa mengirim ulang request `POST` yang sama, operasi krusial wajib mendukung pengaman idempotensi: `POST /purchase-orders/{id}/receive` menggunakan `receipt_token` agar penerimaan tidak tercatat ganda, sedangkan mutasi/transfer stok menggunakan nomor referensi transaksi unik.
+> `*` & `**` **Strategi *Idempotency* pada Aksi Transaksional Kritis LogistikKu:** Karena gangguan jaringan atau double-tap *barcode scanner* di gudang bisa mengirim ulang request `POST` yang sama, operasi krusial wajib mendukung pengaman idempotensi: `POST /purchase-orders/{id}/receive` menggunakan `receipt_token` agar penerimaan tidak tercatat ganda; `POST /stok/transfer` memakai nomor referensi unik (di-*generate* otomatis `TRF-YYYYMMDD-XXXXXX` bila kosong, duplikat → `409`); sedangkan `POST /stok/adjust` menolak dengan `409 CONFLICT` bila `reference_number` (opsional) yang sama sudah dipakai untuk kombinasi barang + gudang + `jenis` + `reference_type` yang sama. `adjust` tanpa `reference_number` **tidak** idempoten, sehingga sistem eksternal wajib mengirim `reference_number` (mis. nomor DO/surat jalan) agar aman dari *retry*.
 
 ### 3.2 *Content Negotiation* & Header Protokol Standar
 
@@ -237,6 +238,9 @@ Seluruh respon error dari handler global ini otomatis menyertakan header `X-API-
 
 Autentikasi menggunakan **Laravel Sanctum Bearer Token** yang terhubung pada tabel `users.role` (`admin`, `manager`, `staff`), menegakkan batasan dari [`AppServiceProvider`](../app/Providers/AppServiceProvider.php) dan [`PurchaseOrderPolicy`](../app/Policies/PurchaseOrderPolicy.php).
 
+> **Legenda status implementasi:** ✅ = aktif di `/api/v1`. 🕘 *Legacy* = hanya ada di rute lama `/api/purchase-orders/*` atau modul web, belum dipindah ke v1. 🗺️ *Roadmap* = belum diimplementasikan.
+> **Kolom "Kemampuan Token (*Suggested Abilities*)"** berisi rancangan abilities yang **baru ditegakkan pada Minggu 3**. Saat ini token Sanctum bersifat penuh (`*`), dan otorisasi aktual berasal dari `users.role` melalui Gate/Policy/FormRequest.
+
 | Modul & Endpoint | HTTP Verb | Admin | Manager | Staff | Kemampuan Token (*Suggested Abilities*) & Aturan Bisnis |
 |---|---|---|---|---|---|
 | **Status Layanan** | | | | | |
@@ -249,17 +253,17 @@ Autentikasi menggunakan **Laravel Sanctum Bearer Token** yang terhubung pada tab
 | `/api/v1/barang` | `GET` | Ya | Ya | Ya | `barang:read` — Daftar barang dengan pencarian, filter kategori, sorting, & paginasi + HATEOAS `links`. |
 | `/api/v1/barang/{id}` | `GET` | Ya | Ya | Ya | `barang:read` — Detail barang lengkap beserta distribusi saldo per gudang (`warehouse_stocks`). |
 | `/api/v1/barang/{id}/check-stock` | `GET` | Ya | Ya | Ya | `stok:check` — Pemeriksaan cepat ketersediaan stok gudang untuk kasir/POS. |
-| CRUD Master Barang (`POST`/`PUT`/`PATCH`/`DELETE`) | `POST`/`PUT`/`PATCH`/`DELETE` | Ya | Tidak (`403`) | Tidak (`403`) | `barang:write` — Dibatasi khusus `admin` (`Gate::define('manage-barang')`). |
+| CRUD Master Barang 🗺️ *Roadmap (modul web saja)* | `POST`/`PUT`/`PATCH`/`DELETE` | Ya | Tidak (`403`) | Tidak (`403`) | `barang:write` — Dibatasi khusus `admin` (`Gate::define('manage-barang')`). Belum ada rute v1. |
 | **Mutasi & Transfer Stok Antar-Gudang** | | | | | |
-| `/api/v1/stok/adjust` | `POST` | Ya | Ya | Ya | `stok:adjust` — Penyesuaian stok masuk/keluar (`Gate::define('update-stock')`). |
+| `/api/v1/stok/adjust` ✅ | `POST` | Ya | Ya | Ya | `stok:adjust` — Penyesuaian stok masuk/keluar (`Gate::define('update-stock')`); `reference_number` duplikat → `409`. |
 | `/api/v1/stok/transfer` | `POST` | Ya | Ya | Ya | `stok:transfer` — Transfer stok atomik antar-gudang dengan referensi unik. |
-| Reversal Transaksi Stok | `POST` | Ya | Ya | Tidak (`403`) | `stok:reverse` — Khusus `admin` & `manager` (`Gate::define('reverse-stock')`). |
+| Reversal Transaksi Stok 🕘 *Legacy (modul web)* | `POST` | Ya | Ya | Tidak (`403`) | `stok:reverse` — Khusus `admin` & `manager` (`Gate::define('reverse-stock')`). |
 | **Pengadaan (Purchase Order & Goods Receipt)** | | | | | |
 | `/api/v1/purchase-orders` | `GET` | Ya | Ya | Ya | `po:read` — Melihat daftar/detail PO beserta filter & paginasi. |
 | `/api/v1/purchase-orders` | `POST` | Ya | Ya | Ya | `po:create` — Membuat PO draft baru; respon `201 Created` dengan header `Location`. |
-| `/api/v1/purchase-orders/{id}` | `PUT`/`PATCH` | Ya | Ya | Ya* | `po:update` — Hanya pada status `draft`; `staff` hanya boleh mengubah PO buatannya sendiri. |
-| `/api/v1/purchase-orders/{id}/submit` / `revise` / `withdraw` | `POST` | Ya | Tidak* (`403`) | Ya* | `po:submit` — Khusus `admin` atau pembuat PO (`created_by === user.id`). |
-| `/api/v1/purchase-orders/{id}/approve` / `reject` | `POST` | Ya* | Ya* | Tidak (`403`) | `po:approve` — Khusus `admin` & `manager`; **dilarang menyetujui/menolak PO buatan sendiri** (*Maker-Checker / SoD* → `422 GUARD_FAILED`). |
+| `/api/purchase-orders/{id}` 🕘 *Legacy* (belum di v1) | `PUT`/`PATCH` | Ya | Ya | Ya* | `po:update` — Hanya pada status `draft`; `staff` hanya boleh mengubah PO buatannya sendiri. |
+| `/api/purchase-orders/{id}/revise` / `withdraw` 🕘 *Legacy* (belum di v1; `submit` belum ada rute API) | `POST` | Ya | Tidak* (`403`) | Ya* | `po:submit` — Khusus `admin` atau pembuat PO (`created_by === user.id`). |
+| `/api/purchase-orders/{id}/approve` / `reject` 🕘 *Legacy* (belum di v1) | `POST` | Ya* | Ya* | Tidak (`403`) | `po:approve` — Khusus `admin` & `manager`; **dilarang menyetujui/menolak PO buatan sendiri** (*Maker-Checker / SoD* → `422 GUARD_FAILED`). |
 | `/api/v1/purchase-orders/{id}/receive` | `POST` | Ya | Tidak (`403`) | Ya | `po:receive` — Pencatatan penerimaan barang fisik via *barcode scanner* khusus `admin` & `staff`. |
 
 > `*` **Pertahanan Berlapis (*Defense in Depth*):** Penegakan izin di atas wajib lolos di level *Sanctum Token Abilities* dan level *Policy / Gate* model bisnis sehingga token dari satu peran tidak pernah bisa menembus pembatasan domain seperti *Segregation of Duties*. Sesuai [`PurchaseOrderPolicy::create()`](../app/Policies/PurchaseOrderPolicy.php), `admin`, `manager`, dan `staff` diizinkan membuat draft PO, namun siapapun pembuat PO tetap dilarang menyetujui atau menolak PO buatannya sendiri.

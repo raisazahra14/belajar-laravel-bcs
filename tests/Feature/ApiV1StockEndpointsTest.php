@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Barang;
+use App\Models\StokTransaction;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -130,6 +131,43 @@ class ApiV1StockEndpointsTest extends TestCase
             ->assertJsonPath('data.warehouse.saldo_gudang_terkini', 12);
 
         $this->assertSame(12, $this->barang->fresh()->stok);
+    }
+
+    public function test_stock_adjust_rejects_duplicate_reference_number_to_prevent_double_posting(): void
+    {
+        $token = $this->staff->createToken('erp-sync')->plainTextToken;
+
+        $payload = [
+            'barang_id' => $this->barang->id,
+            'warehouse_id' => $this->warehouseA->id,
+            'jenis' => 'masuk',
+            'jumlah' => 5,
+            'reference_type' => 'DO',
+            'reference_number' => 'DO-IDEMP-001',
+        ];
+
+        $this->withToken($token)->postJson('/api/v1/stok/adjust', $payload)->assertCreated();
+
+        // Retry/double-tap dengan payload identik -> 409 dan saldo tidak bertambah dua kali.
+        $this->withToken($token)->postJson('/api/v1/stok/adjust', $payload)
+            ->assertStatus(409)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('code', 'CONFLICT');
+
+        $this->assertSame(15, $this->barang->fresh()->stok);
+        $this->assertSame(
+            1,
+            StokTransaction::where('reference_number', 'DO-IDEMP-001')->count(),
+        );
+
+        // Referensi sama untuk jenis berbeda (keluar) tetap diperbolehkan.
+        $this->withToken($token)->postJson('/api/v1/stok/adjust', array_merge($payload, ['jenis' => 'keluar', 'jumlah' => 2]))
+            ->assertCreated();
+
+        // Adjust tanpa reference_number tidak dibatasi.
+        $noRef = ['barang_id' => $this->barang->id, 'warehouse_id' => $this->warehouseA->id, 'jenis' => 'masuk', 'jumlah' => 1];
+        $this->withToken($token)->postJson('/api/v1/stok/adjust', $noRef)->assertCreated();
+        $this->withToken($token)->postJson('/api/v1/stok/adjust', $noRef)->assertCreated();
     }
 
     public function test_stock_adjust_validates_business_rules_with_422(): void

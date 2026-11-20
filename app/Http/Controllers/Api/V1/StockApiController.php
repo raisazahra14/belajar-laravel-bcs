@@ -27,6 +27,9 @@ class StockApiController extends Controller
             'document_date' => $validated['document_date'] ?? null,
         ], static fn (mixed $value): bool => $value !== null);
 
+        // Idempotency: nomor referensi dari sistem eksternal tidak boleh diproses dua kali (409 CONFLICT).
+        $metadata['require_unique_reference'] = true;
+
         $result = $stockService->adjustWithTransaction(
             barang: (int) $validated['barang_id'],
             type: (string) $validated['jenis'],

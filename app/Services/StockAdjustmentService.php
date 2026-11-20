@@ -103,6 +103,55 @@ class StockAdjustmentService
     }
 
     /**
+     * Idempotency guard untuk penyesuaian stok dari sistem eksternal.
+     *
+     * Aktif hanya bila metadata `require_unique_reference` bernilai true dan `reference_number` terisi.
+     * Kombinasi (barang, saldo gudang, jenis, tipe referensi, nomor referensi) tidak boleh dicatat dua kali,
+     * sehingga retry/double-submit dari scanner atau POS tidak menggandakan stok. Dipanggil di dalam
+     * transaksi setelah baris Barang dikunci (lockForUpdate), sehingga aman dari race condition.
+     *
+     * @param  array<string, mixed>  $metadata
+     *
+     * @throws ConflictHttpException
+     */
+    private function guardDuplicateAdjustReference(
+        array $metadata,
+        int $barangId,
+        int $warehouseStockId,
+        string $type,
+    ): void {
+        if (empty($metadata['require_unique_reference'])) {
+            return;
+        }
+
+        $reference = isset($metadata['reference_number']) ? trim((string) $metadata['reference_number']) : '';
+        if ($reference === '') {
+            return;
+        }
+
+        $referenceType = $metadata['reference_type'] ?? null;
+
+        $existingId = StokTransaction::query()
+            ->where('mutation_type', $metadata['mutation_type'] ?? 'operational')
+            ->where('barang_id', $barangId)
+            ->where('warehouse_stock_id', $warehouseStockId)
+            ->where('jenis', $type)
+            ->where('reference_number', $reference)
+            ->when(
+                $referenceType === null,
+                fn ($query) => $query->whereNull('reference_type'),
+                fn ($query) => $query->where('reference_type', $referenceType),
+            )
+            ->value('id');
+
+        if ($existingId !== null) {
+            throw new ConflictHttpException(
+                "Nomor referensi '{$reference}' sudah pernah dipakai untuk penyesuaian stok yang sama (transaksi #{$existingId}).",
+            );
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $metadata
      * @return array{barang: Barang, transaction: StokTransaction}
      */
@@ -169,6 +218,8 @@ class StockAdjustmentService
                     'jumlah' => 'Saldo pada gudang yang dipilih tidak mencukupi.',
                 ]);
             }
+
+            $this->guardDuplicateAdjustReference($metadata, $locked->id, $warehouseStock->id, $type);
 
             $warehouseStock->update(['stok' => $warehouseAfter]);
             $locked->update(['stok' => $after]);
