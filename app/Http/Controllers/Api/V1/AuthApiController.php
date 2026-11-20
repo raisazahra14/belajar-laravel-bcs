@@ -23,6 +23,8 @@ class AuthApiController extends Controller
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
             'device_name' => ['nullable', 'string', 'max:100'],
+            'abilities' => ['nullable', 'array', 'min:1'],
+            'abilities.*' => ['required', 'string', 'distinct'],
         ]);
 
         $throttleKey = sha1($validated['email'].'|'.$request->ip());
@@ -50,8 +52,21 @@ class AuthApiController extends Controller
 
         RateLimiter::clear($throttleKey);
 
+        $requestedAbilities = $validated['abilities'] ?? null;
+        if (is_array($requestedAbilities) && $requestedAbilities !== []) {
+            $disallowed = array_values(array_diff($requestedAbilities, $user->defaultApiAbilities()));
+
+            if ($disallowed !== []) {
+                return $this->validationErrorResponse([
+                    'abilities' => [
+                        'Role '.$user->role.' tidak diizinkan meminta ability: '.implode(', ', $disallowed).'.',
+                    ],
+                ]);
+            }
+        }
+
         $deviceName = $validated['device_name'] ?? 'external-client';
-        $abilities = $user->defaultApiAbilities();
+        $abilities = $user->resolveApiAbilities($requestedAbilities);
         $token = $user->createToken($deviceName, $abilities)->plainTextToken;
 
         return $this->successResponse([
@@ -68,10 +83,16 @@ class AuthApiController extends Controller
     }
 
     /**
-     * Cabut token Sanctum yang sedang digunakan pada request aktif.
+     * Cabut token Sanctum yang sedang digunakan pada request aktif (atau seluruh perangkat jika all_devices=true).
      */
     public function logout(Request $request): JsonResponse
     {
+        if ($request->boolean('all_devices')) {
+            $request->user()->tokens()->delete();
+
+            return $this->successResponse(null, 'Seluruh token akses perangkat berhasil dicabut');
+        }
+
         $request->user()->currentAccessToken()?->delete();
 
         return $this->successResponse(null, 'Token berhasil dicabut');

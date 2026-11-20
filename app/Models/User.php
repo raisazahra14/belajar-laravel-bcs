@@ -128,4 +128,23 @@ class User extends Authenticatable
     {
         return self::apiAbilitiesForRole($this->role);
     }
+
+    /**
+     * Saring daftar ability yang diminta klien terhadap ability maksimum role user ini.
+     *
+     * @param  list<string>|null  $requestedAbilities
+     * @return list<string>
+     */
+    public function resolveApiAbilities(?array $requestedAbilities = null): array
+    {
+        $allowed = $this->defaultApiAbilities();
+
+        if ($requestedAbilities === null || $requestedAbilities === []) {
+            return $allowed;
+        }
+
+        $normalized = array_unique(array_map('strval', $requestedAbilities));
+
+        return array_values(array_intersect($allowed, $normalized));
+    }
 }

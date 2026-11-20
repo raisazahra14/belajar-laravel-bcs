@@ -296,8 +296,77 @@ class ApiEndpointsSecurityTest extends TestCase
         $this->assertSame('LogistikKu RESTful API v1', $collection['info']['name'] ?? null);
         $this->assertNotEmpty($collection['item'] ?? []);
 
+        $folderNames = array_column($collection['item'], 'name');
+        $this->assertContains('06. Negative & Security Test Scenarios (OWASP)', $folderNames);
+
         $envKeys = array_column($environment['values'] ?? [], 'key');
         $this->assertContains('base_url', $envKeys);
         $this->assertContains('bearer_token', $envKeys);
+    }
+
+    public function test_custom_scoped_login_enforces_least_privilege_and_blocks_escalation(): void
+    {
+        // 1. Staff meminta token dengan scope minimal untuk mesin kasir (hanya barang:read & stok:check)
+        $scopedLogin = $this->postJson('/api/v1/auth/login', [
+            'email' => 'staff.sec@logistikku.test',
+            'password' => 'StaffSecret123!',
+            'device_name' => 'Kasir-POS-01',
+            'abilities' => ['barang:read', 'stok:check'],
+        ]);
+
+        $scopedLogin->assertOk()
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('X-Frame-Options', 'DENY')
+            ->assertJsonPath('data.abilities', ['barang:read', 'stok:check']);
+
+        $posToken = (string) $scopedLogin->json('data.token');
+
+        // Boleh mengakses cek stok real-time
+        $this->withToken($posToken)
+            ->getJson("/api/v1/barang/{$this->barang->id}/check-stock?warehouse_id={$this->warehouse->id}&qty=2")
+            ->assertOk()
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('X-Frame-Options', 'DENY');
+
+        // Ditolak 403 FORBIDDEN saat mencoba memodifikasi stok karena di luar scope token POS
+        $this->withToken($posToken)
+            ->postJson('/api/v1/stok/adjust', [
+                'barang_id' => $this->barang->id,
+                'warehouse_id' => $this->warehouse->id,
+                'jenis' => 'masuk',
+                'jumlah' => 1,
+            ])
+            ->assertStatus(403)
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('X-Frame-Options', 'DENY')
+            ->assertJsonPath('code', 'FORBIDDEN');
+
+        // 2. Staff mencoba eskalasi privilege dengan meminta ability po:approve -> ditolak 422 VALIDATION_ERROR
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'staff.sec@logistikku.test',
+            'password' => 'StaffSecret123!',
+            'device_name' => 'Escalation-Attempt',
+            'abilities' => ['barang:read', 'po:approve'],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'VALIDATION_ERROR')
+            ->assertJsonStructure(['errors' => ['abilities']]);
+
+        // 3. Buat token tambahan lalu logout dengan all_devices=true -> seluruh token milik staff tercabut
+        $secondToken = $this->staff->createToken('scanner-cadangan', ['barang:read'])->plainTextToken;
+        $this->assertSame(2, $this->staff->tokens()->count());
+
+        $this->withToken($posToken)
+            ->postJson('/api/v1/auth/logout', ['all_devices' => true])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertSame(0, $this->staff->tokens()->count());
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($secondToken)
+            ->getJson('/api/v1/barang')
+            ->assertStatus(401)
+            ->assertJsonPath('code', 'UNAUTHENTICATED');
     }
 }

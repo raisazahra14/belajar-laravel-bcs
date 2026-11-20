@@ -11,7 +11,7 @@
 - **Nama Aplikasi / Proyek**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang, & Analitik Logistik Terpadu)
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, Laravel Sanctum 4, MySQL/MariaDB & SQLite, Python 3.10+ (OCR Tesseract & Prediksi ML), PHPUnit 11, Laravel Pint
 - **Acuan Roadmap Teknis**: GitHub Issue `#12` — *Arsitektur RESTful API, Integrasi Endpoint Internal, Pengujian Postman & Dokumentasi OpenAPI*
-- **Status Capaian Saat Ini *(per 20 November 2026)***: **Minggu 1, Minggu 2, & Minggu 3 (Materi 1, 2, & 3) 100% SELESAI & TERVERIFIKASI** (`536 Automated Tests PASS`, `5.940 Assertions`, `Laravel Pint PASSED`, `route:cache READY`)
+- **Status Capaian Saat Ini *(per 20 November 2026)***: **Minggu 1, Minggu 2, & Minggu 3 (Materi 1, 2, & 3) 100% SELESAI & TERVERIFIKASI** (`537 Automated Tests PASS`, `5.968 Assertions`, `Laravel Pint PASSED`, `route:cache READY`)
 - **Sifat Dokumen**: **Living Report Document** (Diperbarui bertahap setiap penyelesaian minggu hingga penutupan Periode 4 lengkap dengan bukti Postman & tautan OpenAPI).
 
 ---
@@ -293,9 +293,24 @@ Seluruh rancangan teoretis di atas telah diimplementasikan menjadi artefak kode 
 |---|---|---|
 | **Tugas 3.1 (Sanctum & Token Abilities)** | [`app/Models/User.php`](../app/Models/User.php) · [`AuthApiController.php`](../app/Http/Controllers/Api/V1/AuthApiController.php) · [`bootstrap/app.php`](../bootstrap/app.php) · [`routes/api.php`](../routes/api.php) | Mendefinisikan *single source of truth* `User::ROLE_API_ABILITIES` (`admin`: 12 ability, `manager`: 9 ability tanpa `po:receive`/`barang:write`, `staff`: 9 ability tanpa `po:approve`/`stok:reverse`). `POST /api/v1/auth/login` menerbitkan token dengan abilities sesuai role, `/auth/me` menampilkan `token_abilities`, `/auth/logout` mencabut token aktif, dan seluruh rute privat `/api/v1/*` dilindungi middleware `ability:<scope>` (`MissingAbilityException` → `403 FORBIDDEN`). |
 | **Tugas 3.2 (Rate Limiting, SQLi Sanitization, Data Masking & CORS)** | [`AppServiceProvider.php`](../app/Providers/AppServiceProvider.php) · [`IndexBarangRequest.php`](../app/Http/Requests/Api/V1/IndexBarangRequest.php) · [`IndexPurchaseOrderRequest.php`](../app/Http/Requests/Api/V1/IndexPurchaseOrderRequest.php) · [`BarangResource.php`](../app/Http/Resources/BarangResource.php) · [`PurchaseOrderResource.php`](../app/Http/Resources/PurchaseOrderResource.php) · [`config/cors.php`](../config/cors.php) | • **Rate Limiting:** `RateLimiter::for('api')` membatasi **60 request/menit** per user ID atau IP (`429 TOO_MANY_REQUESTS` + `Retry-After`).<br>• **Input Sanitization:** Membersihkan tag HTML & karakter kontrol ASCII pada parameter query (`search`, `nomor_po`) serta *whitelist* `Rule::in(...)` pada `sort`.<br>• **Data Masking:** Menyembunyikan `password`/`remember_token`, menyembunyikan nilai `harga_beli` (`null`) dari role `staff` di `BarangResource`, dan menghapus ekspose `email` internal pegawai pada `creator` & `approver` di `PurchaseOrderResource`.<br>• **CORS:** Membatasi `allowed_origins` pada origin terpercaya (`CORS_ALLOWED_ORIGINS` tanpa wildcard `*`) dan mengekspos `X-API-Version`, `Location`, `Retry-After`. |
-| **Tugas 3.3 (Postman Collection, Environment & Security Tests)** | [`docs/postman/LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) · [`docs/postman/LogistikKu_Local.postman_environment.json`](./postman/LogistikKu_Local.postman_environment.json) · [`tests/Feature/ApiEndpointsSecurityTest.php`](../tests/Feature/ApiEndpointsSecurityTest.php) · [`docs/images/alur-keamanan-postman-minggu-3.gif`](./images/alur-keamanan-postman-minggu-3.gif) | Koleksi resmi Postman v2.1 mencakup 12 request terstruktur dalam 5 modul dengan script pengujian otomatis `pm.test(...)` di tiap request & *auto-save* `bearer_token`, didampingi environment lokal serta 6 skenario pengujian keamanan komprehensif di `ApiEndpointsSecurityTest`. |
+| **Tugas 3.3 (Postman Collection, Environment & Security Tests)** | [`docs/postman/LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) · [`docs/postman/LogistikKu_Local.postman_environment.json`](./postman/LogistikKu_Local.postman_environment.json) · [`tests/Feature/ApiEndpointsSecurityTest.php`](../tests/Feature/ApiEndpointsSecurityTest.php) · [`docs/images/alur-keamanan-postman-minggu-3.gif`](./images/alur-keamanan-postman-minggu-3.gif) | Koleksi resmi Postman v2.1 mencakup **15 request terstruktur dalam 6 folder modul** (termasuk Folder `06. Negative & Security Test Scenarios (OWASP)`) dengan script pengujian otomatis `pm.test(...)` di tiap request & *auto-save* `bearer_token`, didampingi environment lokal serta **7 skenario pengujian keamanan komprehensif** di `ApiEndpointsSecurityTest`. |
 
-#### B. Hasil Verifikasi & Kualitas Kode Minggu 3
+#### B. Inovasi Tambahan & Problem Solving Minggu 3 (*Engineering Value-Add*)
+
+**Tech Stack Keamanan & Pengujian yang Digunakan:**
+- **Auth & Fine-Grained Scope:** `Laravel 12` · `Laravel Sanctum 4` (`HasApiTokens`, `PersonalAccessToken`, middleware `CheckForAnyAbility` / `ability:<scope>`)
+- **Anti-Abuse & Protokol Keamanan:** `Illuminate\Support\Facades\RateLimiter` (`throttle:api` 60 req/m) · `Laravel CORS Middleware` (`config/cors.php`) · `OWASP HTTP Security Headers` (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`) · `Pessimistic DB Locking` (`lockForUpdate` + `reference_number` idempotency)
+- **Data Masking & Sanitization:** `Laravel Eloquent JsonResource` (`BarangResource`, `PurchaseOrderResource`) · `FormRequest Whitelist Validation` · `ASCII/HTML Sanitizer`
+- **Testing & QA Tools:** `Postman Collection v2.1` (`ChaiJS pm.test` automated scripts) · `PHPUnit 11` (`ApiEndpointsSecurityTest`)
+
+| Inovasi | Masalah (*Problem*) | Solusi (*Solution*) | Tech Stack | Kelebihan Utama |
+|---|---|---|---|---|
+| **1. Custom Scoped Token & Multi-Device Revoke** | Token `staff` default pegang 9 akses penuh (risiko penyalahgunaan bila token kasir bocor) dan token lama tetap hidup jika scanner hilang. | Klien dapat meminta scope minimal saat login (`abilities: ["barang:read", "stok:check"]`). `User::resolveApiAbilities()` menyaring scope & menolak eskalasi dengan `422`. Saat darurat, `POST /auth/logout` dengan `all_devices: true` mencabut semua token sekaligus. | `Laravel Sanctum 4`, `User::resolveApiAbilities()`, `CheckForAnyAbility` | Menerapkan *Principle of Least Privilege* (OWASP API2/API5) tanpa membuat tabel atau endpoint baru. |
+| **2. Idempotency Guard (`stok/adjust`)** | Wi-Fi gudang putus-sambung memicu scanner mengirim ulang `POST /api/v1/stok/adjust`, menyebabkan saldo stok bertambah/berkurang ganda. | `guardDuplicateAdjustReference()` di dalam transaksi terkunci menolak pengulangan `reference_number` yang sama untuk barang, gudang, dan jenis mutasi yang sama dengan `409 CONFLICT`. | `Database Transaction`, `lockForUpdate()`, `ConflictHttpException (409)` | Menjamin akurasi saldo stok 100% dari *race condition* dan *retry* jaringan. |
+| **3. Centralized OWASP Security Headers** | Respons JSON API tanpa header pengaman rentan terhadap *MIME-type sniffing* dan penyematan iframe ilegal (*clickjacking*). | Menyuntikkan `X-Content-Type-Options: nosniff` dan `X-Frame-Options: DENY` langsung di satu titik pusat `ApiResponses::defaultHeaders()`. | `PHP Trait (ApiResponses)`, `OWASP API8 Security Headers` | *Zero file bloat* (tanpa class middleware tambahan), otomatis melindungi seluruh respons sukses maupun error. |
+| **4. Postman Negative Attack Scenarios** | Koleksi Postman standar hanya menguji skenario sukses (*Happy Path*), sehingga belum membuktikan ketahanan API saat diserang. | Menambahkan Folder `06. Negative & Security Test Scenarios (OWASP)` berisi uji otomatis akses tanpa token (`401`), injeksi SQL parameter `sort` (`422`), dan eskalasi ability (`422`). | `Postman Schema v2.1`, `ChaiJS (pm.test)`, `PHPUnit 11` | Mentor/penguji dapat memverifikasi pertahanan keamanan API hanya dengan satu klik di *Postman Collection Runner*. |
+
+#### C. Hasil Verifikasi & Kualitas Kode Minggu 3
 
 ```text
 ========================================================================================
@@ -303,8 +318,8 @@ Seluruh rancangan teoretis di atas telah diimplementasikan menjadi artefak kode 
 ========================================================================================
   Route Cache Check : php artisan route:list --path=api/v1 -> PASSED (13 routes, throttle:api + ability:<scope>)
   Code Style (PSR)  : vendor/bin/pint --test -> PASS (273 files)
-  Uji API & Sekuriti: 6 files (Contract, Barang, Stock, PO, Security, Legacy PO) -> OK (35 tests, 669 assertions)
-  Uji Regresi Penuh : php artisan test -> OK (536 tests, 5940 assertions)
+  Uji API & Sekuriti: 6 files (Contract, Barang, Stock, PO, Security, Legacy PO) -> OK (36 tests, 697 assertions)
+  Uji Regresi Penuh : php artisan test -> OK (537 tests, 5968 assertions)
 ========================================================================================
 ```
 

@@ -314,6 +314,8 @@ trait ApiResponses
     {
         return array_merge([
             'X-API-Version' => self::API_VERSION,
+            'X-Content-Type-Options' => 'nosniff',
+            'X-Frame-Options' => 'DENY',
         ], $headers);
     }
 }

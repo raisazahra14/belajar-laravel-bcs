@@ -85,6 +85,7 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
 | `Content-Type: application/json` | Request / Response | Menyatakan format body request/response berupa JSON. Pengiriman media type tidak didukung pada endpoint ketat akan memicu `415 Unsupported Media Type`. |
 | `Authorization: Bearer <token>` | Request | Token otentikasi **Laravel Sanctum** untuk seluruh rute privat. |
 | `X-API-Version: v1.0` | Response (Server → Client) | Disertakan otomatis oleh `App\Traits\ApiResponses` di **setiap** respon berhasil maupun error untuk transparansi versi kontrak aktif. |
+| `X-Content-Type-Options: nosniff` & `X-Frame-Options: DENY` | Response (Server → Client) | Header keamanan OWASP otomatis dari `App\Traits\ApiResponses` untuk mencegah *MIME-type sniffing* dan penyematan iframe (*clickjacking*). |
 | `Location: <uri>` | Response (`201` / `202`) | Menunjuk URI resource baru yang berhasil dibuat (`createdResponse`) atau URI pemantau status job asinkron (`acceptedResponse`). |
 | `Allow: GET, ...` | Response (`405`) | Daftar metode HTTP yang diizinkan ketika klien memanggil verb yang salah pada URI valid. |
 | `Retry-After: <detik>` | Response (`429` / `503`) | Memberi tahu klien berapa detik harus menunggu sebelum mencoba request ulang setelah terkena *Rate Limiter*. |
