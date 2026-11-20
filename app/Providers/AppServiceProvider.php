@@ -6,12 +6,15 @@ use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Policies\PurchaseOrderPolicy;
 use App\Services\NotificationCenterService;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -31,6 +34,10 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Paginator::useBootstrapFive();
+
+        RateLimiter::for('api', function (Request $request): Limit {
+            return Limit::perMinute(60)->by((string) ($request->user()?->id ?: $request->ip()));
+        });
 
         $slowQueryThreshold = (int) config('database.slow_query_threshold_ms', 500);
         if ($slowQueryThreshold > 0) {

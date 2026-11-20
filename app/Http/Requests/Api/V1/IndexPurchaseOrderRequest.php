@@ -14,6 +14,22 @@ class IndexPurchaseOrderRequest extends FormRequest
         return $this->user()?->can('viewAny', PurchaseOrder::class) === true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $merged = [];
+
+        foreach (['search', 'nomor_po'] as $field) {
+            if ($this->has($field)) {
+                $cleaned = preg_replace('/[\x00-\x1F\x7F]/u', '', strip_tags((string) $this->input($field))) ?? '';
+                $merged[$field] = trim($cleaned);
+            }
+        }
+
+        if ($merged !== []) {
+            $this->merge($merged);
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */

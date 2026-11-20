@@ -72,7 +72,6 @@ class PurchaseOrderResource extends JsonResource
                 return [
                     'id' => $this->resource->creator?->id,
                     'name' => $this->resource->creator?->name,
-                    'email' => $this->resource->creator?->email,
                     'role' => $this->resource->creator?->role,
                 ];
             }),
@@ -80,7 +79,6 @@ class PurchaseOrderResource extends JsonResource
                 return [
                     'id' => $this->resource->approver?->id,
                     'name' => $this->resource->approver?->name,
-                    'email' => $this->resource->approver?->email,
                     'role' => $this->resource->approver?->role,
                 ];
             }),

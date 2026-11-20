@@ -51,11 +51,13 @@ class AuthApiController extends Controller
         RateLimiter::clear($throttleKey);
 
         $deviceName = $validated['device_name'] ?? 'external-client';
-        $token = $user->createToken($deviceName)->plainTextToken;
+        $abilities = $user->defaultApiAbilities();
+        $token = $user->createToken($deviceName, $abilities)->plainTextToken;
 
         return $this->successResponse([
             'token' => $token,
             'token_type' => 'Bearer',
+            'abilities' => $abilities,
             'user' => [
                 'id' => (int) $user->id,
                 'name' => $user->name,
@@ -81,12 +83,16 @@ class AuthApiController extends Controller
     public function me(Request $request): JsonResponse
     {
         $user = $request->user();
+        $accessToken = $user->currentAccessToken();
 
         return $this->successResponse([
             'id' => (int) $user->id,
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role,
+            'token_abilities' => is_array($accessToken?->abilities)
+                ? array_values($accessToken->abilities)
+                : $user->defaultApiAbilities(),
             'created_at' => $user->created_at?->toIso8601String(),
         ], 'Profil pengguna berhasil diambil');
     }

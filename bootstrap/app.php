@@ -13,6 +13,9 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\Exceptions\MissingAbilityException;
+use Laravel\Sanctum\Http\Middleware\CheckAbilities;
+use Laravel\Sanctum\Http\Middleware\CheckForAnyAbility;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -30,6 +33,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
+            'abilities' => CheckAbilities::class,
+            'ability' => CheckForAnyAbility::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
@@ -70,9 +75,12 @@ return Application::configure(basePath: dirname(__DIR__))
                     'Autentikasi diperlukan atau token tidak valid.',
                     'UNAUTHENTICATED',
                 ),
+                $e instanceof MissingAbilityException,
                 $e instanceof AuthorizationException,
                 $e instanceof AccessDeniedHttpException => $responder->forbiddenResponse(
-                    $e->getMessage() !== '' ? $e->getMessage() : 'Anda tidak memiliki hak akses untuk operasi ini.',
+                    $e instanceof MissingAbilityException
+                        ? 'Token akses tidak memiliki izin (ability) yang diperlukan untuk endpoint ini.'
+                        : ($e->getMessage() !== '' ? $e->getMessage() : 'Anda tidak memiliki hak akses untuk operasi ini.'),
                     'FORBIDDEN',
                 ),
                 $e instanceof ModelNotFoundException,

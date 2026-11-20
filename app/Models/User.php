@@ -16,6 +16,50 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable;
 
     /**
+     * Peta kemampuan token Sanctum (Token Abilities) standar per role untuk /api/v1.
+     *
+     * @var array<string, list<string>>
+     */
+    public const ROLE_API_ABILITIES = [
+        'admin' => [
+            'barang:read',
+            'barang:write',
+            'stok:check',
+            'stok:adjust',
+            'stok:transfer',
+            'stok:reverse',
+            'po:read',
+            'po:create',
+            'po:update',
+            'po:submit',
+            'po:approve',
+            'po:receive',
+        ],
+        'manager' => [
+            'barang:read',
+            'stok:check',
+            'stok:adjust',
+            'stok:transfer',
+            'stok:reverse',
+            'po:read',
+            'po:create',
+            'po:update',
+            'po:approve',
+        ],
+        'staff' => [
+            'barang:read',
+            'stok:check',
+            'stok:adjust',
+            'stok:transfer',
+            'po:read',
+            'po:create',
+            'po:update',
+            'po:submit',
+            'po:receive',
+        ],
+    ];
+
+    /**
      * The attributes that are mass assignable.
      *
      * @var list<string>
@@ -63,5 +107,25 @@ class User extends Authenticatable
     public function approvedPurchaseOrders(): HasMany
     {
         return $this->hasMany(PurchaseOrder::class, 'approved_by');
+    }
+
+    /**
+     * Ambil daftar Sanctum token abilities standar berdasarkan nama role.
+     *
+     * @return list<string>
+     */
+    public static function apiAbilitiesForRole(?string $role): array
+    {
+        return self::ROLE_API_ABILITIES[$role ?? ''] ?? ['barang:read', 'stok:check'];
+    }
+
+    /**
+     * Ambil daftar Sanctum token abilities default untuk user ini sesuai role-nya.
+     *
+     * @return list<string>
+     */
+    public function defaultApiAbilities(): array
+    {
+        return self::apiAbilitiesForRole($this->role);
     }
 }

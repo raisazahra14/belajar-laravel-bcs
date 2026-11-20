@@ -19,6 +19,9 @@ class BarangResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $canViewCost = $request->user() === null
+            || in_array($request->user()->role, ['admin', 'manager'], true);
+
         return [
             'id' => (int) $this->resource->id,
             'kode_barang' => $this->resource->kode_barang,
@@ -29,7 +32,9 @@ class BarangResource extends JsonResource
             'stok' => (int) $this->resource->stok,
             'minimum_stock' => Barang::MINIMUM_STOCK,
             'is_low_stock' => $this->resource->isLowStock(),
-            'harga_beli' => $this->resource->harga_beli !== null ? (float) $this->resource->harga_beli : null,
+            'harga_beli' => ($canViewCost && $this->resource->harga_beli !== null)
+                ? (float) $this->resource->harga_beli
+                : null,
             'daily_usage_estimate' => $this->resource->daily_usage_estimate !== null
                 ? (float) $this->resource->daily_usage_estimate
                 : null,

@@ -19,7 +19,8 @@ class IndexBarangRequest extends FormRequest
         $merged = [];
 
         if ($this->has('search')) {
-            $merged['search'] = trim((string) $this->input('search'));
+            $cleanedSearch = preg_replace('/[\x00-\x1F\x7F]/u', '', strip_tags((string) $this->input('search'))) ?? '';
+            $merged['search'] = trim($cleanedSearch);
         }
 
         if ($this->has('direction')) {

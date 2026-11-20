@@ -58,8 +58,8 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
   - Mutasi & Transfer Stok Antar-Gudang: `POST /api/v1/stok/adjust`, `POST /api/v1/stok/transfer`
   - Pengadaan & Penerimaan Barang: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `GET /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/receive`
 - **Belum tersedia di `/api/v1` (hanya di rute legacy `/api/purchase-orders/*` atau modul web):** `PUT`/`PATCH` PO, `revise`, `withdraw`, `approve`, `reject`, CRUD master barang, dan reversal transaksi stok. Perluasan ke v1 dicatat sebagai *roadmap* pasca-Periode 4 dan **bukan** bagian dari 12 rute aktif di atas.
-- **Target Penguatan Minggu 3 (Keamanan Data & Pengujian Postman):**
-  - Penegakan granular *Sanctum Token Abilities*, `RateLimiter` API global, konfigurasi `config/cors.php`, serta *Postman Collection Runner*.
+- **Aktif pada Minggu 3 (Keamanan Data & Pengujian Postman):**
+  - Penegakan granular *Sanctum Token Abilities* (`User::ROLE_API_ABILITIES` + middleware `ability:...`), `RateLimiter::for('api')` (60 req/menit), konfigurasi `config/cors.php`, *Data Masking* (`harga_beli` untuk staff & penyembunyian email internal pada `PurchaseOrderResource`), serta artefak Postman Collection (`docs/postman/LogistikKu_API_v1.postman_collection.json`) & `ApiEndpointsSecurityTest`.
 
 ---
 
@@ -239,7 +239,7 @@ Seluruh respon error dari handler global ini otomatis menyertakan header `X-API-
 Autentikasi menggunakan **Laravel Sanctum Bearer Token** yang terhubung pada tabel `users.role` (`admin`, `manager`, `staff`), menegakkan batasan dari [`AppServiceProvider`](../app/Providers/AppServiceProvider.php) dan [`PurchaseOrderPolicy`](../app/Policies/PurchaseOrderPolicy.php).
 
 > **Legenda status implementasi:** ✅ = aktif di `/api/v1`. 🕘 *Legacy* = hanya ada di rute lama `/api/purchase-orders/*` atau modul web, belum dipindah ke v1. 🗺️ *Roadmap* = belum diimplementasikan.
-> **Kolom "Kemampuan Token (*Suggested Abilities*)"** berisi rancangan abilities yang **baru ditegakkan pada Minggu 3**. Saat ini token Sanctum bersifat penuh (`*`), dan otorisasi aktual berasal dari `users.role` melalui Gate/Policy/FormRequest.
+> **Penegakan Kemampuan Token (*Token Abilities*):** Mulai Minggu 3, `POST /api/v1/auth/login` menerbitkan token dengan *abilities* spesifik per role (`User::ROLE_API_ABILITIES`) dan seluruh rute `/api/v1/*` menegakkan middleware `ability:<scope>` berlapis dengan `users.role` (Gate/Policy/FormRequest).
 
 | Modul & Endpoint | HTTP Verb | Admin | Manager | Staff | Kemampuan Token (*Suggested Abilities*) & Aturan Bisnis |
 |---|---|---|---|---|---|
