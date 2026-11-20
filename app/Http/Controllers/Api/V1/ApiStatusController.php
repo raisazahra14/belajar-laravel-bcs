@@ -21,6 +21,8 @@ class ApiStatusController extends Controller
             'documentation' => 'docs/arsitektur_rest_api.md',
             'links' => [
                 'self' => route('api.v1.status'),
+                'docs' => route('docs.api'),
+                'openapi' => route('docs.openapi'),
             ],
         ], 'Layanan RESTful API LogistikKu v1 siap digunakan');
     }

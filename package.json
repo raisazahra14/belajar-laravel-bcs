@@ -5,14 +5,16 @@
         "build": "vite build",
         "dev": "vite",
         "benchmark:http": "node scripts/benchmark/http-load.mjs",
-        "benchmark:web-vitals": "node scripts/benchmark/core-web-vitals.mjs"
+        "benchmark:web-vitals": "node scripts/benchmark/core-web-vitals.mjs",
+        "sync:swagger-ui": "node -e \"const fs=require('fs'),path=require('path');fs.mkdirSync('public/vendor/swagger-ui',{recursive:true});['swagger-ui.css','swagger-ui-bundle.js','swagger-ui-standalone-preset.js','favicon-32x32.png'].forEach(f=>{const src=path.join('node_modules','swagger-ui-dist',f);if(fs.existsSync(src))fs.copyFileSync(src,path.join('public','vendor','swagger-ui',f));});\""
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",
         "axios": "^1.7.4",
         "concurrently": "^9.0.1",
-        "lighthouse": "^12.8.2",
         "laravel-vite-plugin": "^1.2.0",
+        "lighthouse": "^12.8.2",
+        "swagger-ui-dist": "^5.35.1",
         "tailwindcss": "^4.0.0",
         "vite": "^6.0.11"
     }

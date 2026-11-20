@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\ApiDocumentationController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BarangController;
 use App\Http\Controllers\BarangImportController;
@@ -27,6 +28,9 @@ use App\Http\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/barang');
+
+Route::get('/docs/api', [ApiDocumentationController::class, 'index'])->name('docs.api');
+Route::get('/docs/openapi.yaml', [ApiDocumentationController::class, 'spec'])->name('docs.openapi');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'create'])->name('login');

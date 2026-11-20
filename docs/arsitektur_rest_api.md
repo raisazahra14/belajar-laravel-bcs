@@ -1,7 +1,7 @@
 # Arsitektur RESTful API LogistikKu (`/api/v1`)
 
-> **Dokumen Arsitektur Teknis — Periode 4 (Minggu 1 & Minggu 2)**  
-> **Target:** Perancangan Arsitektur RESTful API, Unified API Response Contract, Penanganan Exception Global, Matriks Hak Akses API, & Implementasi Endpoint Integrasi Internal `/api/v1/*`  
+> **Dokumen Arsitektur Teknis — Periode 4 (Minggu 1 s/d Minggu 4)**  
+> **Target:** Perancangan Arsitektur RESTful API, Unified API Response Contract, Penanganan Exception Global, Matriks Hak Akses API, Implementasi Endpoint `/api/v1/*`, Keamanan OWASP, & Dokumentasi OpenAPI 3.0.3  
 > **Referensi Standar Industri:** [Microsoft Azure Architecture Center — Desain Web API Terbaik](https://learn.microsoft.com/id-id/azure/architecture/best-practices/api-design)  
 > **Artefak Kode Terkait:** [`app/Traits/ApiResponses.php`](../app/Traits/ApiResponses.php) · [`app/Http/Controllers/Controller.php`](../app/Http/Controllers/Controller.php) · [`app/Http/Controllers/Api/V1/`](../app/Http/Controllers/Api/V1/) · [`app/Http/Requests/Api/V1/`](../app/Http/Requests/Api/V1/) · [`app/Http/Resources/`](../app/Http/Resources/) · [`bootstrap/app.php`](../bootstrap/app.php) · [`routes/api.php`](../routes/api.php)
 
@@ -60,6 +60,8 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
 - **Belum tersedia di `/api/v1` (hanya di rute legacy `/api/purchase-orders/*` atau modul web):** `PUT`/`PATCH` PO, `revise`, `withdraw`, `approve`, `reject`, CRUD master barang, dan reversal transaksi stok. Perluasan ke v1 dicatat sebagai *roadmap* pasca-Periode 4 dan **bukan** bagian dari 12 rute aktif di atas.
 - **Aktif pada Minggu 3 (Keamanan Data & Pengujian Postman):**
   - Penegakan granular *Sanctum Token Abilities* (`User::ROLE_API_ABILITIES` + middleware `ability:...`), `RateLimiter::for('api')` (60 req/menit), konfigurasi `config/cors.php`, *Data Masking* (`harga_beli` untuk staff & penyembunyian email internal pada `PurchaseOrderResource`), serta artefak Postman Collection (`docs/postman/LogistikKu_API_v1.postman_collection.json`) & `ApiEndpointsSecurityTest`.
+- **Aktif pada Minggu 4 (Dokumentasi OpenAPI 3.0.3 & Developer Portal):**
+  - Spesifikasi OpenAPI 3.0.3 resmi di [`docs/openapi.yaml`](./openapi.yaml) (tervalidasi 12 paths / 13 operasi / 162 `$ref`), portal web interaktif **Swagger UI** publik pada `/docs/api` beserta endpoint spec `/docs/openapi.yaml` (berbasis aset lokal `public/vendor/swagger-ui/*`), tautan penemuan HATEOAS (`links.docs`, `links.openapi`) di `GET /api/v1/status`, serta panduan integrasi pengembang di [`docs/api_integration_guide.md`](./api_integration_guide.md) (cURL, Python `requests`, JavaScript `fetch`/`axios`).
 
 ---
 

@@ -1,4 +1,4 @@
-# LAPORAN KEGIATAN MAGANG PERIODE 4 (LIVING REPORT)
+# LAPORAN KEGIATAN MAGANG PERIODE 4 (FINAL REPORT)
 ## Program MagangHub Kementerian Ketenagakerjaan Republik Indonesia (Kemnaker RI)
 ### Topik Periode 4: Arsitektur RESTful API, Integrasi Endpoint Internal, Pengujian Postman, & Dokumentasi OpenAPI (**LogistikKu**)
 
@@ -9,10 +9,10 @@
 - **Program**: MagangHub Kemnaker RI (Durasi Penuh: 6 Bulan)
 - **Unit Kerja / Penempatan**: Tim it(`itbcslogistics`)
 - **Nama Aplikasi / Proyek**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang, & Analitik Logistik Terpadu)
-- **Tech Stack Utama**: PHP 8.2+, Laravel 12, Laravel Sanctum 4, MySQL/MariaDB & SQLite, Python 3.10+ (OCR Tesseract & Prediksi ML), PHPUnit 11, Laravel Pint
+- **Tech Stack Utama**: PHP 8.2+, Laravel 12, Laravel Sanctum 4, Swagger UI (`swagger-ui-dist`), OpenAPI 3.0.3, MySQL/MariaDB & SQLite, Python 3.10+ (OCR Tesseract & Prediksi ML), PHPUnit 11, Laravel Pint
 - **Acuan Roadmap Teknis**: GitHub Issue `#12` — *Arsitektur RESTful API, Integrasi Endpoint Internal, Pengujian Postman & Dokumentasi OpenAPI*
-- **Status Capaian Saat Ini *(per 20 November 2026)***: **Minggu 1, Minggu 2, & Minggu 3 (Materi 1, 2, & 3) 100% SELESAI & TERVERIFIKASI** (`538 Automated Tests PASS`, `5.986 Assertions`, `Laravel Pint PASSED`, `route:cache READY`)
-- **Sifat Dokumen**: **Living Report Document** (Diperbarui bertahap setiap penyelesaian minggu hingga penutupan Periode 4 lengkap dengan bukti Postman & tautan OpenAPI).
+- **Status Capaian Saat Ini *(per 20 November 2026)***: **Minggu 1, Minggu 2, Minggu 3, & Minggu 4 (Materi 1–4) 100% SELESAI & TERVERIFIKASI** (`544 Automated Tests PASS`, `6.044 Assertions`, `OpenAPI 3.0.3 Valid (162 Refs)`, `Laravel Pint PASSED`, `route:cache READY`)
+- **Sifat Dokumen**: **Final Report Document Periode 4** (Menyajikan seluruh rangkaian hasil perancangan arsitektur, realisasi endpoint `/api/v1`, keamanan & koleksi Postman, portal Swagger UI `/docs/api`, spesifikasi OpenAPI 3.0.3, dan panduan integrasi pengembang).
 
 ---
 
@@ -27,7 +27,7 @@ Laporan ini mendokumentasikan landasan teori ilmiah, keputusan arsitektural, rea
 | **Minggu 1** | **Materi 1 (Teori & Desain Arsitektur)** — *4–5 Hari* | Konvensi endpoint `/api/v1`, standar HTTP Verbs & Status Code, `app/Traits/ApiResponses.php`, `ApiStatusController`, Global Exception Handler (`bootstrap/app.php`), & `docs/arsitektur_rest_api.md` + `ApiV1ArchitectureContractTest` | **Selesai 100%** |
 | **Minggu 2** | **Materi 2 (Praktik Backend Endpoint)** — *4–5 Hari* | Endpoint `/api/v1/auth/*`, `/api/v1/barang`, `/api/v1/barang/{barang}`, `/api/v1/barang/{barang}/check-stock`, `/api/v1/stok/adjust`, `/api/v1/stok/transfer`, `/api/v1/purchase-orders`, `/api/v1/purchase-orders/{purchaseOrder}/receive`, `BarangResource`, `StockTransactionResource`, `PurchaseOrderResource`, & 12 test baru | **Selesai 100%** |
 | **Minggu 3** | **Materi 3 (Keamanan Data & Pengujian Postman)** — *4–5 Hari* | Token Abilities Sanctum (`User::ROLE_API_ABILITIES` + `ability:<scope>`), `RateLimiter::for('api', 60/m)`, `config/cors.php`, SQLi Sanitization & Data Masking (`harga_beli` & email internal), Postman Collection (`docs/postman/LogistikKu_API_v1.postman_collection.json`), Environment, animasi alur Minggu 3, & `ApiEndpointsSecurityTest` | **Selesai 100%** |
-| **Minggu 4** | **Materi 4 (Dokumentasi OpenAPI & Finalisasi)** — *4–5 Hari* | Spesifikasi `docs/openapi.yaml`, Swagger UI `/docs/api`, Panduan Developer `docs/api_integration_guide.md`, & kelengkapan akhir laporan ini | *Tahap Berikutnya* |
+| **Minggu 4** | **Materi 4 (Dokumentasi OpenAPI & Finalisasi)** — *4–5 Hari* | Spesifikasi `docs/openapi.yaml` (OpenAPI 3.0.3), portal Swagger UI `/docs/api` (aset lokal `swagger-ui-dist`), panduan developer `docs/api_integration_guide.md`, `ApiDocumentationTest`, & finalisasi laporan ini | **Selesai 100%** |
 
 ![Alur Kerja RESTful API LogistikKu — Periode 4 (/api/v1)](./images/periode-4-restful-api-flow.png)
 
@@ -200,7 +200,7 @@ Seluruh rancangan teoretis di atas telah diimplementasikan menjadi artefak kode 
 
 ---
 
-## 4. Realisasi Minggu 2 & Rencana Lanjutan Periode 4
+## 4. Realisasi Minggu 2, Minggu 3, & Minggu 4 (Periode 4 Lengkap)
 
 ### 4.1 🛠️ Materi 2 (Praktik | Minggu 2): Implementasi Endpoint API Integrasi Sistem Internal (`/api/v1/*`) — **Selesai 100%**
 
@@ -325,12 +325,85 @@ Seluruh rancangan teoretis di atas telah diimplementasikan menjadi artefak kode 
 ========================================================================================
 ```
 
-### 4.3 Minggu 4 — Tautan Dokumentasi OpenAPI 3.0 & Panduan Developer *(Tahap Berikutnya)*
-- *Status: Menunggu eksekusi Minggu 4 (belum dibuat).*
-- Target tautan yang akan dilampirkan di bagian ini pada Minggu 4:
-  - Spesifikasi OpenAPI 3.0 / Swagger: `docs/openapi.yaml`
-  - Portal Dokumentasi API Interaktif (Swagger UI): `/docs/api`
-  - Panduan Integrasi Pengembang (*cURL*, Python `requests`, JavaScript `fetch`/`axios`): `docs/api_integration_guide.md`
+### 4.3 📚 Materi 4 (Praktik | Minggu 4): Dokumentasi Teknis OpenAPI 3.0, Developer Portal `/docs/api`, & Panduan Integrasi — **Selesai 100%**
+
+> **Status:** **Selesai 100% & Terverifikasi (20 November 2026)**  
+> Seluruh target penyusunan dokumentasi teknis API Minggu 4 (**Tugas 4.1, 4.2, 4.3, dan 4.4**) telah selesai dikerjakan dan tervalidasi secara otomatis agar developer eksternal maupun mitra integrasi dapat mempelajari kontrak API, menguji endpoint langsung di browser, serta mengintegrasikan kode dalam hitungan menit.
+
+#### A. Daftar Artefak Minggu 4 (Tugas 4.1 – 4.4)
+
+| Sub-Tugas | Artefak yang Dibuat / Diperbarui | Realisasi Teknis & Nilai Guna |
+|---|---|---|
+| **Tugas 4.1 (Spesifikasi OpenAPI 3.0.3)** | [`docs/openapi.yaml`](./openapi.yaml) | Spesifikasi OpenAPI `3.0.3` lengkap sepanjang 2.617 baris yang mendokumentasikan **12 path / 13 operasi aktif `/api/v1/*`** dalam 5 grup tag, skema keamanan `BearerAuth` (Sanctum), seluruh *path params*, *query params*, *request body* JSON + contoh skenario nyata (termasuk `BarcodeSingleScan` & `BatchItemsReceive`), skema `JsonResource`, serta respon `200`, `201`, `400`, `401`, `403`, `404`, `409`, `422`, `429`, dan `500` sesuai kontrak `ApiResponses`. |
+| **Tugas 4.2 (Portal Swagger UI `/docs/api`)** | [`ApiDocumentationController.php`](../app/Http/Controllers/ApiDocumentationController.php) · [`resources/views/docs/api.blade.php`](../resources/views/docs/api.blade.php) · [`public/vendor/swagger-ui/`](../public/vendor/swagger-ui/) · [`routes/web.php`](../routes/web.php) · [`ApiStatusController.php`](../app/Http/Controllers/Api/V1/ApiStatusController.php) · [`skydash.blade.php`](../resources/views/layouts/skydash.blade.php) · [`package.json`](../package.json) | Menyediakan rute publik `GET /docs/api` (*Developer Portal* Swagger UI interaktif dengan fitur **Authorize** & **Try it out**) serta `GET /docs/openapi.yaml` (`application/yaml`, header `X-API-Version: v1.0` & `nosniff`). Aset `swagger-ui-dist` dibundel **secara lokal** (`sync:swagger-ui`) agar halaman berjalan 100% *offline* tanpa ketergantungan CDN pihak ketiga, dilengkapi panduan cepat *Try it out*, menu *Developer → Dokumentasi API* di sidebar aplikasi, dan tautan HATEOAS (`links.docs`, `links.openapi`) di `GET /api/v1/status`. |
+| **Tugas 4.3 (Panduan Integrasi Pengembang)** | [`docs/api_integration_guide.md`](./api_integration_guide.md) | Panduan teknis langkah demi langkah mencakup cara memperoleh & mencabut Sanctum Bearer Token, *Principle of Least Privilege* (`abilities[]`), matriks role vs ability, aturan *rate limit* (`60/menit`), *idempotency guard* (`reference_number`, `receipt_token`), *data masking*, matriks kode error & troubleshooting lengkap (`400`–`503`), serta contoh kode end-to-end **cURL**, **Python (`requests`)**, **JavaScript (`fetch`)**, dan **JavaScript (`axios` + interceptors)**. |
+| **Tugas 4.4 (Finalisasi Laporan & Pengujian)** | [`docs/LAPORAN_KEGIATAN_PERIODE_4_MAGANGHUB.md`](./LAPORAN_KEGIATAN_PERIODE_4_MAGANGHUB.md) · [`docs/arsitektur_rest_api.md`](./arsitektur_rest_api.md) · [`docs/README.md`](./README.md) · [`tests/Feature/ApiDocumentationTest.php`](../tests/Feature/ApiDocumentationTest.php) | Memfinalisasi laporan kegiatan Periode 4, memperbarui arsitektur & indeks dokumentasi, menyusun matriks uji Postman, serta menambahkan 6 pengujian otomatis `ApiDocumentationTest`. |
+
+#### B. Tautan Resmi Dokumentasi OpenAPI & Developer Portal
+
+- **Spesifikasi Mesin OpenAPI 3.0.3 (YAML):** [`docs/openapi.yaml`](./openapi.yaml)
+- **Portal Dokumentasi API Interaktif (Swagger UI):** [`/docs/api`](/docs/api) *(akses lokal setelah `php artisan serve`: `http://127.0.0.1:8000/docs/api`)*
+- **Endpoint Pengunduhan Spec YAML:** [`/docs/openapi.yaml`](/docs/openapi.yaml) *(akses lokal: `http://127.0.0.1:8000/docs/openapi.yaml`)*
+- **Panduan Integrasi Pengembang (*cURL*, Python, JS):** [`docs/api_integration_guide.md`](./api_integration_guide.md)
+- **Dokumen Arsitektur RESTful API v1:** [`docs/arsitektur_rest_api.md`](./arsitektur_rest_api.md)
+- **Postman Collection & Environment:** [`docs/postman/LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) · [`docs/postman/LogistikKu_Local.postman_environment.json`](./postman/LogistikKu_Local.postman_environment.json)
+
+#### C. Ringkasan Cakupan Spesifikasi OpenAPI 3.0.3 (`docs/openapi.yaml`)
+
+1. **Kelengkapan Endpoint (12 Path / 13 Operasi):**
+   - `System & Status`: `GET /api/v1/status` (publik)
+   - `Authentication`: `POST /api/v1/auth/login` (publik + rate limit 5x/60d), `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`
+   - `Master Barang & Stok`: `GET /api/v1/barang`, `GET /api/v1/barang/{barang}`, `GET /api/v1/barang/{barang}/check-stock`
+   - `Mutasi & Transfer Stok`: `POST /api/v1/stok/adjust`, `POST /api/v1/stok/transfer`
+   - `Purchase Orders & GRN`: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `GET /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/receive`
+2. **Validasi Struktur & Referensi:** Seluruh **162 `$ref`** internal pada skema, parameter, header (`X-API-Version`, `Location`, `Retry-After`), dan respon error tervalidasi utuh tanpa referensi rusak.
+3. **Cakupan Respon Sukses & Error:** Setiap endpoint mendokumentasikan respon sukses (`200` / `201`) serta respon error terstruktur `400`, `401`, `403`, `404`, `409`, `422`, dan `429` dengan format amplop `ErrorResponse`.
+
+#### D. Matriks Verifikasi Pengujian Postman (16 Skenario / 6 Folder) & Lampiran Tangkapan Layar
+
+Koleksi Postman [`LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) memuat **16 request dalam 6 folder** yang seluruhnya dilengkapi skrip validasi otomatis `pm.test(...)`:
+
+| Folder Postman | Request / Skenario Uji | Validasi Otomatis (`pm.test(...)`) & Hasil yang Diverifikasi |
+|---|---|---|
+| **01. Status & Health Contract** | `GET /api/v1/status` | Status `200`, header `X-API-Version: v1.0`, amplop `{success, message, data, meta}`. |
+| **02. Autentikasi Sanctum** | `POST /api/v1/auth/login` | Status `200`, terbit `token` Bearer, daftar `abilities`, `expires_at`, tanpa field `password`, otomatis menyimpan `{{bearer_token}}`. |
+| **02. Autentikasi Sanctum** | `GET /api/v1/auth/me` | Status `200`, memuat `token_abilities` & `token_expires_at`, menyembunyikan `password` & `remember_token`. |
+| **02. Autentikasi Sanctum** | `POST /api/v1/auth/logout` | Status `200`, `success: true`, mencabut token akses aktif. |
+| **03. Master Barang & Stok** | `GET /api/v1/barang` | Status `200`, array data terpaginasi, `meta` memuat `current_page`, `per_page`, `total`, `last_page`, dan HATEOAS `links`. |
+| **03. Master Barang & Stok** | `GET /api/v1/barang/{barang_id}` | Status `200`, memuat detail barang lengkap beserta array distribusi `warehouse_stocks`. |
+| **03. Master Barang & Stok** | `GET /api/v1/barang/{barang_id}/check-stock` | Status `200`, memuat `is_available`, `available_stock`, `requested_qty`, dan `shortage`. |
+| **04. Mutasi & Transfer Stok** | `POST /api/v1/stok/adjust` | Status `201`, memuat `StockTransactionResource` (`stok_sebelum` → `stok_sesudah`) dengan `reference_number` unik. |
+| **04. Mutasi & Transfer Stok** | `POST /api/v1/stok/transfer` | Status `201`, memuat `transfer_group_uuid`, `reference_number`, serta pasangan transaksi `out` & `in`. |
+| **05. Pengadaan Terpadu (PO & GRN)** | `GET /api/v1/purchase-orders` | Status `200`, daftar terpaginasi, dan verifikasi *data masking* (`creator` tidak mengekspos `email`). |
+| **05. Pengadaan Terpadu (PO & GRN)** | `POST /api/v1/purchase-orders` | Status `201` + header `Location`, status awal `draft`, otomatis menyimpan `{{purchase_order_id}}`. |
+| **05. Pengadaan Terpadu (PO & GRN)** | `GET /api/v1/purchase-orders/{purchase_order_id}` | Status `200`, memuat `id`, `nomor_po`, `status`, dan array `items`. |
+| **05. Pengadaan Terpadu (PO & GRN)** | `POST /api/v1/purchase-orders/{purchase_order_id}/receive` | Kontrak JSON standar (`200 OK` untuk PO *approved* atau `422` bila masih *draft*) dengan `barcode` & `receipt_token`. |
+| **06. Negative & Security (OWASP)** | `GET /api/v1/barang` (tanpa token) | Status `401 UNAUTHENTICATED` + header keamanan OWASP (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`). |
+| **06. Negative & Security (OWASP)** | `GET /api/v1/barang?sort=...DROP TABLE...` | Status `422 VALIDATION_ERROR`, whitelist `sort` menolak payload SQL injection (`errors.sort`). |
+| **06. Negative & Security (OWASP)** | `POST /api/v1/auth/login` (`abilities: ["superadmin:root"]`) | Menolak eskalasi privilege (`422` / `401`) dengan amplop error JSON standar tanpa bocoran internal. |
+
+*(Catatan Eksekusi Runner: Apabila menjalankan seluruh koleksi sekaligus via **Postman Collection Runner**, letakkan/nonaktifkan sementara eksekusi `POST /api/v1/auth/logout` di Folder 02 ke akhir skenario agar `{{bearer_token}}` tetap aktif untuk Folder 03–06).*
+
+> **Lampiran Bukti Tangkapan Layar Lokal (Diisi Setelah Run di Postman Desktop & Browser):**  
+> - **Bukti Pengujian Postman Collection Runner:** Jalankan koleksi [`LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) dengan environment [`LogistikKu_Local.postman_environment.json`](./postman/LogistikKu_Local.postman_environment.json) pada **Postman Desktop**, lalu simpan tangkapan layar hasil *Runner* ke `docs/images/postman-collection-runner-periode-4.png` (dan buka komentar Markdown di bawah jika ingin menampilkannya langsung di laporan):  
+>   `<!-- ![Bukti Pengujian Postman Collection Runner Periode 4](./images/postman-collection-runner-periode-4.png) -->`  
+> - **Bukti Portal Dokumentasi Interaktif Swagger UI (`/docs/api`):** Buka `http://127.0.0.1:8000/docs/api` di browser saat `php artisan serve` aktif, uji fitur **Authorize + Try it out**, lalu simpan tangkapan layar ke `docs/images/swagger-ui-docs-api.png`:  
+>   `<!-- ![Tampilan Swagger UI Portal Dokumentasi API LogistikKu](./images/swagger-ui-docs-api.png) -->`
+
+#### E. Hasil Verifikasi Akhir Periode 4 (Minggu 1–4)
+
+```text
+========================================================================================
+                    HASIL VERIFIKASI AKHIR PERIODE 4 (MINGGU 1–4)
+========================================================================================
+  OpenAPI 3.0.3 Spec : Python yaml.safe_load + $ref walker -> PASSED (12 paths, 13 ops, 162 refs)
+  Route Cache Check  : php artisan route:cache & route:list -> PASSED (2 docs + 13 api/v1, 0 closures)
+  Code Style (PSR)   : php vendor/bin/pint --test --format=json --cache-file=nul -> {"tool":"pint","result":"passed"}
+  Live Server Probe  : GET /docs/api, /docs/openapi.yaml, swagger-ui-bundle.js, /api/v1/status -> HTTP 200 OK
+  API & Docs Suite   : 7 files (Contract, Barang, Stock, PO, Security, Legacy PO, Docs) -> OK (43 tests, 773 assertions)
+  Uji Regresi Penuh  : php vendor/bin/phpunit --do-not-cache-result -> OK (544 tests, 6044 assertions)
+========================================================================================
+```
 
 ---
 
@@ -344,3 +417,5 @@ Seluruh penyusunan teori dan arsitektur pada laporan ini merujuk kepada standar 
 4. **Fowler, Martin (2010).** *Richardson Maturity Model: Steps Toward the Glory of REST*. <https://martinfowler.com/articles/richardsonMaturityModel.html>
 5. **OWASP Foundation.** *OWASP API Security Top 10* — Prinsip otorisasi, pembatasan laju permintaan (*rate limiting*), validasi input, dan pencegahan paparan data sensitif. <https://owasp.org/API-Security/>
 6. **Laravel Official Documentation (v12.x).** *Eloquent API Resources*, *Laravel Sanctum*, & *Error Handling / Exception Rendering*. <https://laravel.com/docs/12.x>
+7. **OpenAPI Initiative.** *OpenAPI Specification v3.0.3*. <https://spec.openapis.org/oas/v3.0.3>
+8. **SmartBear Software.** *Swagger UI Documentation & Distribution*. <https://swagger.io/tools/swagger-ui/>
