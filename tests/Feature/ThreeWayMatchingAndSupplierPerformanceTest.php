@@ -484,6 +484,7 @@ class ThreeWayMatchingAndSupplierPerformanceTest extends TestCase
         ]);
 
         $doc = $this->createVerification([
+            'user_id' => $this->staff->id,
             'original_filename' => 'surat_jalan_vendor.pdf',
             'stored_filename' => 'surat_jalan_vendor.pdf',
             'document_type' => 'surat_jalan',
@@ -496,6 +497,18 @@ class ThreeWayMatchingAndSupplierPerformanceTest extends TestCase
         $response->assertSee('Three-Way Matching PO');
         $response->assertSee('PO-20261029-3001');
         $response->assertSee('Buka Matriks Three-Way Matching');
+
+        // Manager juga dapat membuka hasil OCR milik staf untuk keperluan audit Three-Way Matching
+        $this->actingAs($this->manager)
+            ->get(route('verifications.show', $doc))
+            ->assertOk()
+            ->assertSee('PO-20261029-3001');
+
+        // Staf lain yang bukan pengunggah tetap ditolak (403)
+        $otherStaff = User::factory()->create(['role' => 'staff']);
+        $this->actingAs($otherStaff)
+            ->get(route('verifications.show', $doc))
+            ->assertForbidden();
     }
 
     public function test_supplier_performance_sla_and_discrepancy_calculations(): void

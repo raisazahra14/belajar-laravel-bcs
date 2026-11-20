@@ -91,17 +91,9 @@ class PurchaseOrderApiController extends Controller
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
-        try {
-            $po = $service->approvePO($purchaseOrder, $request->user());
-            $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
-
-            return new PurchaseOrderResource($po);
-        } catch (InvalidPurchaseOrderTransitionException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-                'error_code' => $e->errorCode,
-            ], $e->statusCode);
-        }
+        return $this->runTransition(
+            fn () => $service->approvePO($purchaseOrder, $request->user()),
+        );
     }
 
     /**
@@ -118,17 +110,9 @@ class PurchaseOrderApiController extends Controller
             'reason.required' => 'Catatan alasan penolakan wajib diisi.',
         ]);
 
-        try {
-            $po = $service->rejectPO($purchaseOrder, $request->user(), $validated['reason']);
-            $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
-
-            return new PurchaseOrderResource($po);
-        } catch (InvalidPurchaseOrderTransitionException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-                'error_code' => $e->errorCode,
-            ], $e->statusCode);
-        }
+        return $this->runTransition(
+            fn () => $service->rejectPO($purchaseOrder, $request->user(), $validated['reason']),
+        );
     }
 
     /**
@@ -139,9 +123,12 @@ class PurchaseOrderApiController extends Controller
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
-        return $this->runDraftTransition(
-            $request,
-            fn () => $service->revisePO($purchaseOrder, $request->user(), $request->input('reason')),
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return $this->runTransition(
+            fn () => $service->revisePO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
         );
     }
 
@@ -153,21 +140,20 @@ class PurchaseOrderApiController extends Controller
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
-        return $this->runDraftTransition(
-            $request,
-            fn () => $service->withdrawPO($purchaseOrder, $request->user(), $request->input('reason')),
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return $this->runTransition(
+            fn () => $service->withdrawPO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
         );
     }
 
     /**
      * @param  callable(): PurchaseOrder  $action
      */
-    private function runDraftTransition(Request $request, callable $action): PurchaseOrderResource|JsonResponse
+    private function runTransition(callable $action): PurchaseOrderResource|JsonResponse
     {
-        $request->validate([
-            'reason' => ['nullable', 'string', 'max:1000'],
-        ]);
-
         try {
             $po = $action();
             $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
@@ -217,7 +203,7 @@ class PurchaseOrderApiController extends Controller
             return response()->json([
                 'message' => $e->getMessage(),
                 'error_code' => $e->errorCode,
-            ], $e->statusCode);
+            ], $e->httpStatus());
         } catch (QueryException $e) {
             $isDeadlock = in_array((string) $e->getCode(), ['40001', '1213'], true)
                 || (isset($e->errorInfo[1]) && in_array((int) $e->errorInfo[1], [1205, 1213], true))

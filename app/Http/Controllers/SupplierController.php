@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Http\Requests\StoreSupplierRequest;
 use App\Http\Requests\UpdateSupplierRequest;
 use App\Models\Supplier;
@@ -84,6 +85,19 @@ class SupplierController extends Controller
 
     public function destroy(Supplier $supplier)
     {
+        $hasActivePo = $supplier->purchaseOrders()
+            ->whereIn('status', [
+                PurchaseOrderStatus::DRAFT,
+                PurchaseOrderStatus::PENDING_APPROVAL,
+                PurchaseOrderStatus::APPROVED,
+                PurchaseOrderStatus::PARTIALLY_RECEIVED,
+            ])
+            ->exists();
+
+        if ($hasActivePo) {
+            return back()->with('error', 'Supplier tidak dapat dihapus karena masih memiliki Purchase Order aktif yang sedang berjalan.');
+        }
+
         $supplier->delete();
 
         return redirect()->route('suppliers.index')

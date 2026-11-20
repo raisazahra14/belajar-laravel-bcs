@@ -18,6 +18,7 @@ use Illuminate\Database\DeadlockException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Throwable;
 
 class StockAdjustmentService
@@ -61,6 +62,109 @@ class StockAdjustmentService
         ?int $userId = null,
         array $metadata = [],
     ): Barang {
+        return $this->executeAdjust(
+            $barang,
+            $type,
+            $quantity,
+            $description,
+            $warehouseId,
+            $supplierId,
+            $userId,
+            $metadata,
+        )['barang'];
+    }
+
+    /**
+     * Eksekusi penyesuaian stok sekaligus mengembalikan record transaksi mutasi yang terbentuk.
+     *
+     * @param  array<string, mixed>  $metadata
+     * @return array{barang: Barang, transaction: StokTransaction}
+     */
+    public function adjustWithTransaction(
+        Barang|int $barang,
+        string $type,
+        int $quantity,
+        ?string $description = null,
+        ?int $warehouseId = null,
+        ?int $supplierId = null,
+        ?int $userId = null,
+        array $metadata = [],
+    ): array {
+        return $this->executeAdjust(
+            $barang,
+            $type,
+            $quantity,
+            $description,
+            $warehouseId,
+            $supplierId,
+            $userId,
+            $metadata,
+        );
+    }
+
+    /**
+     * Idempotency guard untuk penyesuaian stok dari sistem eksternal.
+     *
+     * Aktif hanya bila metadata `require_unique_reference` bernilai true dan `reference_number` terisi.
+     * Kombinasi (barang, saldo gudang, jenis, tipe referensi, nomor referensi) tidak boleh dicatat dua kali,
+     * sehingga retry/double-submit dari scanner atau POS tidak menggandakan stok. Dipanggil di dalam
+     * transaksi setelah baris Barang dikunci (lockForUpdate), sehingga aman dari race condition.
+     *
+     * @param  array<string, mixed>  $metadata
+     *
+     * @throws ConflictHttpException
+     */
+    private function guardDuplicateAdjustReference(
+        array $metadata,
+        int $barangId,
+        int $warehouseStockId,
+        string $type,
+    ): void {
+        if (empty($metadata['require_unique_reference'])) {
+            return;
+        }
+
+        $reference = isset($metadata['reference_number']) ? trim((string) $metadata['reference_number']) : '';
+        if ($reference === '') {
+            return;
+        }
+
+        $referenceType = $metadata['reference_type'] ?? null;
+
+        $existingId = StokTransaction::query()
+            ->where('mutation_type', $metadata['mutation_type'] ?? 'operational')
+            ->where('barang_id', $barangId)
+            ->where('warehouse_stock_id', $warehouseStockId)
+            ->where('jenis', $type)
+            ->where('reference_number', $reference)
+            ->when(
+                $referenceType === null,
+                fn ($query) => $query->whereNull('reference_type'),
+                fn ($query) => $query->where('reference_type', $referenceType),
+            )
+            ->value('id');
+
+        if ($existingId !== null) {
+            throw new ConflictHttpException(
+                "Nomor referensi '{$reference}' sudah pernah dipakai untuk penyesuaian stok yang sama (transaksi #{$existingId}).",
+            );
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     * @return array{barang: Barang, transaction: StokTransaction}
+     */
+    private function executeAdjust(
+        Barang|int $barang,
+        string $type,
+        int $quantity,
+        ?string $description = null,
+        ?int $warehouseId = null,
+        ?int $supplierId = null,
+        ?int $userId = null,
+        array $metadata = [],
+    ): array {
         if (! in_array($type, ['masuk', 'keluar'], true) || $quantity < 1) {
             throw ValidationException::withMessages(['jumlah' => 'Jenis dan jumlah transaksi stok tidak valid.']);
         }
@@ -68,7 +172,7 @@ class StockAdjustmentService
         $actorId = $userId ?? auth()->id();
         $barangId = $barang instanceof Barang ? (int) $barang->getKey() : $barang;
 
-        return $this->runInTransaction(function () use ($barangId, $type, $quantity, $description, $warehouseId, $supplierId, $actorId, $metadata): Barang {
+        return $this->runInTransaction(function () use ($barangId, $type, $quantity, $description, $warehouseId, $supplierId, $actorId, $metadata): array {
             // Urutan lock selalu Barang -> Gudang -> seluruh saldo gudang (berdasarkan id).
             $locked = Barang::lockForUpdate()->findOrFail($barangId);
             $warehouse = $this->lockActiveWarehouse($warehouseId);
@@ -115,6 +219,8 @@ class StockAdjustmentService
                 ]);
             }
 
+            $this->guardDuplicateAdjustReference($metadata, $locked->id, $warehouseStock->id, $type);
+
             $warehouseStock->update(['stok' => $warehouseAfter]);
             $locked->update(['stok' => $after]);
             $transaction = StokTransaction::create([
@@ -159,7 +265,10 @@ class StockAdjustmentService
                 true,
             );
 
-            return $locked;
+            return [
+                'barang' => $locked,
+                'transaction' => $transaction,
+            ];
         });
     }
 
@@ -172,13 +281,78 @@ class StockAdjustmentService
         ?int $userId = null,
         array $metadata = [],
     ): Barang {
+        return $this->executeTransfer(
+            $barang,
+            $sourceWarehouseId,
+            $destinationWarehouseId,
+            $quantity,
+            $description,
+            $userId,
+            $metadata,
+            false,
+        )['barang'];
+    }
+
+    /**
+     * Eksekusi transfer stok antar-gudang dengan jaminan nomor referensi unik dan kembalian transaksi keluar/masuk.
+     *
+     * @param  array<string, mixed>  $metadata
+     * @return array{
+     *     barang: Barang,
+     *     out: StokTransaction,
+     *     in: StokTransaction,
+     *     transfer_group_uuid: string,
+     *     reference_number: string
+     * }
+     */
+    public function transferWithTransactions(
+        Barang|int $barang,
+        int $sourceWarehouseId,
+        int $destinationWarehouseId,
+        int $quantity,
+        ?string $description = null,
+        ?int $userId = null,
+        array $metadata = [],
+    ): array {
+        return $this->executeTransfer(
+            $barang,
+            $sourceWarehouseId,
+            $destinationWarehouseId,
+            $quantity,
+            $description,
+            $userId,
+            $metadata,
+            true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     * @return array{
+     *     barang: Barang,
+     *     out: StokTransaction,
+     *     in: StokTransaction,
+     *     transfer_group_uuid: string,
+     *     reference_number: ?string
+     * }
+     */
+    private function executeTransfer(
+        Barang|int $barang,
+        int $sourceWarehouseId,
+        int $destinationWarehouseId,
+        int $quantity,
+        ?string $description = null,
+        ?int $userId = null,
+        array $metadata = [],
+        bool $requireUniqueReference = false,
+    ): array {
         if ($sourceWarehouseId === $destinationWarehouseId || $quantity < 1) {
             throw ValidationException::withMessages(['jumlah' => 'Gudang asal, tujuan, dan jumlah transfer tidak valid.']);
         }
 
         $barangId = $barang instanceof Barang ? (int) $barang->getKey() : $barang;
 
-        return $this->runInTransaction(function () use ($barangId, $sourceWarehouseId, $destinationWarehouseId, $quantity, $description, $userId, $metadata): Barang {
+        return $this->runInTransaction(function () use ($barangId, $sourceWarehouseId, $destinationWarehouseId, $quantity, $description, $userId, $metadata, $requireUniqueReference): array {
             $locked = Barang::lockForUpdate()->findOrFail($barangId);
             $warehouses = Warehouse::query()->whereIn('id', [$sourceWarehouseId, $destinationWarehouseId])
                 ->where('is_active', true)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
@@ -211,6 +385,26 @@ class StockAdjustmentService
                 throw ValidationException::withMessages(['jumlah' => 'Saldo gudang asal tidak mencukupi untuk transfer.']);
             }
 
+            $rawReference = isset($metadata['reference_number']) ? trim((string) $metadata['reference_number']) : '';
+            if ($requireUniqueReference) {
+                if ($rawReference === '') {
+                    $referenceNumber = $this->generateUniqueTransferReferenceNumber();
+                } else {
+                    $duplicate = StokTransaction::query()
+                        ->where('mutation_type', 'transfer')
+                        ->where('reference_number', $rawReference)
+                        ->exists();
+
+                    if ($duplicate) {
+                        throw new ConflictHttpException("Nomor referensi transfer '{$rawReference}' sudah digunakan.");
+                    }
+
+                    $referenceNumber = $rawReference;
+                }
+            } else {
+                $referenceNumber = $rawReference !== '' ? $rawReference : null;
+            }
+
             $total = (int) $stocks->sum('stok');
             $group = $metadata['transfer_group_uuid'] ?? (string) Str::uuid();
             $source->decrement('stok', $quantity);
@@ -227,7 +421,7 @@ class StockAdjustmentService
                 ),
                 'keterangan' => $description,
                 'reference_type' => 'Internal',
-                'reference_number' => $metadata['reference_number'] ?? null,
+                'reference_number' => $referenceNumber,
                 'document_date' => $metadata['document_date'] ?? null,
             ];
             $out = StokTransaction::create($common + [
@@ -252,8 +446,29 @@ class StockAdjustmentService
             }
             app(StockPredictionScheduler::class)->schedule($locked, null, false, (int) $in->id, true);
 
-            return $locked;
+            return [
+                'barang' => $locked,
+                'out' => $out,
+                'in' => $in,
+                'transfer_group_uuid' => $group,
+                'reference_number' => $referenceNumber,
+            ];
         });
+    }
+
+    private function generateUniqueTransferReferenceNumber(): string
+    {
+        $prefix = 'TRF-'.now()->format('Ymd').'-';
+
+        do {
+            $candidate = $prefix.strtoupper(Str::random(6));
+        } while (
+            StokTransaction::query()
+                ->where('reference_number', $candidate)
+                ->exists()
+        );
+
+        return $candidate;
     }
 
     public function reverse(StokTransaction $transaction, string $reason, int $userId): void

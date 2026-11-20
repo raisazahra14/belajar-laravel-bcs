@@ -1,0 +1,727 @@
+{
+  "info": {
+    "_postman_id": "a1e4d580-7b2f-4c9d-8a11-405060708090",
+    "name": "LogistikKu RESTful API v1",
+    "description": "Koleksi resmi pengujian RESTful API LogistikKu (/api/v1) — Periode 4 MagangHub Kemnaker RI. Mencakup autentikasi Laravel Sanctum dengan Token Abilities, Master Barang & Real-Time Stock Check, Mutasi & Transfer Stok Antar-Gudang, serta Pengadaan Terpadu (Purchase Order & Barcode Goods Receipt).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{bearer_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "01. Status & Health Contract",
+      "item": [
+        {
+          "name": "GET API v1 Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Header X-API-Version adalah v1.0', function () {",
+                  "    pm.expect(pm.response.headers.get('X-API-Version')).to.eql('v1.0');",
+                  "});",
+                  "pm.test('Struktur JSON sesuai Unified API Response Contract', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json).to.have.all.keys('success', 'message', 'data', 'meta');",
+                  "    pm.expect(json.meta.version).to.eql('v1.0');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02. Autentikasi Sanctum & Token Abilities",
+      "item": [
+        {
+          "name": "POST Login & Issue Sanctum Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respon memuat Bearer Token dan Token Abilities sesuai role', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.token).to.be.a('string').and.not.empty;",
+                  "    pm.expect(json.data.token_type).to.eql('Bearer');",
+                  "    pm.expect(json.data.abilities).to.be.an('array').and.not.empty;",
+                  "    pm.expect(json.data).to.have.property('expires_at');",
+                  "    pm.expect(json.data.user).to.not.have.property('password');",
+                  "    pm.environment.set('bearer_token', json.data.token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device_name\": \"Postman-Runner-v1\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "GET Profil Pengguna Aktif (/auth/me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Data sensitif password dan remember_token disembunyikan', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.have.property('token_abilities');",
+                  "    pm.expect(json.data).to.have.property('token_expires_at');",
+                  "    pm.expect(json.data).to.not.have.property('password');",
+                  "    pm.expect(json.data).to.not.have.property('remember_token');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "me"]
+            }
+          }
+        },
+        {
+          "name": "POST Logout & Cabut Token Aktif",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Token berhasil dicabut', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "logout"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03. Master Barang & Ketersediaan Stok Real-Time",
+      "item": [
+        {
+          "name": "GET Daftar Barang (Filter, Search, Paginasi)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respon terpaginasi dengan metadata HATEOAS links', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "    pm.expect(json.meta).to.include.keys('current_page', 'per_page', 'total', 'last_page', 'links');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/barang?per_page=15&sort=nama_barang&direction=asc",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barang"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15"
+                },
+                {
+                  "key": "sort",
+                  "value": "nama_barang"
+                },
+                {
+                  "key": "direction",
+                  "value": "asc"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Detail Barang & Distribusi Gudang",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Detail barang memuat distribusi warehouse_stocks', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.include.keys('id', 'kode_barang', 'nama_barang', 'stok', 'warehouse_stocks');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/barang/{{barang_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barang", "{{barang_id}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Cek Kecukupan Stok Real-Time (POS/Kasir)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respon memuat status ketersediaan stok real-time', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.include.keys('is_available', 'available_stock', 'requested_qty', 'shortage');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/barang/{{barang_id}}/check-stock?warehouse_id={{warehouse_id}}&qty=2",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barang", "{{barang_id}}", "check-stock"],
+              "query": [
+                {
+                  "key": "warehouse_id",
+                  "value": "{{warehouse_id}}"
+                },
+                {
+                  "key": "qty",
+                  "value": "2"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04. Mutasi & Transfer Stok Antar-Gudang",
+      "item": [
+        {
+          "name": "POST Penyesuaian Stok Masuk/Keluar (/stok/adjust)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Respon memuat StockTransactionResource', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.include.keys('id', 'barang_id', 'jenis', 'jumlah', 'stok_sebelum', 'stok_sesudah');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"barang_id\": {{barang_id}},\n  \"warehouse_id\": {{warehouse_id}},\n  \"jenis\": \"masuk\",\n  \"jumlah\": 5,\n  \"reference_type\": \"DO\",\n  \"reference_number\": \"DO-POSTMAN-{{$timestamp}}\",\n  \"keterangan\": \"Penyesuaian stok dari pengujian Postman\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/stok/adjust",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "stok", "adjust"]
+            }
+          }
+        },
+        {
+          "name": "POST Transfer Stok Antar-Gudang (/stok/transfer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Respon memuat nomor referensi unik dan transaksi keluar/masuk', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.include.keys('transfer_group_uuid', 'reference_number', 'transactions');",
+                  "    pm.expect(json.data.transactions).to.include.keys('out', 'in');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"barang_id\": {{barang_id}},\n  \"source_warehouse_id\": {{warehouse_id}},\n  \"destination_warehouse_id\": {{destination_warehouse_id}},\n  \"jumlah\": 2,\n  \"keterangan\": \"Transfer stok otomatis antar-gudang\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/stok/transfer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "stok", "transfer"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05. Pengadaan Terpadu (Purchase Order & Goods Receipt)",
+      "item": [
+        {
+          "name": "GET Daftar Purchase Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Daftar PO terpaginasi dan tidak membocorkan email internal creator', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "    if (json.data.length > 0 && json.data[0].creator) {",
+                  "        pm.expect(json.data[0].creator).to.not.have.property('email');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase-orders?per_page=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase-orders"],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Buat Purchase Order Baru",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 201 Created dengan Header Location', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.expect(pm.response.headers.has('Location')).to.be.true;",
+                  "});",
+                  "pm.test('Respon memuat PurchaseOrderResource berstatus draft', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.status.value).to.eql('draft');",
+                  "    pm.environment.set('purchase_order_id', json.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_id\": {{supplier_id}},\n  \"warehouse_id\": {{warehouse_id}},\n  \"tanggal_pesan\": \"2026-11-20\",\n  \"estimasi_tiba\": \"2026-11-27\",\n  \"catatan\": \"Pengadaan melalui Postman API v1\",\n  \"items\": [\n    {\n      \"barang_id\": {{barang_id}},\n      \"jumlah_pesan\": 5,\n      \"harga_satuan\": 250000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase-orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase-orders"]
+            }
+          }
+        },
+        {
+          "name": "GET Detail Purchase Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respon memuat detail item dan riwayat status PO', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data).to.include.keys('id', 'nomor_po', 'status', 'items');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase-orders/{{purchase_order_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase-orders", "{{purchase_order_id}}"]
+            }
+          }
+        },
+        {
+          "name": "POST Penerimaan Barang via Barcode Scanner (/receive)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respon memiliki kontrak JSON standar (200 OK atau 422 bila masih draft)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 422]);",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('success');",
+                  "    pm.expect(json).to.have.property('message');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"barcode\": \"{{barcode_sample}}\",\n  \"jumlah_diterima\": 1,\n  \"nomor_surat_jalan\": \"SJ-PM-001\",\n  \"receipt_token\": \"SCAN-PM-{{$timestamp}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/purchase-orders/{{purchase_order_id}}/receive",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "purchase-orders", "{{purchase_order_id}}", "receive"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06. Negative & Security Test Scenarios (OWASP)",
+      "item": [
+        {
+          "name": "GET Akses Tanpa Token (401 UNAUTHENTICATED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Header keamanan OWASP aktif pada error response', function () {",
+                  "    pm.expect(pm.response.headers.get('X-Content-Type-Options')).to.eql('nosniff');",
+                  "    pm.expect(pm.response.headers.get('X-Frame-Options')).to.eql('DENY');",
+                  "});",
+                  "pm.test('Amplop error JSON sesuai kontrak UNAUTHENTICATED', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "    pm.expect(json.code).to.eql('UNAUTHENTICATED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/barang",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barang"]
+            }
+          }
+        },
+        {
+          "name": "GET Serangan SQL Injection pada Parameter Sort (422 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 422 Unprocessable Content', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "pm.test('Whitelist sort menolak payload SQLi secara aman', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "    pm.expect(json.code).to.eql('VALIDATION_ERROR');",
+                  "    pm.expect(json.errors).to.have.property('sort');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/barang?sort=stok%20desc%3B%20DROP%20TABLE%20users%3B--",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barang"],
+              "query": [
+                {
+                  "key": "sort",
+                  "value": "stok desc; DROP TABLE users;--"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Eskalasi Ability Tidak Sah saat Login (422 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status menolak eskalasi ability (422 atau 401 bila kredensial non-lokal)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([422, 401]);",
+                  "});",
+                  "pm.test('Respon gagal sesuai kontrak JSON', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "    pm.expect(json).to.have.all.keys('success', 'message', 'errors', 'code');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"device_name\": \"Untrusted-Client\",\n  \"abilities\": [\"superadmin:root\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

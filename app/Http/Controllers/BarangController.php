@@ -19,7 +19,6 @@ use App\Services\StockAdjustmentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -427,49 +426,13 @@ class BarangController extends Controller
     /** @param array<string,mixed> $filters */
     private function filteredInventory(array $filters): Builder
     {
-        $query = Barang::query()->with([
-            'supplier:id,nama_supplier,kode_supplier,is_active,deleted_at',
-            'warehouseStocks' => fn ($stock) => $stock
-                ->where('stok', '>', 0)
-                ->with('warehouse:id,kode_gudang,nama_gudang,is_active,deleted_at'),
-        ]);
-        $search = $filters['search'] ?? null;
-        if ($search !== null && $search !== '') {
-            $query->where(function (Builder $query) use ($search): void {
-                if (DB::getDriverName() === 'mysql' && mb_strlen($search) >= 3) {
-                    $query->where('kode_barang', 'like', "{$search}%")
-                        ->orWhereFullText(['kode_barang', 'nama_barang', 'lokasi'], $search);
-
-                    return;
-                }
-
-                $query->where('kode_barang', 'like', "%{$search}%")
-                    ->orWhere('nama_barang', 'like', "%{$search}%")
-                    ->orWhere('lokasi', 'like', "%{$search}%");
-            });
-        }
-        if (! empty($filters['kategori'])) {
-            $query->where('kategori', $filters['kategori']);
-        }
-        if (($filters['status'] ?? null) === 'menipis') {
-            $query->lowStock();
-        } elseif (($filters['status'] ?? null) === 'aman') {
-            $query->safeStock();
-        }
-        if (! empty($filters['supplier_id'])) {
-            $query->where('supplier_id', $filters['supplier_id']);
-        }
-        if (! empty($filters['warehouse_id'])) {
-            $query->whereHas('warehouseStocks', fn (Builder $stock): Builder => $stock
-                ->where('warehouse_id', $filters['warehouse_id']));
-        }
-
-        $sorts = [
-            'nama_asc' => ['nama_barang', 'asc'], 'nama_desc' => ['nama_barang', 'desc'],
-            'stok_asc' => ['stok', 'asc'], 'stok_desc' => ['stok', 'desc'],
-        ];
-        $sort = $filters['sort'] ?? null;
-
-        return isset($sorts[$sort]) ? $query->orderBy(...$sorts[$sort]) : $query->latest('id');
+        return Barang::query()
+            ->with([
+                'supplier:id,nama_supplier,kode_supplier,is_active,deleted_at',
+                'warehouseStocks' => fn ($stock) => $stock
+                    ->where('stok', '>', 0)
+                    ->with('warehouse:id,kode_gudang,nama_gudang,is_active,deleted_at'),
+            ])
+            ->filter($filters);
     }
 }
