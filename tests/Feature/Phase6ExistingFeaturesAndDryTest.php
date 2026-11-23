@@ -11,6 +11,8 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
 use App\Services\StockAdjustmentService;
+use App\Services\StockPredictionService;
+use App\Services\SystemHealthService;
 use App\Support\DatabaseConcurrency;
 use App\Support\SpreadsheetSanitizer;
 use Illuminate\Database\QueryException;
@@ -406,5 +408,164 @@ class Phase6ExistingFeaturesAndDryTest extends TestCase
         preg_match_all('/^  (\/api\/v1\/[^\s:]+):/m', $yaml, $matches);
         $paths = $matches[1] ?? [];
         $this->assertSame(count($paths), count(array_unique($paths)), 'OpenAPI spec must not contain duplicate path definitions.');
+    }
+
+    public function test_system_health_database_card_reports_stock_consistency_between_master_and_warehouses(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $warehouse = Warehouse::create(['kode_gudang' => 'P6-HWH', 'nama_gudang' => 'Gudang Health Check', 'is_active' => true]);
+
+        $barang = Barang::create([
+            'kode_barang' => 'BRG-P6-SYNC',
+            'nama_barang' => 'Barang Audit Sinkron',
+            'kategori' => 'ATK',
+            'stok' => 0,
+            'satuan' => 'Unit',
+            'lokasi' => 'R1',
+            'harga_beli' => 25000,
+        ]);
+
+        app(StockAdjustmentService::class)->initializeStock($barang, 30, $warehouse->id, 'Stok awal sinkron');
+
+        $healthService = app(SystemHealthService::class);
+        $consistentCheck = $healthService->checkDatabase();
+
+        $this->assertSame('healthy', $consistentCheck['status']);
+        $this->assertTrue($consistentCheck['metrics']['stock_consistency']['is_consistent']);
+        $this->assertSame(0, $consistentCheck['metrics']['stock_consistency']['mismatched_item_count']);
+        $this->assertSame(30, $consistentCheck['metrics']['stock_consistency']['master_stock_units']);
+        $this->assertSame(30, $consistentCheck['metrics']['stock_consistency']['warehouse_stock_units']);
+        $this->assertSame(0, $consistentCheck['metrics']['stock_consistency']['difference_units']);
+
+        // Simulate legacy import drift where barang.stok (45) != SUM(warehouse_stocks.stok) (30)
+        $barang->update(['stok' => 45]);
+
+        $driftCheck = $healthService->checkDatabase();
+        $this->assertSame('warning', $driftCheck['status']);
+        $this->assertFalse($driftCheck['metrics']['stock_consistency']['is_consistent']);
+        $this->assertSame(1, $driftCheck['metrics']['stock_consistency']['mismatched_item_count']);
+        $this->assertSame(15, $driftCheck['metrics']['stock_consistency']['difference_units']);
+        $this->assertStringContainsString('inventory:sync-warehouse-balances', $driftCheck['recommendation']);
+
+        $this->actingAs($admin)
+            ->get(route('system-health.index'))
+            ->assertOk()
+            ->assertSee('Konsistensi Saldo Master vs Gudang')
+            ->assertSee('1 SKU berselisih (+15 unit)');
+    }
+
+    public function test_stock_prediction_uses_aggregated_warehouse_minimum_stock_when_higher_than_global_default(): void
+    {
+        $manager = User::factory()->create(['role' => 'manager']);
+        $warehouse1 = Warehouse::create(['kode_gudang' => 'P6-ML-W1', 'nama_gudang' => 'Gudang ML 1', 'is_active' => true]);
+        $warehouse2 = Warehouse::create(['kode_gudang' => 'P6-ML-W2', 'nama_gudang' => 'Gudang ML 2', 'is_active' => true]);
+
+        $barang = Barang::create([
+            'kode_barang' => 'BRG-P6-MLMIN',
+            'nama_barang' => 'Router Core Enterprise',
+            'kategori' => 'Elektronik',
+            'stok' => 0,
+            'satuan' => 'Unit',
+            'lokasi' => 'R1',
+            'harga_beli' => 1500000,
+            'daily_usage_estimate' => 2.0,
+            'lead_time_days' => 2,
+        ]);
+
+        $stockService = app(StockAdjustmentService::class);
+        $stockService->initializeStock($barang, 15, $warehouse1->id, 'Stok awal W1');
+        $stockService->adjustWithTransaction($barang->fresh(), 'masuk', 10, 'Stok awal W2', $warehouse2->id, null, $manager->id);
+
+        // Baseline: warehouse minimum stocks are 0 -> effectiveMinimumStock() defaults to Barang::MINIMUM_STOCK (5)
+        $this->assertSame(Barang::MINIMUM_STOCK, $barang->fresh()->effectiveMinimumStock());
+
+        $predictionService = app(StockPredictionService::class);
+        $baselinePrediction = $predictionService->analyze($barang->fresh(), $manager);
+
+        $this->assertSame(Barang::MINIMUM_STOCK, $baselinePrediction->input_summary['minimum_stock']);
+        // With daily_rate=2.0 and lead_time_days=2, ceil(2*2)=4, so safety_stock = max(minimum_stock=5, 4) = 5
+        $this->assertSame(5, $baselinePrediction->safety_stock);
+
+        // Update warehouse minimum stocks via WarehouseStockController: W1 = 12, W2 = 8 (sum = 20 > 5)
+        $this->actingAs($manager)
+            ->patchJson(route('barang.warehouse-stock.update', ['barang' => $barang->id, 'warehouse' => $warehouse1->id]), [
+                'stok_minimum' => 12,
+                'zone' => 'A',
+                'rack_location' => 'R-01',
+                'bin_code' => 'B-01',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.stok_minimum', 12);
+
+        $this->actingAs($manager)
+            ->patchJson(route('barang.warehouse-stock.update', ['barang' => $barang->id, 'warehouse' => $warehouse2->id]), [
+                'stok_minimum' => 8,
+                'zone' => 'B',
+                'rack_location' => 'R-02',
+                'bin_code' => 'B-02',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.stok_minimum', 8);
+
+        $freshBarang = $barang->fresh();
+        $this->assertSame(20, $freshBarang->effectiveMinimumStock());
+        $this->assertSame(20, $freshBarang->load('warehouseStocks')->effectiveMinimumStock());
+
+        $updatedPrediction = $predictionService->analyze($freshBarang, $manager);
+
+        $this->assertSame(20, $updatedPrediction->input_summary['minimum_stock']);
+        $this->assertSame(20, $updatedPrediction->safety_stock);
+        $this->assertGreaterThan(
+            $baselinePrediction->recommended_restock,
+            $updatedPrediction->recommended_restock,
+        );
+        $this->assertTrue(
+            $updatedPrediction->predicted_minimum_date < $baselinePrediction->predicted_minimum_date,
+            'Expected predicted_minimum_date to occur earlier when warehouse minimum stock increases from 5 to 20.',
+        );
+    }
+
+    public function test_legacy_non_versioned_api_routes_emit_deprecation_sunset_and_successor_link_headers(): void
+    {
+        $manager = User::factory()->create([
+            'email' => 'legacy-depr@logistikku.test',
+            'password' => bcrypt('Secret#123'),
+            'role' => 'manager',
+        ]);
+
+        // 1. Legacy /api/login emits Deprecation, Sunset, and Link -> /api/v1/auth/login
+        $loginRes = $this->postJson('/api/login', [
+            'email' => 'legacy-depr@logistikku.test',
+            'password' => 'Secret#123',
+        ]);
+
+        $loginRes->assertOk()
+            ->assertHeader('Deprecation', 'true')
+            ->assertHeader('Sunset', 'Wed, 30 Jun 2027 23:59:59 GMT')
+            ->assertHeader('Link', '</api/v1/auth/login>; rel="successor-version"');
+
+        $token = (string) $loginRes->json('token');
+
+        // 2. Legacy /api/user emits Link -> /api/v1/auth/me
+        $this->withToken($token)
+            ->getJson('/api/user')
+            ->assertOk()
+            ->assertHeader('Deprecation', 'true')
+            ->assertHeader('Sunset', 'Wed, 30 Jun 2027 23:59:59 GMT')
+            ->assertHeader('Link', '</api/v1/auth/me>; rel="successor-version"');
+
+        // 3. Legacy /api/purchase-orders emits Link -> /api/v1/purchase-orders
+        $this->withToken($token)
+            ->getJson('/api/purchase-orders')
+            ->assertOk()
+            ->assertHeader('Deprecation', 'true')
+            ->assertHeader('Sunset', 'Wed, 30 Jun 2027 23:59:59 GMT')
+            ->assertHeader('Link', '</api/v1/purchase-orders>; rel="successor-version"');
+
+        // 4. Versioned /api/v1/* routes do NOT emit Deprecation or Sunset headers
+        $v1Res = $this->withToken($token)->getJson('/api/v1/purchase-orders');
+        $v1Res->assertOk()
+            ->assertHeaderMissing('Deprecation')
+            ->assertHeaderMissing('Sunset');
     }
 }

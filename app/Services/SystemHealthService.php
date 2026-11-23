@@ -175,25 +175,37 @@ class SystemHealthService
                 && Schema::hasTable('document_verifications')
                 && Schema::hasTable('stock_predictions');
 
-            $status = (! $coreTablesReady)
+            $stockConsistency = $this->checkStockConsistency();
+
+            $status = (! $coreTablesReady || ! $stockConsistency['is_consistent'] || $latencyMs > 250.0)
                 ? 'warning'
-                : ($latencyMs > 250.0 ? 'warning' : 'healthy');
+                : 'healthy';
+
+            $summary = ! $coreTablesReady
+                ? 'Terhubung namun beberapa tabel inti belum termigrasi'
+                : ($stockConsistency['is_consistent']
+                    ? "Terhubung ({$connectionName}) · Latensi {$latencyMs} ms · Saldo Stok Sinkron"
+                    : "Terhubung ({$connectionName}) · {$stockConsistency['mismatched_item_count']} SKU Berselisih Saldo Gudang");
+
+            $recommendation = match (true) {
+                ! $coreTablesReady => 'Pastikan seluruh migrasi tabel inti telah dijalankan (php artisan migrate).',
+                ! $stockConsistency['is_consistent'] => 'Terdapat selisih antara barang.stok dan SUM(warehouse_stocks.stok). Jalankan php artisan inventory:sync-warehouse-balances --dry-run untuk audit rekonsiliasi.',
+                $latencyMs > 250.0 => 'Periksa beban kueri database atau optimasi koneksi karena latensi melewati 250 ms.',
+                default => 'Koneksi database, indeks komposit, dan konsistensi saldo stok siap melayani transaksi konkurensi tinggi.',
+            };
 
             return [
                 'name' => 'Database & Skema Transaksional',
                 'status' => $status,
-                'summary' => $coreTablesReady
-                    ? "Terhubung ({$connectionName}) · Latensi {$latencyMs} ms"
-                    : 'Terhubung namun beberapa tabel inti belum termigrasi',
+                'summary' => $summary,
                 'metrics' => [
                     'driver' => strtoupper($connectionName),
                     'latency_ms' => $latencyMs,
                     'migrations_applied' => $migrationsCount,
                     'core_tables_ready' => $coreTablesReady,
+                    'stock_consistency' => $stockConsistency,
                 ],
-                'recommendation' => $status === 'healthy'
-                    ? 'Koneksi database dan indeks komposit siap melayani transaksi konkurensi tinggi.'
-                    : 'Periksa beban kueri database atau pastikan seluruh migrasi telah dijalankan (php artisan migrate).',
+                'recommendation' => $recommendation,
             ];
         } catch (Throwable $e) {
             return [
@@ -205,11 +217,60 @@ class SystemHealthService
                     'latency_ms' => null,
                     'migrations_applied' => 0,
                     'core_tables_ready' => false,
+                    'stock_consistency' => null,
                     'error' => $e->getMessage(),
                 ],
                 'recommendation' => 'Periksa layanan MySQL/SQLite dan konfigurasi DB_HOST / DB_DATABASE pada berkas .env.',
             ];
         }
+    }
+
+    /**
+     * Audit aggregate consistency between master barang.stok and SUM(warehouse_stocks.stok) in O(1) SQL query.
+     *
+     * @return array{
+     *     is_consistent: bool,
+     *     mismatched_item_count: int,
+     *     master_stock_units: int,
+     *     warehouse_stock_units: int,
+     *     difference_units: int
+     * }
+     */
+    public function checkStockConsistency(): array
+    {
+        if (! Schema::hasTable('barang') || ! Schema::hasTable('warehouse_stocks')) {
+            return [
+                'is_consistent' => true,
+                'mismatched_item_count' => 0,
+                'master_stock_units' => 0,
+                'warehouse_stock_units' => 0,
+                'difference_units' => 0,
+            ];
+        }
+
+        $warehouseTotals = DB::table('warehouse_stocks')
+            ->selectRaw('barang_id, COALESCE(SUM(stok), 0) as total_warehouse_stok')
+            ->groupBy('barang_id');
+
+        $aggregate = DB::table('barang')
+            ->whereNull('barang.deleted_at')
+            ->leftJoinSub($warehouseTotals, 'wh_totals', 'wh_totals.barang_id', '=', 'barang.id')
+            ->selectRaw('COALESCE(SUM(barang.stok), 0) as master_units')
+            ->selectRaw('COALESCE(SUM(COALESCE(wh_totals.total_warehouse_stok, 0)), 0) as warehouse_units')
+            ->selectRaw('COALESCE(SUM(CASE WHEN COALESCE(barang.stok, 0) <> COALESCE(wh_totals.total_warehouse_stok, 0) THEN 1 ELSE 0 END), 0) as mismatched_items')
+            ->first();
+
+        $masterUnits = (int) ($aggregate->master_units ?? 0);
+        $warehouseUnits = (int) ($aggregate->warehouse_units ?? 0);
+        $mismatchedCount = (int) ($aggregate->mismatched_items ?? 0);
+
+        return [
+            'is_consistent' => $mismatchedCount === 0,
+            'mismatched_item_count' => $mismatchedCount,
+            'master_stock_units' => $masterUnits,
+            'warehouse_stock_units' => $warehouseUnits,
+            'difference_units' => $masterUnits - $warehouseUnits,
+        ];
     }
 
     /**

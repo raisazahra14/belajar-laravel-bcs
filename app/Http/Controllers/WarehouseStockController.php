@@ -6,6 +6,7 @@ use App\Http\Requests\UpdateWarehouseStockSettingsRequest;
 use App\Models\Barang;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
+use App\Services\StockPredictionScheduler;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
@@ -19,10 +20,12 @@ class WarehouseStockController extends Controller
         UpdateWarehouseStockSettingsRequest $request,
         Barang $barang,
         Warehouse $warehouse,
+        StockPredictionScheduler $predictionScheduler,
     ): RedirectResponse|JsonResponse {
         $validated = $request->validated();
+        $minimumChanged = false;
 
-        $stock = DB::transaction(function () use ($barang, $warehouse, $validated): WarehouseStock {
+        $stock = DB::transaction(function () use ($barang, $warehouse, $validated, &$minimumChanged): WarehouseStock {
             $record = WarehouseStock::query()
                 ->where('barang_id', $barang->id)
                 ->where('warehouse_id', $warehouse->id)
@@ -34,11 +37,16 @@ class WarehouseStockController extends Controller
                     'barang_id' => $barang->id,
                     'warehouse_id' => $warehouse->id,
                     'stok' => 0,
+                    'stok_minimum' => 0,
                 ]);
             }
 
+            $previousMinimum = (int) ($record->stok_minimum ?? 0);
+            $newMinimum = (int) $validated['stok_minimum'];
+            $minimumChanged = $previousMinimum !== $newMinimum;
+
             $record->fill([
-                'stok_minimum' => (int) $validated['stok_minimum'],
+                'stok_minimum' => $newMinimum,
                 'zone' => $validated['zone'] ?? null,
                 'rack_location' => $validated['rack_location'] ?? null,
                 'bin_code' => $validated['bin_code'] ?? null,
@@ -47,6 +55,10 @@ class WarehouseStockController extends Controller
 
             return $record;
         });
+
+        if ($minimumChanged) {
+            $predictionScheduler->schedule((int) $barang->id, $request->user(), true, null, true);
+        }
 
         $message = "Pengaturan lokasi rak & stok minimum di gudang {$warehouse->nama_gudang} berhasil diperbarui.";
 

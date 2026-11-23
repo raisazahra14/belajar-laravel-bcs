@@ -47,6 +47,8 @@ return [
 
     'api_docs_public' => (bool) env('API_DOCS_PUBLIC', env('APP_ENV', 'production') !== 'production'),
 
+    'legacy_api_sunset' => env('LEGACY_API_SUNSET', 'Wed, 30 Jun 2027 23:59:59 GMT'),
+
     /*
     |--------------------------------------------------------------------------
     | Application URL

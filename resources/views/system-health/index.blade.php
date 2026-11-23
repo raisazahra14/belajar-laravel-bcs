@@ -79,6 +79,9 @@
 
                     <div class="small mb-2">
                         @if($key === 'database')
+                            @php
+                                $stockConsistency = $comp['metrics']['stock_consistency'] ?? null;
+                            @endphp
                             <div class="d-flex justify-content-between py-1 border-bottom">
                                 <span class="text-muted">Driver Koneksi</span>
                                 <strong>{{ $comp['metrics']['driver'] }}</strong>
@@ -87,10 +90,22 @@
                                 <span class="text-muted">Latensi Kueri (SELECT 1)</span>
                                 <strong>{{ $comp['metrics']['latency_ms'] !== null ? $comp['metrics']['latency_ms'] . ' ms' : 'N/A' }}</strong>
                             </div>
-                            <div class="d-flex justify-content-between py-1">
+                            <div class="d-flex justify-content-between py-1 {{ $stockConsistency !== null ? 'border-bottom' : '' }}">
                                 <span class="text-muted">Skema Tabel Inti &amp; Migrasi</span>
                                 <strong>{{ $comp['metrics']['core_tables_ready'] ? 'Lengkap' : 'Belum Lengkap' }} ({{ $comp['metrics']['migrations_applied'] }} migrasi)</strong>
                             </div>
+                            @if($stockConsistency !== null)
+                                <div class="d-flex justify-content-between py-1">
+                                    <span class="text-muted">Konsistensi Saldo Master vs Gudang</span>
+                                    <strong>
+                                        @if($stockConsistency['is_consistent'])
+                                            <span class="text-success">Sinkron (0 selisih)</span>
+                                        @else
+                                            <span class="text-warning">{{ $stockConsistency['mismatched_item_count'] }} SKU berselisih ({{ $stockConsistency['difference_units'] > 0 ? '+'.$stockConsistency['difference_units'] : $stockConsistency['difference_units'] }} unit)</span>
+                                        @endif
+                                    </strong>
+                                </div>
+                            @endif
                         @elseif($key === 'queue')
                             @php
                                 $workerHb = $comp['metrics']['worker_heartbeat'] ?? null;

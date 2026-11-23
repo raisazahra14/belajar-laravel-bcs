@@ -290,6 +290,20 @@ class Barang extends Model
         return $this->stok <= self::MINIMUM_STOCK;
     }
 
+    /**
+     * Menghitung ambang batas stok minimum efektif barang:
+     * mengambil nilai tertinggi antara konstanta minimum global (MINIMUM_STOCK)
+     * dan total stok_minimum yang dikonfigurasi pada seluruh gudang barang ini.
+     */
+    public function effectiveMinimumStock(): int
+    {
+        $warehouseMinSum = $this->relationLoaded('warehouseStocks')
+            ? (int) $this->warehouseStocks->sum('stok_minimum')
+            : (int) $this->warehouseStocks()->sum('stok_minimum');
+
+        return max(self::MINIMUM_STOCK, $warehouseMinSum);
+    }
+
     public function illustrationPosition(): string
     {
         $name = strtolower($this->nama_barang);

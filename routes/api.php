@@ -73,7 +73,7 @@ Route::prefix('v1')->name('api.v1.')->middleware('throttle:api')->group(function
     });
 });
 
-Route::middleware('throttle:api')->group(function () {
+Route::middleware(['throttle:api', 'deprecated.api'])->group(function () {
     Route::post('/login', [AuthController::class, 'login'])->name('api.login');
 
     Route::middleware('auth:sanctum')->group(function () {

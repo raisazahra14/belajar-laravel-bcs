@@ -1,6 +1,7 @@
 <?php
 
 use App\Exceptions\InvalidPurchaseOrderTransitionException;
+use App\Http\Middleware\AddLegacyApiDeprecationHeaders;
 use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\EnsureUserHasRole;
 use App\Traits\ApiResponses;
@@ -37,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => EnsureUserHasRole::class,
             'abilities' => CheckAbilities::class,
             'ability' => CheckForAnyAbility::class,
+            'deprecated.api' => AddLegacyApiDeprecationHeaders::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

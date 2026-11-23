@@ -63,7 +63,7 @@ class StockPredictionService
         $payload = ['item' => ['id' => $barang->id, 'current_stock' => $barang->stok,
             'incoming_po_stock' => $openPo['incoming_po_stock'],
             'open_po_count' => $openPo['open_po_count'],
-            'minimum_stock' => Barang::MINIMUM_STOCK,
+            'minimum_stock' => $barang->effectiveMinimumStock(),
             'daily_usage_estimate' => $barang->daily_usage_estimate !== null ? (float) $barang->daily_usage_estimate : null,
             'lead_time_days' => $barang->lead_time_days], 'out_transactions' => $history,
             'forecast_days' => config('services.stock_prediction.forecast_horizon_days', 30),
@@ -98,8 +98,9 @@ class StockPredictionService
         $incomingPoStock = (int) ($result['incoming_po_stock'] ?? data_get($payload, 'item.incoming_po_stock', 0));
         $openPoCount = (int) data_get($payload, 'item.open_po_count', 0);
         $effectiveStock = (int) ($result['effective_stock'] ?? ((int) $barang->stok + $incomingPoStock));
+        $minimumStock = (int) data_get($payload, 'item.minimum_stock', Barang::MINIMUM_STOCK);
 
-        return DB::transaction(function () use ($barang, $user, $result, $history, $processGeneration, $incomingPoStock, $openPoCount, $effectiveStock): StockPrediction {
+        return DB::transaction(function () use ($barang, $user, $result, $history, $processGeneration, $incomingPoStock, $openPoCount, $effectiveStock, $minimumStock): StockPrediction {
             $previous = StockPrediction::where('barang_id', $barang->id)->latest('analyzed_at')->latest('id')->first();
             $prediction = StockPrediction::create([
                 'barang_id' => $barang->id, 'analyzed_by' => $user?->exists ? $user->id : null,
@@ -112,6 +113,7 @@ class StockPredictionService
                 'analysis_status' => $result['analysis_status'], 'metrics' => $result['metrics'],
                 'input_summary' => [
                     'prediction_available' => (bool) ($result['prediction_available'] ?? false),
+                    'minimum_stock' => $minimumStock,
                     'incoming_po_stock' => $incomingPoStock,
                     'open_po_count' => $openPoCount,
                     'effective_stock' => $effectiveStock,
