@@ -11,7 +11,7 @@
 - **Nama Aplikasi / Proyek**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang, & Analitik Logistik Terpadu)
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, Laravel Sanctum 4, Swagger UI (`swagger-ui-dist`), OpenAPI 3.0.3, MySQL/MariaDB & SQLite, Python 3.10+ (OCR Tesseract & Prediksi ML), PHPUnit 11, Laravel Pint
 - **Acuan Roadmap Teknis**: GitHub Issue `#12` — *Arsitektur RESTful API, Integrasi Endpoint Internal, Pengujian Postman & Dokumentasi OpenAPI*
-- **Status Capaian Saat Ini *(per 20 November 2026)***: **Minggu 1, Minggu 2, Minggu 3, & Minggu 4 (Materi 1–4) 100% SELESAI & TERVERIFIKASI** (`544 Automated Tests PASS`, `6.044 Assertions`, `OpenAPI 3.0.3 Valid (162 Refs)`, `Laravel Pint PASSED`, `route:cache READY`)
+- **Status Capaian Saat Ini *(per 23 November 2026)***: **Minggu 1–4 (Materi 1–4) & Penguatan Paritas Penuh Fase 4–6 100% SELESAI & TERVERIFIKASI** (`570+ Automated Tests PASS`, `6.300+ Assertions`, `OpenAPI 3.0.3 Valid (20 Paths / 21 Operasi)`, `Laravel Pint PASSED`, `route:cache READY`)
 - **Sifat Dokumen**: **Final Report Document Periode 4** (Menyajikan seluruh rangkaian hasil perancangan arsitektur, realisasi endpoint `/api/v1`, keamanan & koleksi Postman, portal Swagger UI `/docs/api`, spesifikasi OpenAPI 3.0.3, dan panduan integrasi pengembang).
 
 ---
@@ -350,14 +350,15 @@ Seluruh rancangan teoretis di atas telah diimplementasikan menjadi artefak kode 
 
 #### C. Ringkasan Cakupan Spesifikasi OpenAPI 3.0.3 (`docs/openapi.yaml`)
 
-1. **Kelengkapan Endpoint (12 Path / 13 Operasi):**
+1. **Kelengkapan Endpoint (20 Path / 21 Operasi):**
    - `System & Status`: `GET /api/v1/status` (publik)
    - `Authentication`: `POST /api/v1/auth/login` (publik + rate limit 5x/60d), `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`
    - `Master Barang & Stok`: `GET /api/v1/barang`, `GET /api/v1/barang/{barang}`, `GET /api/v1/barang/{barang}/check-stock`
-   - `Mutasi & Transfer Stok`: `POST /api/v1/stok/adjust`, `POST /api/v1/stok/transfer`
-   - `Purchase Orders & GRN`: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `GET /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/receive`
-2. **Validasi Struktur & Referensi:** Seluruh **162 `$ref`** internal pada skema, parameter, header (`X-API-Version`, `Location`, `Retry-After`), dan respon error tervalidasi utuh tanpa referensi rusak.
+   - `Mutasi, Transfer & Reversal Stok`: `POST /api/v1/stok/adjust`, `POST /api/v1/stok/transfer`, `POST /api/v1/stok/{stokTransaction}/reverse`
+   - `Purchase Orders & GRN (Paritas Siklus Penuh)`: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `GET /api/v1/purchase-orders/{purchaseOrder}`, `PUT/PATCH /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/submit`, `POST /api/v1/purchase-orders/{purchaseOrder}/approve`, `POST /api/v1/purchase-orders/{purchaseOrder}/reject`, `POST /api/v1/purchase-orders/{purchaseOrder}/revise`, `POST /api/v1/purchase-orders/{purchaseOrder}/withdraw`, `POST /api/v1/purchase-orders/{purchaseOrder}/cancel`, dan `POST /api/v1/purchase-orders/{purchaseOrder}/receive`
+2. **Validasi Struktur & Referensi:** Seluruh referensi `$ref` internal pada skema, parameter, header (`X-API-Version`, `Location`, `Retry-After`), dan respon error tervalidasi utuh tanpa duplikasi path maupun referensi rusak.
 3. **Cakupan Respon Sukses & Error:** Setiap endpoint mendokumentasikan respon sukses (`200` / `201`) serta respon error terstruktur `400`, `401`, `403`, `404`, `409`, `422`, dan `429` dengan format amplop `ErrorResponse`.
+4. **Deprekasi Bertahap Rute Legacy `/api/*`:** Rute legacy non-versioned (`/api/login`, `/api/purchase-orders/*`) dilindungi middleware `deprecated.api` (`AddLegacyApiDeprecationHeaders`) yang memancarkan header `Deprecation: true`, `Sunset`, dan `Link: </api/v1/...>; rel="successor-version"`.
 
 #### D. Matriks Verifikasi Pengujian Postman (16 Skenario / 6 Folder) & Lampiran Tangkapan Layar
 

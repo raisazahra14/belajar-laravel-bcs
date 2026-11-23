@@ -1,6 +1,6 @@
 # Data Dictionary Database LogistikKu
 
-Dokumen ini mencatat kontrak skema yang dibentuk oleh seluruh source migration, termasuk Supplier, Multi-Gudang, pelaku transaksi, harga beli, transfer, reversal, biaya, dan referensi dokumen. Audit 5 Oktober 2026 membandingkan migration, model Eloquent, serta [`docs/database/erd.md`](database/erd.md), lalu menjalankan seluruh migration pada SQLite kosong. Kondisi fisik dan data database deployment harus diverifikasi terpisah.
+Dokumen ini mencatat kontrak skema yang dibentuk oleh seluruh **41 source migration**, termasuk Supplier, Multi-Gudang (lengkap dengan lokasi rak `zone`, `rack_location`, `bin_code`), pelaku transaksi, harga beli, transfer, reversal, biaya, referensi dokumen, modul pengadaan (Purchase Order & Goods Receipt dengan `receipt_token` dan jejak audit reversal), serta tabel `personal_access_tokens` Laravel Sanctum. Audit 23 November 2026 membandingkan seluruh migration, model Eloquent, serta [`docs/database/erd.md`](database/erd.md), lalu menjalankan seluruh migration pada SQLite kosong. Kondisi fisik dan data database deployment harus diverifikasi terpisah.
 
 Source migration adalah sumber utama untuk tipe logis, nullable, default, PK, FK, indeks, dan referential action. Skema SQLite bersih digunakan untuk memverifikasi bahwa urutan migration benar-benar dapat dijalankan dan menghasilkan constraint yang dinyatakan. Perbedaan model atau keterbatasan verifikasi deployment dicatat secara eksplisit.
 
@@ -36,7 +36,7 @@ Source migration adalah sumber utama untuk tipe logis, nullable, default, PK, FK
 
 ## Cakupan dan legenda
 
-Hasil migration bersih memiliki **28 tabel dan 268 kolom**: **20 tabel bisnis/aplikasi dengan 226 kolom** serta **8 tabel framework/internal dengan 42 kolom**. Terdapat 38 FK aktual. Engine, collation, perilaku `CHECK`, dan representasi fisik JSON/timestamp pada MySQL/MariaDB perlu diperiksa di lingkungan target.
+Hasil 41 migration bersih memiliki **29 tabel dan 286 kolom**: **20 tabel bisnis/aplikasi dengan 238 kolom** serta **9 tabel framework/internal dengan 48 kolom** (termasuk `personal_access_tokens`). Terdapat **40 FK aktual** (15 `CASCADE`, 14 `SET NULL`, 11 `RESTRICT`). Engine, collation, perilaku `CHECK`, dan representasi fisik JSON/timestamp pada MySQL/MariaDB perlu diperiksa di lingkungan target.
 
 | Istilah | Arti |
 |---|---|
@@ -146,7 +146,10 @@ PK: `id` (AI). UK: `warehouse_stocks_barang_id_warehouse_id_unique` (`barang_id`
 | `barang_id` | `bigint(20) unsigned` | Tidak | — | FK → `barang.id`; delete/update `RESTRICT` | Barang pemilik saldo; bagian UK komposit. |
 | `warehouse_id` | `bigint(20) unsigned` | Tidak | — | FK → `warehouses.id`; delete/update `RESTRICT` | Gudang penyimpan; bagian UK komposit. |
 | `stok` | `int(10) unsigned` | Tidak | `0` | — | Saldo aktual di gudang; nonnegatif melalui tipe unsigned. |
-| `stok_minimum` | `int(10) unsigned` | Tidak | `0` | — | Ambang stok minimum gudang; nonnegatif. |
+| `stok_minimum` | `int(10) unsigned` | Tidak | `0` | — | Ambang stok minimum gudang; nonnegatif (digunakan dalam perhitungan dinamis `Barang::effectiveMinimumStock()`). |
+| `zone` | `varchar(50)` | Ya | `NULL` | — | Zona fisik gudang (contoh: `Zona A`, `Cold Storage`). |
+| `rack_location` | `varchar(100)` | Ya | `NULL` | — | Lokasi rak fisik di dalam gudang (contoh: `R-01-A`). |
+| `bin_code` | `varchar(50)` | Ya | `NULL` | — | Kode bin/kompartemen penyimpanan (contoh: `BIN-102`). |
 | `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
 | `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
 
@@ -467,7 +470,7 @@ PK: `id` (AI). IDX: `to_status`, `purchase_order_id`, `user_id`, dan komposit (`
 
 Fungsi: dokumen Berita Acara Penerimaan Barang fisik (Goods Receipt Note / GRN) di gudang.
 
-PK: `id` (AI). UK: `goods_receipts_nomor_grn_unique` (`nomor_grn`). IDX: `purchase_order_id`, `warehouse_id`, `received_by`, `idx_grn_surat_jalan` (`nomor_surat_jalan`), serta komposit (`purchase_order_id`, `tanggal_terima`) dan `idx_grn_po_surat_jalan` (`purchase_order_id`, `nomor_surat_jalan`). Soft delete: tidak.
+PK: `id` (AI). UK: `goods_receipts_nomor_grn_unique` (`nomor_grn`), `uq_grn_receipt_token` (`receipt_token`). IDX: `purchase_order_id`, `warehouse_id`, `received_by`, `idx_grn_reversed_by` (`reversed_by`), `idx_grn_surat_jalan` (`nomor_surat_jalan`), serta komposit (`purchase_order_id`, `tanggal_terima`) dan `idx_grn_po_surat_jalan` (`purchase_order_id`, `nomor_surat_jalan`). Soft delete: ya, `deleted_at`.
 
 | Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
 |---|---|---:|---|---|---|
@@ -477,17 +480,22 @@ PK: `id` (AI). UK: `goods_receipts_nomor_grn_unique` (`nomor_grn`). IDX: `purcha
 | `warehouse_id` | `bigint(20) unsigned` | Tidak | — | FK → `warehouses.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Gudang tempat barang dibongkar/diterima. |
 | `tanggal_terima` | `date` | Tidak | — | IDX komposit | Tanggal fisik barang diterima di gudang. |
 | `nomor_surat_jalan` | `varchar(100)` | Ya | `NULL` | IDX, IDX komposit | Nomor surat jalan dari vendor/ekspedisi. |
+| `receipt_token` | `varchar(64)` | Ya | `NULL` | UK (`uq_grn_receipt_token`) | Token idempotensi penerimaan fisik untuk mencegah pencatatan GRN ganda. |
 | `foto_surat_jalan` | `varchar(255)` | Ya | `NULL` | — | Path berkas foto fisik bukti surat jalan. |
 | `catatan` | `text` | Ya | `NULL` | — | Catatan operasional penerimaan fisik. |
 | `received_by` | `bigint(20) unsigned` | Tidak | — | FK → `users.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Staf gudang/Admin yang menerima barang. |
+| `reversed_at` | `timestamp` | Ya | `NULL` | — | Stempel waktu ketika seluruh item GRN telah dibatalkan (reversal). |
+| `reversed_by` | `bigint(20) unsigned` | Ya | `NULL` | FK → `users.id`; delete `SET NULL`; IDX | Pengguna yang menjalankan reversal transaksi GRN. |
+| `reversal_reason` | `varchar(255)` | Ya | `NULL` | — | Alasan pembatalan/reversal penerimaan barang. |
 | `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
 | `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
+| `deleted_at` | `timestamp` | Ya | `NULL` | Soft delete | Waktu penghapusan logis saat GRN sepenuhnya direversal (tetap tersimpan untuk jejak audit). |
 
 ### `goods_receipt_items`
 
 Fungsi: rincian kuantitas barang fisik yang diterima pada setiap dokumen penerimaan (GRN).
 
-PK: `id` (AI). IDX: `goods_receipt_id`, `purchase_order_item_id`, `barang_id`. Soft delete: tidak.
+PK: `id` (AI). IDX: `goods_receipt_id`, `purchase_order_item_id`, `barang_id`, `idx_grn_items_reversed_by` (`reversed_by`). Soft delete: ya, `deleted_at`.
 
 | Kolom | Tipe | Null | Default | Kunci/referensi | Keterangan |
 |---|---|---:|---|---|---|
@@ -497,8 +505,12 @@ PK: `id` (AI). IDX: `goods_receipt_id`, `purchase_order_item_id`, `barang_id`. S
 | `barang_id` | `bigint(20) unsigned` | Tidak | — | FK → `barang.id`; delete `RESTRICT`, update `RESTRICT`; IDX | Barang yang diterima secara fisik. |
 | `jumlah_diterima` | `int(10) unsigned` | Tidak | — | — | Kuantitas fisik yang diterima pada tahap ini. |
 | `catatan_kondisi` | `varchar(255)` | Ya | `NULL` | — | Catatan kondisi fisik barang saat diterima. |
+| `reversed_at` | `timestamp` | Ya | `NULL` | — | Stempel waktu ketika baris penerimaan ini direversal. |
+| `reversed_by` | `bigint(20) unsigned` | Ya | `NULL` | FK → `users.id`; delete `SET NULL`; IDX | Pengguna yang mereversal transaksi stok terkait. |
+| `reversal_reason` | `varchar(255)` | Ya | `NULL` | — | Alasan reversal baris penerimaan fisik. |
 | `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
 | `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
+| `deleted_at` | `timestamp` | Ya | `NULL` | Soft delete | Waktu penghapusan logis saat kuantitas diterima mencapai 0 akibat reversal. |
 
 ## Tabel framework dan internal
 
@@ -602,23 +614,40 @@ Fungsi: penyimpanan session database. PK: `id`. IDX: `sessions_user_id_index` (`
 | `payload` | `longtext` | Tidak | — | — | Payload session. |
 | `last_activity` | `int(11)` | Tidak | — | IDX | Waktu aktivitas epoch. |
 
+### `personal_access_tokens`
+
+Fungsi: penyimpanan Bearer Token API Laravel Sanctum (`auth:sanctum`) beserta cakupan izin (*scoped abilities*) dan waktu kedaluwarsa (`expires_at`). PK: `id` (AI). UK: `personal_access_tokens_token_unique` (`token`). IDX: `personal_access_tokens_tokenable_type_tokenable_id_index` (`tokenable_type`, `tokenable_id`) dan `personal_access_tokens_expires_at_index` (`expires_at`). Tanpa FK fisik (relasi polymorphic ke `users`).
+
+| Kolom | Tipe | Null | Default | Kunci | Keterangan |
+|---|---|---:|---|---|---|
+| `id` | `bigint(20) unsigned` | Tidak | — | PK, AI | Identitas token akses. |
+| `tokenable_type` | `varchar(255)` | Tidak | — | IDX komposit | Kelas model pemilik token (`App\Models\User`). |
+| `tokenable_id` | `bigint(20) unsigned` | Tidak | — | IDX komposit | ID pengguna pemilik token. |
+| `name` | `text` | Tidak | — | — | Nama perangkat / klien integrasi (`device_name`). |
+| `token` | `varchar(64)` | Tidak | — | UK | Hash SHA-256 token Sanctum. |
+| `abilities` | `text` | Ya | `NULL` | — | JSON array daftar ability token (`["barang:read", ...]`). |
+| `last_used_at` | `timestamp` | Ya | `NULL` | — | Waktu terakhir token digunakan untuk autentikasi API. |
+| `expires_at` | `timestamp` | Ya | `NULL` | IDX | Waktu kedaluwarsa token (`SANCTUM_TOKEN_EXPIRATION`). |
+| `created_at` | `timestamp` | Ya | `NULL` | — | Waktu dibuat. |
+| `updated_at` | `timestamp` | Ya | `NULL` | — | Waktu diperbarui. |
+
 ## Ringkasan constraint dan referential action
 
 ### Primary key, unique, dan index
 
-- Semua 28 tabel memiliki PK: **22 PK AI** dan **6 PK non-AI** (`cache.key`, `cache_locks.key`, `job_batches.id`, `notifications.id`, `password_reset_tokens.email`, dan `sessions.id`).
-- UK bisnis: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan `warehouse_stocks(barang_id, warehouse_id)`, `barang.kode_barang`, `purchase_orders.nomor_po`, `goods_receipts.nomor_grn`, `document_verification_audits.idempotency_key`, pasangan `stock_predictions(barang_id, process_generation)`, tripel notifikasi prediksi, pasangan receipt prediksi/pengguna, dan `stock_prediction_processes.barang_id`.
-- UK internal tambahan: `failed_jobs.uuid`.
+- Semua 29 tabel memiliki PK: **23 PK AI** dan **6 PK non-AI** (`cache.key`, `cache_locks.key`, `job_batches.id`, `notifications.id`, `password_reset_tokens.email`, dan `sessions.id`).
+- UK bisnis: `users.email`, `suppliers.kode_supplier`, `warehouses.kode_gudang`, pasangan `warehouse_stocks(barang_id, warehouse_id)`, `barang.kode_barang`, `purchase_orders.nomor_po`, `goods_receipts.nomor_grn`, `goods_receipts.receipt_token` (`uq_grn_receipt_token`), `document_verification_audits.idempotency_key`, pasangan `stock_predictions(barang_id, process_generation)`, tripel notifikasi prediksi, pasangan receipt prediksi/pengguna, dan `stock_prediction_processes.barang_id`.
+- UK internal tambahan: `failed_jobs.uuid` dan `personal_access_tokens.token`.
 - Semua indeks yang tercatat didefinisikan migration dan terbentuk pada migration bersih. Pada MySQL/MariaDB, index FK dapat juga dilayani oleh sisi kiri UK komposit, seperti `warehouse_stocks.barang_id`.
 
 ### Foreign key
 
-Terdapat **38 FK pada skema migration bersih**. Semuanya memakai `ON UPDATE RESTRICT`.
+Terdapat **40 FK pada skema 41 migration bersih**. Semuanya memakai `ON UPDATE RESTRICT`.
 
 | ON DELETE | Jumlah | FK |
 |---|---:|---|
 | `CASCADE` | 15 | `document_verifications.user_id`; `document_verification_audits.document_verification_id`; `goods_receipts.purchase_order_id`; `goods_receipt_items.goods_receipt_id`; `goods_receipt_items.purchase_order_item_id`; `purchase_order_items.purchase_order_id`; `purchase_order_status_histories.purchase_order_id`; `stock_predictions.barang_id`; kedua FK `stock_prediction_notifications`; kedua FK `stock_prediction_notification_reads`; `stock_prediction_processes.barang_id`; `stok_histories.barang_id`; `stok_transaction_actors.stok_transaction_id`. |
-| `SET NULL` | 12 | `barang.supplier_id`; `document_verifications.ocr_corrected_by`; `document_verification_audits.user_id`; `purchase_orders.approved_by`; `purchase_order_status_histories.user_id`; `stock_predictions.analyzed_by`; `stock_prediction_processes.requested_by`; `stock_prediction_processes.stock_prediction_id`; `stok_transactions.supplier_id`; `stok_transactions.reversal_of_id`; `stok_transactions.reversed_by`; `stok_transaction_actors.user_id`. |
+| `SET NULL` | 14 | `barang.supplier_id`; `document_verifications.ocr_corrected_by`; `document_verification_audits.user_id`; `goods_receipts.reversed_by`; `goods_receipt_items.reversed_by`; `purchase_orders.approved_by`; `purchase_order_status_histories.user_id`; `stock_predictions.analyzed_by`; `stock_prediction_processes.requested_by`; `stock_prediction_processes.stock_prediction_id`; `stok_transactions.supplier_id`; `stok_transactions.reversal_of_id`; `stok_transactions.reversed_by`; `stok_transaction_actors.user_id`. |
 | `RESTRICT` | 11 | `goods_receipts.warehouse_id`; `goods_receipts.received_by`; `goods_receipt_items.barang_id`; `purchase_orders.supplier_id`; `purchase_orders.warehouse_id`; `purchase_orders.created_by`; `purchase_order_items.barang_id`; `stok_transactions.barang_id`; `stok_transactions.warehouse_stock_id`; `warehouse_stocks.barang_id`; `warehouse_stocks.warehouse_id`. |
 
 ### Referensi logis tanpa FK

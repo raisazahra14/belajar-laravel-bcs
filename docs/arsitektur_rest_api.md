@@ -30,7 +30,7 @@ LogistikKu `/api/v1` mengimplementasikan **Richardson Maturity Model Level 2 pen
 
 1. **Stateless (Tanpa State Sesi):** Setiap permintaan ke `/api/v1/*` harus berdiri sendiri (*self-contained*), menyertakan `Authorization: Bearer <sanctum-token>` serta `Accept: application/json`, dan **tidak bergantung pada cookie sesi browser atau token CSRF**.
 2. **Data Abstraction & Schema Decoupling:** API tidak mengekspos langsung skema tabel fisik database ataupun objek model Eloquent mentah. Transformasi dikendalikan melalui lapisan **Laravel `JsonResource`** (contoh: `PurchaseOrderResource`), sehingga perubahan nama kolom internal atau relasi database tidak memutus kompatibilitas klien eksternal.
-3. **Backward Compatibility:** Rute pra-v1 (`/api/login`, `/api/purchase-orders/*`) tetap dipertahankan terpisah selama fase transisi agar integrasi/test awal tetap berjalan 100%, sementara seluruh standar arsitektur baru ditegakkan di namespace `/api/v1/*`.
+3. **Backward Compatibility & Deprekasi Terstandar (RFC 8594):** Rute pra-v1 (`/api/login`, `/api/purchase-orders/*`) tetap dipertahankan terpisah selama fase transisi dengan perlindungan `throttle:api` dan `ability:...`, serta kini menyertakan header HTTP **`Deprecation: true`**, **`Sunset: Wed, 30 Jun 2027 23:59:59 GMT`** (via `LEGACY_API_SUNSET`), dan **`Link: </api/v1/...>; rel="successor-version"`** melalui middleware [`AddLegacyApiDeprecationHeaders`](../app/Http/Middleware/AddLegacyApiDeprecationHeaders.php) untuk mengarahkan seluruh klien ke kontrak tunggal `/api/v1/*`.
 
 ---
 
@@ -49,19 +49,22 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
 - **Hindari Hierarki URI yang Terlalu Dalam (*Avoid Deep URI Hierarchies*):**
   Batasi kedalaman URI maksimal menjadi `collection/{id}/sub-resource` atau aksi domain terikat (misalnya `/api/v1/purchase-orders/{id}/receive` atau `/api/v1/barang/{id}/check-stock`), alih-alih rantai bersarang panjang seperti `/warehouses/{wId}/suppliers/{sId}/purchase-orders/{poId}/items/{itemId}`. Gunakan parameter query (`?warehouse_id=...&supplier_id=...`) untuk relasi penyaringan lintas entitas.
 
-### 2.2 Peta Status Implementasi Endpoint
+### 2.2 Peta Status Implementasi Endpoint (20 Path / 21 Operasi Aktif)
 - **Aktif pada Minggu 1 (Fondasi Kontrak & Status API):**
-  - `GET /api/v1/status` (`api.v1.status`) — Endpoint informasi layanan, arsitektur, tingkat kematangan REST, kata kerja HTTP yang didukung, dan tautan *self*.
-- **Aktif pada Minggu 2 (Endpoint Integrasi Sistem Internal — 12 Rute: 1 Login Publik + 11 Rute Terlindungi `auth:sanctum`):**
+  - `GET /api/v1/status` (`api.v1.status`) — Endpoint informasi layanan, arsitektur, tingkat kematangan REST, kata kerja HTTP yang didukung, dan tautan *self* / *docs* / *openapi*.
+- **Aktif pada Minggu 2 (Endpoint Integrasi Sistem Internal):**
   - Autentikasi: `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`
   - Master Barang & Ketersediaan Stok Real-Time: `GET /api/v1/barang`, `GET /api/v1/barang/{barang}`, `GET /api/v1/barang/{barang}/check-stock`
   - Mutasi & Transfer Stok Antar-Gudang: `POST /api/v1/stok/adjust`, `POST /api/v1/stok/transfer`
   - Pengadaan & Penerimaan Barang: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `GET /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/receive`
-- **Belum tersedia di `/api/v1` (hanya di rute legacy `/api/purchase-orders/*` atau modul web):** `PUT`/`PATCH` PO, `revise`, `withdraw`, `approve`, `reject`, CRUD master barang, dan reversal transaksi stok. Perluasan ke v1 dicatat sebagai *roadmap* pasca-Periode 4 dan **bukan** bagian dari 12 rute aktif di atas.
 - **Aktif pada Minggu 3 (Keamanan Data & Pengujian Postman):**
   - Penegakan granular *Sanctum Token Abilities* (`User::ROLE_API_ABILITIES` + middleware `ability:...`), `RateLimiter::for('api')` (60 req/menit), konfigurasi `config/cors.php`, *Data Masking* (`harga_beli` untuk staff & penyembunyian email internal pada `PurchaseOrderResource`), serta artefak Postman Collection (`docs/postman/LogistikKu_API_v1.postman_collection.json`) & `ApiEndpointsSecurityTest`.
 - **Aktif pada Minggu 4 (Dokumentasi OpenAPI 3.0.3 & Developer Portal):**
-  - Spesifikasi OpenAPI 3.0.3 resmi di [`docs/openapi.yaml`](./openapi.yaml) (tervalidasi 12 paths / 13 operasi / 162 `$ref`), portal web interaktif **Swagger UI** publik pada `/docs/api` beserta endpoint spec `/docs/openapi.yaml` (berbasis aset lokal `public/vendor/swagger-ui/*`), tautan penemuan HATEOAS (`links.docs`, `links.openapi`) di `GET /api/v1/status`, serta panduan integrasi pengembang di [`docs/api_integration_guide.md`](./api_integration_guide.md) (cURL, Python `requests`, JavaScript `fetch`/`axios`).
+  - Spesifikasi OpenAPI 3.0.3 resmi di [`docs/openapi.yaml`](./openapi.yaml), portal web interaktif **Swagger UI** pada `/docs/api` beserta endpoint spec `/docs/openapi.yaml` (dilindungi gate `API_DOCS_ENABLED` & `API_DOCS_PUBLIC`), tautan penemuan HATEOAS (`links.docs`, `links.openapi`) di `GET /api/v1/status`, serta panduan integrasi pengembang di [`docs/api_integration_guide.md`](./api_integration_guide.md).
+- **Aktif pada Fase 6 (Paritas Penuh Siklus Hidup PO, Reversal Stok & Deprekasi Legacy `/api/*`):**
+  - Siklus Penuh Purchase Order di `/api/v1`: `PUT/PATCH /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/submit`, `POST /api/v1/purchase-orders/{purchaseOrder}/approve`, `POST /api/v1/purchase-orders/{purchaseOrder}/reject`, `POST /api/v1/purchase-orders/{purchaseOrder}/revise`, `POST /api/v1/purchase-orders/{purchaseOrder}/withdraw`, dan `POST /api/v1/purchase-orders/{purchaseOrder}/cancel`.
+  - Reversal Transaksi Stok di `/api/v1`: `POST /api/v1/stok/{stokTransaction}/reverse` (khusus `admin` & `manager` dengan ability `stok:reverse`).
+  - Deprekasi Rute Legacy `/api/*`: Middleware `deprecated.api` (`AddLegacyApiDeprecationHeaders`) menyematkan header `Deprecation: true`, `Sunset`, dan `Link: </api/v1/...>; rel="successor-version"`.
 
 ---
 
@@ -91,6 +94,7 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
 | `Location: <uri>` | Response (`201` / `202`) | Menunjuk URI resource baru yang berhasil dibuat (`createdResponse`) atau URI pemantau status job asinkron (`acceptedResponse`). |
 | `Allow: GET, ...` | Response (`405`) | Daftar metode HTTP yang diizinkan ketika klien memanggil verb yang salah pada URI valid. |
 | `Retry-After: <detik>` | Response (`429` / `503`) | Memberi tahu klien berapa detik harus menunggu sebelum mencoba request ulang setelah terkena *Rate Limiter*. |
+| `Deprecation: true` & `Sunset: <http-date>` | Response (`/api/*` legacy) | Memberi sinyal deprekasi resmi (RFC 8594) beserta batas waktu penghentian rute non-versioned `/api/*`, disertai header `Link: </api/v1/...>; rel="successor-version"`. |
 
 ---
 
@@ -259,15 +263,20 @@ Autentikasi menggunakan **Laravel Sanctum Bearer Token** yang terhubung pada tab
 | CRUD Master Barang 🗺️ *Roadmap (modul web saja)* | `POST`/`PUT`/`PATCH`/`DELETE` | Ya | Tidak (`403`) | Tidak (`403`) | `barang:write` — Dibatasi khusus `admin` (`Gate::define('manage-barang')`). Belum ada rute v1. |
 | **Mutasi & Transfer Stok Antar-Gudang** | | | | | |
 | `/api/v1/stok/adjust` ✅ | `POST` | Ya | Ya | Ya | `stok:adjust` — Penyesuaian stok masuk/keluar (`Gate::define('update-stock')`); `reference_number` duplikat → `409`. |
-| `/api/v1/stok/transfer` | `POST` | Ya | Ya | Ya | `stok:transfer` — Transfer stok atomik antar-gudang dengan referensi unik. |
-| Reversal Transaksi Stok 🕘 *Legacy (modul web)* | `POST` | Ya | Ya | Tidak (`403`) | `stok:reverse` — Khusus `admin` & `manager` (`Gate::define('reverse-stock')`). |
+| `/api/v1/stok/transfer` ✅ | `POST` | Ya | Ya | Ya | `stok:transfer` — Transfer stok atomik antar-gudang dengan referensi unik. |
+| `/api/v1/stok/{stokTransaction}/reverse` ✅ | `POST` | Ya | Ya | Tidak (`403`) | `stok:reverse` — Reversal transaksi stok atomik khusus `admin` & `manager` (`Gate::define('reverse-stock')`), termasuk rekonsiliasi mundur item GRN/PO bila berasal dari penerimaan PO. |
 | **Pengadaan (Purchase Order & Goods Receipt)** | | | | | |
-| `/api/v1/purchase-orders` | `GET` | Ya | Ya | Ya | `po:read` — Melihat daftar/detail PO beserta filter & paginasi. |
-| `/api/v1/purchase-orders` | `POST` | Ya | Ya | Ya | `po:create` — Membuat PO draft baru; respon `201 Created` dengan header `Location`. |
-| `/api/purchase-orders/{id}` 🕘 *Legacy* (belum di v1) | `PUT`/`PATCH` | Ya | Ya | Ya* | `po:update` — Hanya pada status `draft`; `staff` hanya boleh mengubah PO buatannya sendiri. |
-| `/api/purchase-orders/{id}/revise` / `withdraw` 🕘 *Legacy* (belum di v1; `submit` belum ada rute API) | `POST` | Ya | Tidak* (`403`) | Ya* | `po:submit` — Khusus `admin` atau pembuat PO (`created_by === user.id`). |
-| `/api/purchase-orders/{id}/approve` / `reject` 🕘 *Legacy* (belum di v1) | `POST` | Ya* | Ya* | Tidak (`403`) | `po:approve` — Khusus `admin` & `manager`; **dilarang menyetujui/menolak PO buatan sendiri** (*Maker-Checker / SoD* → `422 GUARD_FAILED`). |
-| `/api/v1/purchase-orders/{id}/receive` | `POST` | Ya | Tidak (`403`) | Ya | `po:receive` — Pencatatan penerimaan barang fisik via *barcode scanner* khusus `admin` & `staff`. |
+| `/api/v1/purchase-orders` ✅ | `GET` | Ya | Ya | Ya | `po:read` — Melihat daftar PO beserta filter & paginasi. |
+| `/api/v1/purchase-orders` ✅ | `POST` | Ya | Ya | Ya | `po:create` — Membuat PO draft baru; respon `201 Created` dengan header `Location`. |
+| `/api/v1/purchase-orders/{purchaseOrder}` ✅ | `GET` | Ya | Ya | Ya | `po:read` — Melihat detail PO lengkap beserta item, histori status, dan dokumen GRN. |
+| `/api/v1/purchase-orders/{purchaseOrder}` ✅ | `PUT`/`PATCH` | Ya | Ya* | Ya* | `po:update` — Memperbarui PO yang masih berstatus `draft` (`admin` atau pembuat PO). |
+| `/api/v1/purchase-orders/{purchaseOrder}/submit` ✅ | `POST` | Ya | Ya* | Ya* | `po:submit` — Mengajukan PO `draft` ke `pending_approval` (`admin` atau pembuat PO). |
+| `/api/v1/purchase-orders/{purchaseOrder}/approve` ✅ | `POST` | Ya* | Ya* | Tidak (`403`) | `po:approve` — Menyetujui PO `pending_approval` khusus `admin` & `manager`; **dilarang menyetujui PO buatan sendiri** (*Maker-Checker / SoD* → `422 GUARD_FAILED`). |
+| `/api/v1/purchase-orders/{purchaseOrder}/reject` ✅ | `POST` | Ya* | Ya* | Tidak (`403`) | `po:approve` — Menolak PO `pending_approval` dengan `reason` wajib (*Maker-Checker / SoD*). |
+| `/api/v1/purchase-orders/{purchaseOrder}/revise` ✅ | `POST` | Ya | Ya* | Ya* | `po:update` — Mengembalikan PO `rejected` ke status `draft` untuk diperbaiki. |
+| `/api/v1/purchase-orders/{purchaseOrder}/withdraw` ✅ | `POST` | Ya | Ya* | Ya* | `po:update` — Menarik kembali PO `pending_approval` ke status `draft`. |
+| `/api/v1/purchase-orders/{purchaseOrder}/cancel` ✅ | `POST` | Ya | Ya | Ya* | `po:update` / `po:approve` — Membatalkan PO yang belum menerima barang (`isCancellable()`) dengan `reason` wajib. |
+| `/api/v1/purchase-orders/{purchaseOrder}/receive` ✅ | `POST` | Ya | Tidak (`403`) | Ya | `po:receive` — Pencatatan penerimaan barang fisik via *barcode scanner* (`receipt_token` idempotent) khusus `admin` & `staff`. |
 
 > `*` **Pertahanan Berlapis (*Defense in Depth*):** Penegakan izin di atas wajib lolos di level *Sanctum Token Abilities* dan level *Policy / Gate* model bisnis sehingga token dari satu peran tidak pernah bisa menembus pembatasan domain seperti *Segregation of Duties*. Sesuai [`PurchaseOrderPolicy::create()`](../app/Policies/PurchaseOrderPolicy.php), `admin`, `manager`, dan `staff` diizinkan membuat draft PO, namun siapapun pembuat PO tetap dilarang menyetujui atau menolak PO buatannya sendiri.
 

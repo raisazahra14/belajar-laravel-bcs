@@ -6,11 +6,11 @@
 
 | Informasi | Nilai |
 |---|---|
-| ID dokumen | SRS-LOGISTIKKU-1.5 |
-| Versi | 1.5 |
-| Tanggal pembaruan | 5 November 2026 |
+| ID dokumen | SRS-LOGISTIKKU-1.6 |
+| Versi | 1.6 |
+| Tanggal pembaruan | 23 November 2026 |
 | Status | Baseline as-built terverifikasi lokal |
-| Teknologi utama | Laravel 12, PHP 8.2+, SQLite/MySQL, Python, Tesseract OCR |
+| Teknologi utama | Laravel 12, PHP 8.2/8.3+, Laravel Sanctum 4, OpenAPI 3.0.3 / Swagger UI, SQLite/MySQL, Python, Tesseract OCR |
 | Sumber implementasi | Route, controller, request, service, job, model, migration, view, dan test repository |
 
 Dokumen ini menjelaskan fitur dan kegunaan yang benar-benar tersedia dalam aplikasi. Jika uraian berbeda dari implementasi, kode, migration, dan pengujian pada baseline repository menjadi bukti perilaku aktual.
@@ -45,6 +45,7 @@ Dokumen ini menjelaskan fitur dan kegunaan yang benar-benar tersedia dalam aplik
 | 1.3 | 21 September 2026 | CRUD supplier/gudang dan audit migration bersih. |
 | 1.4 | 5 Oktober 2026 | Login baru, gudang A/B/C, transfer, reversal, audit pelaku, referensi transaksi, laporan mutasi, analitik, valuasi, rekonsiliasi, dan pusat notifikasi. |
 | 1.5 | 5 November 2026 | Modul Pengadaan (PO & GRN), Pemindai Barcode/QR Code Penerimaan Fisik (`BRG-######`), Three-Way Matching OCR, Dual-Pane AI Review Workspace & Self-Healing OCR, Vendor Performance & SLA Governance (ekspor Excel/CSV/PDF), Smart Restock AI + Best Vendor SLA (`1-Click Create PO`), dan Procurement Analytics & Budget Utilization Dashboard (`/analytics?tab=procurement`). |
+| 1.6 | 23 November 2026 | RESTful API v1 Paritas Penuh (20 path / 21 operasi: Sanctum Scoped Token Abilities, Barang & Cek Stok POS, Adjust/Transfer/Reverse Stok, Siklus Penuh PO & GRN Barcode), Dokumentasi OpenAPI 3.0.3 & Portal Swagger UI (`/docs/api`), Deprekasi Rute Legacy `/api/*` (`Deprecation`/`Sunset`/`Link`), Lokasi Rak Fisik & Stok Minimum per Gudang (`effectiveMinimumStock()`), Prediksi Stok dengan `incoming_po_stock` & `effectiveOperational()`, Idempotensi `receipt_token` & SoftDeletes Audit Reversal GRN, serta Dasbor System Health & Observability (`/system-health`: Heartbeat Scheduler/Queue Worker & Konsistensi Saldo Master vs Gudang). |
 
 ### 1.2 Status kebutuhan
 
@@ -80,15 +81,15 @@ Sistem mencakup:
 - import/export inventaris dan laporan mutasi;
 - dashboard, stok menipis, analitik inventaris, analitik pengadaan & utilisasi anggaran, valuasi, dan rekonsiliasi;
 - OCR Surat Jalan, Invoice, serta Bukti Fisik dengan Dual-Pane AI Review Workspace & Self-Healing OCR;
-- prediksi restock, Smart Restock AI berbasis evaluasi SLA vendor (`1-Click Create PO`), dan pusat notifikasi.
+- prediksi restock (`effectiveOperational` + `incoming_po_stock` + `effectiveMinimumStock`), Smart Restock AI berbasis evaluasi SLA vendor (`1-Click Create PO`), dan pusat notifikasi;
+- integrasi RESTful API v1 (`/api/v1/*`) dengan Laravel Sanctum (`abilities[]`), OpenAPI 3.0.3 (`/docs/openapi.yaml`), Swagger UI (`/docs/api`), dan deprekasi bertahap rute legacy `/api/*`;
+- dasbor pemantauan kesehatan infrastruktur & observabilitas (`/system-health`: database, konsistensi saldo master vs gudang, heartbeat queue worker & scheduler, Python/Tesseract, storage).
 
 Di luar baseline:
 
-- REST API publik, token API, dan OpenAPI;
-- permission dinamis di luar tiga role tetap;
+- permission dinamis di luar tiga role tetap (`admin`, `manager`, `staff`);
 - perubahan stok otomatis tanpa tindakan pengguna;
 - keputusan hukum final tentang keaslian dokumen;
-- health monitoring worker terpadu;
 - jaminan kapasitas/performa produksi tanpa uji lingkungan target.
 
 ### 2.3 Istilah
@@ -541,12 +542,13 @@ flowchart TD
 | Reliabilitas | Queue state, self-healing OCR, retry/fallback, failed jobs, audit trail |
 | Kompatibilitas | PHPUnit SQLite in-memory, konfigurasi SQLite/MySQL, unit test Python |
 
-### 12.3 Bukti eksekusi audit 5 November 2026
+### 12.3 Bukti eksekusi audit 23 November 2026
 
-- Seluruh 38 migration berhasil dijalankan dari database SQLite kosong.
-- Skema hasil audit: 28 tabel, 268 kolom, dan 38 FK (dilengkapi composite indexes performa pengadaan).
-- Suite Laravel: **482+ test cases** dan **5.000+ assertions** lulus 100% pada baseline pembaruan Periode 3 (termasuk Smart Restock SLA, Barcode/QR Scanner GRN, Vendor SLA Governance, dan Procurement Analytics Dashboard).
+- Seluruh 41 migration berhasil dijalankan dari database SQLite kosong.
+- Skema hasil audit: 29 tabel, 286 kolom, dan 40 FK (dilengkapi composite indexes performa pengadaan, `personal_access_tokens` Sanctum, lokasi rak `warehouse_stocks`, serta `receipt_token` & kolom audit reversal GRN).
+- Suite Laravel: **570+ test cases** dan **6.300+ assertions** lulus 100% pada baseline Periode 4 & Fase 4–6 (mencakup RESTful API v1 paritas penuh, OpenAPI 3.0.3, keamanan Sanctum/OWASP, Lokasi Rak & Stok Minimum Dinamis per Gudang, System Health Check & Konsistensi Saldo, serta Deprekasi Legacy `/api/*`).
 - Suite Python: **59 unit tests** lulus 100%.
+- Code style: Laravel Pint (`php vendor/bin/pint --test`) lulus 100%.
 - Build Vite produksi berhasil.
 - Validasi database produksi tetap **Perlu Uji Produksi**.
 

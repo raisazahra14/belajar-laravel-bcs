@@ -115,12 +115,12 @@ Jika klien mencoba meminta *ability* yang tidak dimiliki oleh role user tersebut
 | `stok:check` | Ya | Ya | Ya | `GET /barang/{barang}/check-stock` |
 | `stok:adjust` | Ya | Ya | Ya | `POST /stok/adjust` |
 | `stok:transfer` | Ya | Ya | Ya | `POST /stok/transfer` |
-| `stok:reverse` | Ya | Ya | Tidak | Reversal transaksi stok |
+| `stok:reverse` | Ya | Ya | Tidak | `POST /stok/{stokTransaction}/reverse` |
 | `po:read` | Ya | Ya | Ya | `GET /purchase-orders`, `GET /purchase-orders/{purchaseOrder}` |
 | `po:create` | Ya | Ya | Ya | `POST /purchase-orders` |
-| `po:update` | Ya | Ya | Ya | Pembaruan draft PO |
-| `po:submit` | Ya | Tidak | Ya | Pengajuan persetujuan PO |
-| `po:approve` | Ya | Ya | Tidak | Persetujuan PO (*Maker-Checker*) |
+| `po:update` | Ya | Ya | Ya | `PUT/PATCH /purchase-orders/{purchaseOrder}`, `POST /purchase-orders/{purchaseOrder}/revise`, `POST /purchase-orders/{purchaseOrder}/withdraw`, `POST /purchase-orders/{purchaseOrder}/cancel` |
+| `po:submit` | Ya | Ya | Ya | `POST /purchase-orders/{purchaseOrder}/submit` *(khusus `admin` atau pembuat PO)* |
+| `po:approve` | Ya | Ya | Tidak | `POST /purchase-orders/{purchaseOrder}/approve`, `POST /purchase-orders/{purchaseOrder}/reject`, `POST /purchase-orders/{purchaseOrder}/cancel` (*Maker-Checker*) |
 | `po:receive` | Ya | Tidak | Ya | `POST /purchase-orders/{purchaseOrder}/receive` *(hanya role `admin` & `staff`)* |
 
 ### 2.4 Masa Berlaku, Inspeksi, & Pencabutan Token
@@ -154,6 +154,12 @@ Jika klien mencoba meminta *ability* yang tidak dimiliki oleh role user tersebut
 4. **Paginasi & Pengurutan Aman:**
    - Endpoint daftar (`GET /api/v1/barang` dan `GET /api/v1/purchase-orders`) mendukung `page` (default `1`) dan `per_page` (default `15`, maksimal `100`), serta mengembalikan tautan HATEOAS pada `meta.links` (`first`, `last`, `prev`, `next`).
    - Parameter `sort` hanya menerima nilai pada *whitelist*: `id`, `kode_barang`, `nama_barang`, `kategori`, `stok`, `harga_beli`, `created_at`, `nama_asc`, `nama_desc`, `stok_asc`, `stok_desc`.
+5. **Deprekasi Rute Legacy Non-Versioned (`/api/*`):**
+   - Rute lama tanpa prefix versi (`/api/login`, `/api/logout`, `/api/user`, `/api/purchase-orders/*`) masih aktif untuk kompatibilitas mundur, namun setiap responsnya menyertakan header HTTP standar:
+     - `Deprecation: true`
+     - `Sunset: Wed, 30 Jun 2027 23:59:59 GMT` (dikonfigurasi melalui `LEGACY_API_SUNSET`)
+     - `Link: </api/v1/...>; rel="successor-version"` (menunjuk langsung ke endpoint pengganti di `/api/v1/*`)
+   - Seluruh integrasi baru wajib menggunakan kontrak tunggal `/api/v1/*`.
 
 ---
 
@@ -203,7 +209,7 @@ Setiap kegagalan pada `/api/v1/*` (termasuk error routing 404/405 maupun excepti
 2. **Menyertakan `supplier_id` saat `POST /api/v1/stok/adjust` dengan `jenis: "keluar"`:**  
    Server mengembalikan `422` karena supplier hanya relevan untuk barang masuk. Hapus key `supplier_id` dari payload saat mencatat stok keluar.
 3. **Menerima barang PO (`POST /api/v1/purchase-orders/{id}/receive`) gagal `422`:**  
-   PO yang baru dibuat lewat `POST /api/v1/purchase-orders` berstatus `draft`. PO harus diajukan dan disetujui (*approved* / *partially_received*) terlebih dahulu sebelum barang fisiknya dapat diterima.
+   PO yang baru dibuat lewat `POST /api/v1/purchase-orders` berstatus `draft`. Ajukan terlebih dahulu via `POST /api/v1/purchase-orders/{id}/submit` lalu setujui dengan akun `admin`/`manager` yang berbeda dari pembuat PO via `POST /api/v1/purchase-orders/{id}/approve` sebelum memanggil `/receive`.
 
 ---
 

@@ -115,9 +115,11 @@ Menyimpan dokumen resmi Berita Acara Penerimaan Barang Fisik (Goods Receipt Note
 - `warehouse_id`: Foreign key ke `warehouses` sebagai lokasi gudang fisik penerima
 - `tanggal_terima`: Tanggal fisik barang diterima di gudang (DATE)
 - `nomor_surat_jalan`: Nomor surat jalan / Delivery Order (DO) vendor rekanan (VARCHAR 120, nullable)
+- `receipt_token`: Token idempotensi penerimaan fisik barang (VARCHAR 64, nullable, Unique Index `uq_grn_receipt_token`)
 - `foto_surat_jalan`: Path berkas gambar/PDF bukti fisik surat jalan pada disk `public` (VARCHAR 255, nullable)
 - `catatan`: Catatan kondisi fisik kemasan atau nomor resi kurir (TEXT, nullable)
 - `received_by`: Foreign key ke `users` (staf/admin yang memverifikasi penerimaan fisik)
+- `reversed_at`, `reversed_by`, `reversal_reason`, `deleted_at`: Kolom jejak audit dan *soft delete* ketika penerimaan GRN direversal.
 - `timestamps`: `created_at` dan `updated_at`
 
 ### 3.5 Tabel `goods_receipt_items`
@@ -471,6 +473,15 @@ Modul analitik ekosistem pengadaan untuk memantau keandalan rekanan supplier sec
 ## 13. Riwayat Perubahan & Catatan Rilis Modul (Changelog)
 
 Catatan kronologis evolusi dan peningkatan teknis Modul Pengadaan (*Purchase Order & Goods Receipt*):
+
+### [v1.8.0] — 2026-11-23: Paritas Penuh RESTful API v1, Idempotensi & Jejak Audit Reversal GRN, serta Agregasi SQL Analitik
+- **Paritas Penuh Siklus Hidup PO pada `/api/v1/purchase-orders`**:
+  - Penyatuan orkestrasi transisi & penerimaan melalui `PurchaseOrderService` dan `DatabaseConcurrency::runWithDeadlockRetry()`.
+  - Penambahan `PurchaseOrderStatus::isCancellable()` dan dukungan penuh endpoint API v1 (`PUT/PATCH /purchase-orders/{po}`, `submit`, `approve`, `reject`, `revise`, `withdraw`, `cancel`, dan `receive`).
+- **Idempotensi Database (`uq_grn_receipt_token`) & Jejak Audit Reversal GRN (`SoftDeletes`)**:
+  - Migrasi `2026_11_23_100000_add_audit_and_idempotency_fields_to_goods_receipts_tables.php` menambahkan unique index `receipt_token` serta kolom `reversed_at`, `reversed_by`, `reversal_reason`, dan `deleted_at` (`SoftDeletes`) pada `goods_receipts` dan `goods_receipt_items` sehingga dokumen GRN yang direversal tetap tersimpan utuh untuk audit.
+- **Optimasi Agregasi SQL & Versioned Cache**:
+  - `ProcurementAnalyticsService` dan `SupplierPerformanceService` direfaktor menggunakan agregasi SQL `GROUP BY` (`SqlDateExpressions`) dan invalidasi cache berversi (`supplier:performance:version`), serta sanitasi ekspor terpusat melalui `SpreadsheetSanitizer`.
 
 ### [v1.7.0] — 2026-11-05: Smart Restock SLA Vendor, Barcode Scanner GRN & Procurement Analytics Dashboard
 - **Opsi 2 — Smart Restock AI + Best Vendor SLA (`1-Click Create PO`)**:
