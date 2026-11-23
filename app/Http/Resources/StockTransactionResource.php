@@ -18,6 +18,9 @@ class StockTransactionResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $canViewCost = $request->user() === null
+            || in_array($request->user()->role, ['admin', 'manager'], true);
+
         return [
             'id' => (int) $this->resource->id,
             'barang_id' => (int) $this->resource->barang_id,
@@ -26,9 +29,13 @@ class StockTransactionResource extends JsonResource
             'jumlah' => (int) $this->resource->jumlah,
             'stok_sebelum' => $this->resource->stok_sebelum !== null ? (int) $this->resource->stok_sebelum : null,
             'stok_sesudah' => $this->resource->stok_sesudah !== null ? (int) $this->resource->stok_sesudah : null,
-            'unit_cost' => $this->resource->unit_cost !== null ? (float) $this->resource->unit_cost : null,
-            'unit_cost_source' => $this->resource->unit_cost_source,
+            'unit_cost' => ($canViewCost && $this->resource->unit_cost !== null)
+                ? (float) $this->resource->unit_cost
+                : null,
+            'unit_cost_source' => $canViewCost ? $this->resource->unit_cost_source : null,
             'transfer_group_uuid' => $this->resource->transfer_group_uuid,
+            'reversal_of_id' => $this->resource->reversal_of_id !== null ? (int) $this->resource->reversal_of_id : null,
+            'reversed_at' => $this->resource->reversed_at?->toIso8601String(),
             'reference_type' => $this->resource->reference_type,
             'reference_number' => $this->resource->reference_number,
             'document_date' => $this->resource->document_date?->format('Y-m-d'),

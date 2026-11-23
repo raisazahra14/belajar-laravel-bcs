@@ -4,7 +4,7 @@
 <x-ui.page-header title="Detail Supplier" description="Informasi pemasok, barang, dan transaksi terkait.">
     <div class="page-actions d-flex gap-2">
         <x-ui.button :href="route('suppliers.index')" variant="outline-secondary" icon="ti-arrow-left">Kembali</x-ui.button>
-        <x-ui.button :href="route('suppliers.performance.show', $supplier)" variant="outline-info" icon="ti-bar-chart">Analitik Performa</x-ui.button>
+        @if(in_array(auth()->user()?->role, ['admin', 'manager'], true))<x-ui.button :href="route('suppliers.performance.show', $supplier)" variant="outline-info" icon="ti-bar-chart">Analitik Performa</x-ui.button>@endif
         @can('manage-barang')<x-ui.button :href="route('suppliers.edit', $supplier)" icon="ti-pencil">Edit Supplier</x-ui.button>@endcan
     </div>
 </x-ui.page-header>

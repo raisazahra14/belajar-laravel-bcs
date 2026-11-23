@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\SpreadsheetSanitizer;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -13,8 +14,6 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProcurementAnalyticsExportService
 {
-    private const BOM = "\xEF\xBB\xBF";
-
     /**
      * Export Laporan Eksekutif Analitik Pengadaan & Utilisasi Anggaran ke Excel (.xlsx).
      *
@@ -110,13 +109,13 @@ class ProcurementAnalyticsExportService
             foreach ($budgetRows as $index => $row) {
                 $values = [
                     $index + 1,
-                    $this->neutralizeFormula((string) ($row['nomor_po'] ?? '-')),
+                    SpreadsheetSanitizer::neutralizeCell($row['nomor_po'] ?? '-'),
                     (string) ($row['tanggal_pesan'] ?? '-'),
-                    $this->neutralizeFormula((string) ($row['supplier_name'] ?? '-')),
-                    $this->neutralizeFormula((string) ($row['warehouse_name'] ?? '-')),
+                    SpreadsheetSanitizer::neutralizeCell($row['supplier_name'] ?? '-'),
+                    SpreadsheetSanitizer::neutralizeCell($row['warehouse_name'] ?? '-'),
                     (string) ($row['status_label'] ?? '-'),
                     (float) ($row['po_budget'] ?? 0),
-                    $this->neutralizeFormula((string) ($row['invoice_number'] ?? 'Belum Ada')),
+                    SpreadsheetSanitizer::neutralizeCell($row['invoice_number'] ?? 'Belum Ada'),
                     $row['invoice_amount'] !== null ? (float) $row['invoice_amount'] : 0.0,
                     $row['variance'] !== null ? (float) $row['variance'] : 0.0,
                     (string) ($row['matching_label'] ?? '-'),
@@ -149,8 +148,8 @@ class ProcurementAnalyticsExportService
 
             foreach ($warehouseRows as $wh) {
                 $whVals = [
-                    $wh['kode_gudang'] ?? '-',
-                    $wh['nama_gudang'] ?? '-',
+                    SpreadsheetSanitizer::neutralizeCell($wh['kode_gudang'] ?? '-'),
+                    SpreadsheetSanitizer::neutralizeCell($wh['nama_gudang'] ?? '-'),
                     (int) ($wh['po_count'] ?? 0),
                     (int) ($wh['ordered_units'] ?? 0),
                     (int) ($wh['received_units'] ?? 0),
@@ -182,7 +181,7 @@ class ProcurementAnalyticsExportService
 
             foreach ($categoryRows as $cat) {
                 $catVals = [
-                    $cat['kategori'] ?? '-',
+                    SpreadsheetSanitizer::neutralizeCell($cat['kategori'] ?? '-'),
                     (int) ($cat['po_count'] ?? 0),
                     (int) ($cat['sku_count'] ?? 0),
                     (int) ($cat['ordered_units'] ?? 0),
@@ -228,7 +227,7 @@ class ProcurementAnalyticsExportService
                 return;
             }
 
-            fwrite($handle, self::BOM);
+            fwrite($handle, SpreadsheetSanitizer::UTF8_BOM);
 
             $kpis = $procurement['kpis'] ?? [];
             $budgetRows = $procurement['budget_comparison']['rows'] ?? [];
@@ -262,13 +261,13 @@ class ProcurementAnalyticsExportService
             foreach ($budgetRows as $idx => $row) {
                 fputcsv($handle, [
                     $idx + 1,
-                    $this->neutralizeFormula((string) ($row['nomor_po'] ?? '-')),
+                    SpreadsheetSanitizer::neutralizeCell($row['nomor_po'] ?? '-'),
                     (string) ($row['tanggal_pesan'] ?? '-'),
-                    $this->neutralizeFormula((string) ($row['supplier_name'] ?? '-')),
-                    $this->neutralizeFormula((string) ($row['warehouse_name'] ?? '-')),
+                    SpreadsheetSanitizer::neutralizeCell($row['supplier_name'] ?? '-'),
+                    SpreadsheetSanitizer::neutralizeCell($row['warehouse_name'] ?? '-'),
                     (string) ($row['status_label'] ?? '-'),
                     number_format((float) ($row['po_budget'] ?? 0), 2, '.', ''),
-                    $this->neutralizeFormula((string) ($row['invoice_number'] ?? 'Belum Ada')),
+                    SpreadsheetSanitizer::neutralizeCell($row['invoice_number'] ?? 'Belum Ada'),
                     $row['invoice_amount'] !== null ? number_format((float) $row['invoice_amount'], 2, '.', '') : '0.00',
                     $row['variance'] !== null ? number_format((float) $row['variance'], 2, '.', '') : '0.00',
                     (string) ($row['matching_label'] ?? '-'),
@@ -280,8 +279,8 @@ class ProcurementAnalyticsExportService
             fputcsv($handle, ['Kode Gudang', 'Nama Gudang', 'Jumlah PO', 'Unit Dipesan', 'Unit Diterima', 'Fulfillment (%)', 'Total Nilai (Rp)', 'Porsi (%)']);
             foreach ($warehouseRows as $wh) {
                 fputcsv($handle, [
-                    $this->neutralizeFormula((string) ($wh['kode_gudang'] ?? '-')),
-                    $this->neutralizeFormula((string) ($wh['nama_gudang'] ?? '-')),
+                    SpreadsheetSanitizer::neutralizeCell($wh['kode_gudang'] ?? '-'),
+                    SpreadsheetSanitizer::neutralizeCell($wh['nama_gudang'] ?? '-'),
                     (int) ($wh['po_count'] ?? 0),
                     (int) ($wh['ordered_units'] ?? 0),
                     (int) ($wh['received_units'] ?? 0),
@@ -296,7 +295,7 @@ class ProcurementAnalyticsExportService
             fputcsv($handle, ['Kategori', 'Jumlah PO', 'Jumlah SKU', 'Unit Dipesan', 'Unit Diterima', 'Fulfillment (%)', 'Total Nilai (Rp)', 'Porsi (%)']);
             foreach ($categoryRows as $cat) {
                 fputcsv($handle, [
-                    $this->neutralizeFormula((string) ($cat['kategori'] ?? '-')),
+                    SpreadsheetSanitizer::neutralizeCell($cat['kategori'] ?? '-'),
                     (int) ($cat['po_count'] ?? 0),
                     (int) ($cat['sku_count'] ?? 0),
                     (int) ($cat['ordered_units'] ?? 0),
@@ -492,15 +491,6 @@ class ProcurementAnalyticsExportService
     private function filename(string $ext): string
     {
         return 'analitik-pengadaan-logistikku-'.now(config('app.display_timezone'))->format('Ymd-His').'.'.$ext;
-    }
-
-    private function neutralizeFormula(string $value): string
-    {
-        if ($value !== '' && in_array($value[0], ['=', '+', '-', '@'], true)) {
-            return "\t".$value;
-        }
-
-        return $value;
     }
 
     private function escape(string $text): string

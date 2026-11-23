@@ -13,7 +13,7 @@
 <header class="page-header"><div><h1>Status Verifikasi Dokumen</h1><p>{{ $verification->original_filename }}</p></div><x-ui.button :href="route('verifications.index')" variant="outline-secondary" icon="ti-arrow-left">Kembali ke Riwayat</x-ui.button></header>
 @if(session('success'))<x-ui.alert type="success">{{ session('success') }}</x-ui.alert>@endif
 
-<section class="ocr-processing-card card" data-process-status="{{ $verification->process_status }}" id="ocr-process" data-status-url="{{ route('verifications.status', $verification) }}">
+<section class="ocr-processing-card card" data-process-status="{{ $verification->process_status }}" id="ocr-process" data-status-url="{{ route('verifications.status', $verification) }}" data-process-now-url="{{ route('verifications.process-now', $verification) }}" data-csrf-token="{{ csrf_token() }}">
     <div class="card-body">
         <div class="document-scanner" aria-hidden="true">
             <i class="ti-file scanner-document-icon"></i>
@@ -77,8 +77,13 @@ document.addEventListener('DOMContentLoaded', function () {
             processNowBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Memproses OCR...';
         }
 
-        fetch(processCard.dataset.statusUrl + '?run_now=1', {
-            headers: {'Accept': 'application/json'},
+        fetch(processCard.dataset.processNowUrl, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': processCard.dataset.csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
             credentials: 'same-origin'
         })
         .then(function (response) { if (!response.ok) throw new Error('Status tidak tersedia'); return response.json(); })

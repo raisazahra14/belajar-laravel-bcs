@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\SpreadsheetSanitizer;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -14,8 +15,6 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SupplierPerformanceExportService
 {
-    private const BOM = "\xEF\xBB\xBF";
-
     private const HEADERS = [
         'No.',
         'Kode Supplier',
@@ -111,8 +110,8 @@ class SupplierPerformanceExportService
 
                 $data = [
                     $index + 1,
-                    $supplier->kode_supplier,
-                    $supplier->nama_supplier,
+                    SpreadsheetSanitizer::neutralizeCell($supplier->kode_supplier),
+                    SpreadsheetSanitizer::neutralizeCell($supplier->nama_supplier),
                     $metric['total_po'],
                     $metric['completed_po'],
                     $metric['ongoing_po'],
@@ -128,7 +127,7 @@ class SupplierPerformanceExportService
                     $metric['performance_score'],
                     $metric['rating_label'],
                     $metric['sla_label'],
-                    $notes,
+                    SpreadsheetSanitizer::neutralizeCell($notes),
                 ];
 
                 foreach ($data as $colIdx => $val) {
@@ -167,7 +166,8 @@ class SupplierPerformanceExportService
         }, 'laporan-performa-vendor-'.now()->format('YmdHis').'.xlsx', [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition' => 'attachment; filename="laporan-performa-vendor-'.now()->format('YmdHis').'.xlsx"',
-            'Cache-Control' => 'max-age=0',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
         ]);
     }
 
@@ -189,7 +189,7 @@ class SupplierPerformanceExportService
             }
 
             try {
-                fwrite($stream, self::BOM);
+                fwrite($stream, SpreadsheetSanitizer::UTF8_BOM);
                 fputcsv($stream, self::HEADERS, ',', '"', '', "\r\n");
 
                 foreach ($rows as $index => $metric) {
@@ -218,7 +218,7 @@ class SupplierPerformanceExportService
                         $notes,
                     ];
 
-                    fputcsv($stream, array_map($this->safeCsvCell(...), $line), ',', '"', '', "\r\n");
+                    fputcsv($stream, SpreadsheetSanitizer::neutralizeRow($line), ',', '"', '', "\r\n");
                 }
             } finally {
                 fclose($stream);
@@ -363,17 +363,6 @@ class SupplierPerformanceExportService
         }
 
         return 'Semua Periode Transaksi Aktif';
-    }
-
-    private function safeCsvCell(mixed $value): string
-    {
-        $value = (string) $value;
-        if (preg_match('/\A[\s\p{Z}\x{FEFF}]*[=+@\-\x{FF1D}\x{FF0B}\x{FF0D}\x{FF20}]/u', $value) === 1
-            || preg_match('/\A[\t\r\n]/', $value) === 1) {
-            return "\t".$value;
-        }
-
-        return $value;
     }
 
     private function pdfEscape(string $value): string

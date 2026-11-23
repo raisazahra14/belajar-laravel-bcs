@@ -1,6 +1,7 @@
 <?php
 
 use App\Exceptions\InvalidPurchaseOrderTransitionException;
+use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\EnsureUserHasRole;
 use App\Traits\ApiResponses;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -31,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        $middleware->append(AddSecurityHeaders::class);
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
             'abilities' => CheckAbilities::class,

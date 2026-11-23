@@ -44,6 +44,7 @@ class User extends Authenticatable
             'po:read',
             'po:create',
             'po:update',
+            'po:submit',
             'po:approve',
         ],
         'staff' => [

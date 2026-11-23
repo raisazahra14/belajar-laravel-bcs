@@ -18,17 +18,22 @@ class PurchaseOrderItemResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $canViewCost = $request->user() === null
+            || in_array($request->user()->role, ['admin', 'manager'], true);
+
         return [
             'id' => $this->resource->id,
             'purchase_order_id' => $this->resource->purchase_order_id,
             'barang_id' => $this->resource->barang_id,
-            'barang' => $this->whenLoaded('barang', function () {
+            'barang' => $this->whenLoaded('barang', function () use ($canViewCost) {
                 return [
                     'id' => $this->resource->barang?->id,
                     'kode_barang' => $this->resource->barang?->kode_barang,
                     'nama_barang' => $this->resource->barang?->nama_barang,
                     'satuan' => $this->resource->barang?->satuan,
-                    'harga_beli' => (float) $this->resource->barang?->harga_beli,
+                    'harga_beli' => ($canViewCost && $this->resource->barang?->harga_beli !== null)
+                        ? (float) $this->resource->barang->harga_beli
+                        : null,
                 ];
             }),
             'jumlah_pesan' => (int) $this->resource->jumlah_pesan,

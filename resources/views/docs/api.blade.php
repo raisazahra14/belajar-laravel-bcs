@@ -201,6 +201,63 @@
             color: #ffffff;
         }
 
+        /* Live API Health Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 13px;
+            border-radius: var(--radius-md);
+            font-family: var(--font-sans);
+            font-size: 0.82rem;
+            font-weight: 600;
+            border: 1px solid var(--border);
+            background-color: var(--surface);
+            color: var(--text-secondary);
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .status-badge:hover {
+            filter: brightness(0.98);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background-color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .status-badge.is-loading {
+            background-color: var(--surface-soft);
+            border-color: var(--border);
+            color: var(--text-muted);
+        }
+
+        .status-badge.is-online {
+            background-color: var(--success-50);
+            border-color: var(--success-200);
+            color: var(--success-600);
+        }
+
+        .status-badge.is-online .status-dot {
+            background-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+        }
+
+        .status-badge.is-offline {
+            background-color: var(--danger-50);
+            border-color: var(--danger-200);
+            color: var(--danger-600);
+        }
+
+        .status-badge.is-offline .status-dot {
+            background-color: #ef4444;
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
+        }
+
         /* Main Container & Single Unified Intro */
         .portal-container {
             max-width: 1180px;
@@ -805,9 +862,10 @@
                 <a class="portal-btn" href="{{ $specUrl }}" download="logistikku-openapi-v1.yaml">
                     Unduh YAML
                 </a>
-                <a class="portal-btn portal-btn-hide-sm" href="{{ route('api.v1.status') }}" target="_blank" rel="noopener">
-                    Status API
-                </a>
+                <button type="button" id="api-status-badge" class="status-badge is-loading portal-btn-hide-sm" data-endpoint="{{ route('api.v1.status') }}" title="Klik untuk cek ulang status API" aria-live="polite">
+                    <span class="status-dot" aria-hidden="true"></span>
+                    <span class="status-text">Memeriksa API...</span>
+                </button>
                 <a class="portal-btn portal-btn-primary" href="{{ auth()->check() ? route('barang.index') : route('login') }}">
                     {{ auth()->check() ? 'Kembali ke Aplikasi' : 'Login Aplikasi' }}
                 </a>
@@ -904,6 +962,53 @@
                     return request;
                 }
             });
+
+            var statusBadge = document.getElementById('api-status-badge');
+            if (statusBadge && statusBadge.dataset.endpoint) {
+                var statusText = statusBadge.querySelector('.status-text');
+                var checkApiStatus = function () {
+                    statusBadge.classList.remove('is-online', 'is-offline');
+                    statusBadge.classList.add('is-loading');
+                    if (statusText) {
+                        statusText.textContent = 'Memeriksa API...';
+                    }
+
+                    var startedAt = performance.now();
+                    fetch(statusBadge.dataset.endpoint, {
+                        headers: { Accept: 'application/json' },
+                        cache: 'no-store'
+                    })
+                        .then(function (response) {
+                            if (!response.ok) {
+                                throw new Error('HTTP ' + response.status);
+                            }
+                            return response.json();
+                        })
+                        .then(function (payload) {
+                            var latencyMs = Math.round(performance.now() - startedAt);
+                            var isOperational = payload && payload.success === true && payload.data && payload.data.status === 'operational';
+                            var version = (payload && payload.meta && payload.meta.version) ? payload.meta.version : @json($apiVersion);
+
+                            statusBadge.classList.remove('is-loading', 'is-offline');
+                            statusBadge.classList.add(isOperational ? 'is-online' : 'is-offline');
+                            if (statusText) {
+                                statusText.textContent = isOperational ? 'API Operational' : 'API Degraded';
+                            }
+                            statusBadge.title = 'Status: ' + (payload && payload.data ? payload.data.status : 'unknown') + ' · Versi: ' + version + ' · Latensi: ' + latencyMs + ' ms (klik untuk cek ulang)';
+                        })
+                        .catch(function () {
+                            statusBadge.classList.remove('is-loading', 'is-online');
+                            statusBadge.classList.add('is-offline');
+                            if (statusText) {
+                                statusText.textContent = 'API Unavailable';
+                            }
+                            statusBadge.title = 'Endpoint /api/v1/status tidak dapat dijangkau (klik untuk cek ulang)';
+                        });
+                };
+
+                checkApiStatus();
+                statusBadge.addEventListener('click', checkApiStatus);
+            }
         });
     </script>
 </body>

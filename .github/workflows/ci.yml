@@ -72,10 +72,38 @@ jobs:
             exit 1
           fi
 
+      - name: Validate Docker entrypoint and compose configurations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if grep -q $'\r' docker/entrypoint.sh; then
+            echo "::error title=CRLF line endings detected::docker/entrypoint.sh must use LF line endings."
+            exit 1
+          fi
+
+          sh -n docker/entrypoint.sh
+
+          if grep -qE 'key:generate\s+--force' docker/entrypoint.sh; then
+            echo "::error title=Unsafe key rotation::docker/entrypoint.sh must not run key:generate --force."
+            exit 1
+          fi
+
+          docker compose -f docker-compose.yml config -q
+          APP_KEY="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
+            DB_PASSWORD="ci_dummy_db_password" \
+            DB_ROOT_PASSWORD="ci_dummy_root_password" \
+            REDIS_PASSWORD="ci_dummy_redis_password" \
+            docker compose -f docker-compose.prod.yml config -q
+
   php-tests:
-    name: PHP 8.2 / PHPUnit
+    name: PHP ${{ matrix.php-version }} / PHPUnit
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ["8.2", "8.3"]
     env:
       APP_ENV: testing
       APP_DEBUG: "false"
@@ -99,7 +127,7 @@ jobs:
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.2"
+          php-version: ${{ matrix.php-version }}
           coverage: none
           extensions: ctype, dom, fileinfo, filter, gd, iconv, mbstring, openssl, pdo_sqlite, simplexml, sqlite3, xml, xmlreader, xmlwriter, zip
           tools: composer:v2

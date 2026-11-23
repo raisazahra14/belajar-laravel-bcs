@@ -510,12 +510,12 @@ class StockAdjustmentService
             $original->update(['reversed_at' => now(), 'reversed_by' => $userId]);
 
             if ($original->reference_type === 'PO' && $original->reference_number) {
-                $this->syncPurchaseOrderOnReversal($original, $userId);
+                $this->syncPurchaseOrderOnReversal($original, $userId, $reason);
             }
         });
     }
 
-    private function syncPurchaseOrderOnReversal(StokTransaction $original, int $userId): void
+    private function syncPurchaseOrderOnReversal(StokTransaction $original, int $userId, string $reason): void
     {
         $po = PurchaseOrder::where('nomor_po', $original->reference_number)->lockForUpdate()->first();
         if (! $po) {
@@ -528,7 +528,7 @@ class StockAdjustmentService
             $poItem->save();
         }
 
-        $this->syncGoodsReceiptsOnReversal($po, $original);
+        $this->syncGoodsReceiptsOnReversal($po, $original, $userId, $reason);
 
         $poItems = $po->items()->get();
         $totalTerima = (int) $poItems->sum('jumlah_diterima');
@@ -552,12 +552,14 @@ class StockAdjustmentService
         }
     }
 
-    private function syncGoodsReceiptsOnReversal(PurchaseOrder $po, StokTransaction $original): void
+    private function syncGoodsReceiptsOnReversal(PurchaseOrder $po, StokTransaction $original, int $userId, string $reason): void
     {
         $remainingToReverse = (int) $original->jumlah;
         if ($remainingToReverse <= 0) {
             return;
         }
+
+        $auditReason = mb_substr(trim($reason), 0, 255);
 
         $grnItems = GoodsReceiptItem::query()
             ->whereHas('goodsReceipt', fn ($q) => $q->where('purchase_order_id', $po->id))
@@ -578,6 +580,11 @@ class StockAdjustmentService
 
             if ($currentQty <= $remainingToReverse) {
                 $remainingToReverse -= $currentQty;
+                $grnItem->forceFill([
+                    'reversed_at' => now(),
+                    'reversed_by' => $userId,
+                    'reversal_reason' => $auditReason,
+                ])->save();
                 $grnItem->delete();
             } else {
                 $grnItem->jumlah_diterima = $currentQty - $remainingToReverse;
@@ -593,6 +600,11 @@ class StockAdjustmentService
         foreach (array_unique($affectedGrnIds) as $grnId) {
             $grn = GoodsReceipt::lockForUpdate()->find($grnId);
             if ($grn && $grn->items()->count() === 0) {
+                $grn->forceFill([
+                    'reversed_at' => now(),
+                    'reversed_by' => $userId,
+                    'reversal_reason' => $auditReason,
+                ])->save();
                 $grn->delete();
             }
         }

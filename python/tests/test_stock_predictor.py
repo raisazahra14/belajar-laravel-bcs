@@ -79,4 +79,29 @@ class StockPredictorTest(unittest.TestCase):
         self.assertTrue(first["requires_review"])
         self.assertEqual("Perlu Ditinjau", first["status"])
 
+    def test_open_po_stock_reduces_restock_and_avoids_duplicate_urgency_when_fully_covered(self):
+        rows = [tx(2, 5), tx(1, 5), tx(0, 5)]
+        item_payload = payload(10, rows, lead_time=7)
+        item_payload["item"]["incoming_po_stock"] = 200
+        result = predict(item_payload, TODAY)
+
+        self.assertEqual(200, result["incoming_po_stock"])
+        self.assertEqual(210, result["effective_stock"])
+        self.assertEqual(0, result["recommended_restock"])
+        self.assertEqual("Waspada", result["status"])
+        self.assertEqual((TODAY + timedelta(days=2)).isoformat(), result["predicted_depletion_date"])
+        self.assertIn("PO terbuka", result["reason"])
+
+    def test_open_po_stock_partial_coverage_keeps_urgent_status_with_reduced_restock(self):
+        rows = [tx(2, 5), tx(1, 5), tx(0, 5)]
+        item_payload = payload(10, rows, lead_time=7)
+        item_payload["item"]["incoming_po_stock"] = 30
+        result = predict(item_payload, TODAY)
+
+        self.assertEqual(30, result["incoming_po_stock"])
+        self.assertEqual(40, result["effective_stock"])
+        # demand 30d = 150, safety = 35, effective = 40 -> restock = 145
+        self.assertEqual(145, result["recommended_restock"])
+        self.assertEqual("Mendesak", result["status"])
+
 if __name__ == "__main__": unittest.main()

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\PurchaseOrderStatus;
 use App\Services\ProcurementAnalyticsService;
+use App\Services\SupplierPerformanceService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -47,13 +48,13 @@ class PurchaseOrder extends Model
             }
         });
 
-        static::saved(function (): void {
+        $clearCaches = static function (): void {
             ProcurementAnalyticsService::clearCache();
-        });
+            SupplierPerformanceService::clearCache();
+        };
 
-        static::deleted(function (): void {
-            ProcurementAnalyticsService::clearCache();
-        });
+        static::saved($clearCaches);
+        static::deleted($clearCaches);
     }
 
     /**

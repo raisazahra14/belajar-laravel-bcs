@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Exceptions\StockPredictionException;
 use App\Models\Barang;
 use App\Models\StockPrediction;
 use App\Models\StockPredictionNotification;
+use App\Models\StokTransaction;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -31,7 +33,7 @@ class StockPredictionService
             $result = $this->fallbackResult($payload, $exception);
         }
 
-        return $this->storePrediction($barang, $user, $result, $history, $processGeneration);
+        return $this->storePrediction($barang, $user, $result, $history, $processGeneration, $payload);
     }
 
     /** @return array{scheduled: int, skipped: int, failed: int} */
@@ -44,13 +46,23 @@ class StockPredictionService
     private function payloadFor(Barang $barang, bool $relationLoaded = false): array
     {
         $transactions = $relationLoaded
-            ? $barang->stokTransactions
-            : $barang->stokTransactions()->where('jenis', 'keluar')
-                ->oldest('created_at')->oldest('id')->get(['id', 'jumlah', 'created_at']);
+            ? $barang->stokTransactions->filter(fn ($row): bool => $row->jenis === 'keluar'
+                && ($row->mutation_type ?? StokTransaction::MUTATION_OPERATIONAL) === StokTransaction::MUTATION_OPERATIONAL
+                && $row->reversed_at === null
+                && $row->reversal_of_id === null)->values()
+            : $barang->stokTransactions()
+                ->where('jenis', 'keluar')
+                ->effectiveOperational()
+                ->oldest('created_at')
+                ->oldest('id')
+                ->get(['id', 'jumlah', 'created_at']);
         $history = $transactions
             ->map(fn ($row) => ['id' => $row->id, 'quantity' => $row->jumlah, 'date' => $row->created_at->toIso8601String()])->all();
+        $openPo = $this->openPurchaseOrderSummary((int) $barang->id);
 
         $payload = ['item' => ['id' => $barang->id, 'current_stock' => $barang->stok,
+            'incoming_po_stock' => $openPo['incoming_po_stock'],
+            'open_po_count' => $openPo['open_po_count'],
             'minimum_stock' => Barang::MINIMUM_STOCK,
             'daily_usage_estimate' => $barang->daily_usage_estimate !== null ? (float) $barang->daily_usage_estimate : null,
             'lead_time_days' => $barang->lead_time_days], 'out_transactions' => $history,
@@ -61,9 +73,33 @@ class StockPredictionService
         return [$payload, $history];
     }
 
-    private function storePrediction(Barang $barang, ?User $user, array $result, array $history, ?int $processGeneration = null): StockPrediction
+    /** @return array{incoming_po_stock: int, open_po_count: int} */
+    private function openPurchaseOrderSummary(int $barangId): array
     {
-        return DB::transaction(function () use ($barang, $user, $result, $history, $processGeneration): StockPrediction {
+        $row = DB::table('purchase_order_items as poi')
+            ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id')
+            ->where('poi.barang_id', $barangId)
+            ->whereIn('po.status', [
+                PurchaseOrderStatus::APPROVED->value,
+                PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
+            ])
+            ->selectRaw('COALESCE(SUM(CASE WHEN poi.jumlah_pesan > poi.jumlah_diterima THEN poi.jumlah_pesan - poi.jumlah_diterima ELSE 0 END), 0) AS incoming_qty')
+            ->selectRaw('COUNT(DISTINCT CASE WHEN poi.jumlah_pesan > poi.jumlah_diterima THEN po.id END) AS open_po_count')
+            ->first();
+
+        return [
+            'incoming_po_stock' => max(0, (int) ($row->incoming_qty ?? 0)),
+            'open_po_count' => max(0, (int) ($row->open_po_count ?? 0)),
+        ];
+    }
+
+    private function storePrediction(Barang $barang, ?User $user, array $result, array $history, ?int $processGeneration = null, array $payload = []): StockPrediction
+    {
+        $incomingPoStock = (int) ($result['incoming_po_stock'] ?? data_get($payload, 'item.incoming_po_stock', 0));
+        $openPoCount = (int) data_get($payload, 'item.open_po_count', 0);
+        $effectiveStock = (int) ($result['effective_stock'] ?? ((int) $barang->stok + $incomingPoStock));
+
+        return DB::transaction(function () use ($barang, $user, $result, $history, $processGeneration, $incomingPoStock, $openPoCount, $effectiveStock): StockPrediction {
             $previous = StockPrediction::where('barang_id', $barang->id)->latest('analyzed_at')->latest('id')->first();
             $prediction = StockPrediction::create([
                 'barang_id' => $barang->id, 'analyzed_by' => $user?->exists ? $user->id : null,
@@ -76,6 +112,9 @@ class StockPredictionService
                 'analysis_status' => $result['analysis_status'], 'metrics' => $result['metrics'],
                 'input_summary' => [
                     'prediction_available' => (bool) ($result['prediction_available'] ?? false),
+                    'incoming_po_stock' => $incomingPoStock,
+                    'open_po_count' => $openPoCount,
+                    'effective_stock' => $effectiveStock,
                     'out_transaction_count' => (int) ($result['out_transaction_count'] ?? count($history)),
                     'out_transaction_days' => (int) ($result['out_transaction_days'] ?? 0),
                     'history_days' => (int) ($result['history_days'] ?? 0),
@@ -193,6 +232,8 @@ class StockPredictionService
 
         $item = $payload['item'];
         $stock = max(0, (int) $item['current_stock']);
+        $incomingPoStock = max(0, (int) ($item['incoming_po_stock'] ?? 0));
+        $effectiveStock = $stock + $incomingPoStock;
         $minimum = max(0, (int) ($item['minimum_stock'] ?? Barang::MINIMUM_STOCK));
         $horizon = max(1, (int) ($payload['forecast_days'] ?? 30));
         $todayDate = today();
@@ -241,15 +282,28 @@ class StockPredictionService
         $available = $dailyRate !== null && $dailyRate > 0;
         $demand = $available ? round($dailyRate * $horizon, 2) : null;
         $safety = $available ? max($minimum, (int) ceil($dailyRate * ($leadTime ?: 7))) : null;
-        $restock = $available ? max((int) ceil($demand + $safety - $stock), 0) : 0;
+        $restock = $available ? max((int) ceil($demand + $safety - $effectiveStock), 0) : 0;
+        if ($available && $incomingPoStock > 0) {
+            $reason .= " Memperhitungkan {$incomingPoStock} unit PO terbuka dalam pengiriman.";
+        }
         $depletion = $available ? $todayDate->copy()->addDays((int) ceil($stock / $dailyRate))->toDateString() : null;
         $minimumDate = $available && $stock > $safety
             ? $todayDate->copy()->addDays((int) ceil(($stock - $safety) / $dailyRate))->toDateString()
             : null;
+        $status = match (true) {
+            ! $available => StockPrediction::STATUS_REVIEW,
+            $stock < $safety && ($incomingPoStock === 0 || $restock > 0) => StockPrediction::STATUS_URGENT,
+            $stock < $safety => StockPrediction::STATUS_WARNING,
+            $restock > 0 => StockPrediction::STATUS_RESTOCK,
+            $stock === $safety => StockPrediction::STATUS_WARNING,
+            default => StockPrediction::STATUS_SAFE,
+        };
 
         return [
             'barang_id' => $item['id'] ?? null,
             'current_stock' => $stock,
+            'incoming_po_stock' => $incomingPoStock,
+            'effective_stock' => $effectiveStock,
             'prediction_available' => $available,
             'predicted_30_day_need' => $demand,
             'demand_30_days' => $demand,
@@ -257,9 +311,7 @@ class StockPredictionService
             'predicted_depletion_date' => $depletion,
             'safety_stock' => $safety,
             'recommended_restock' => $restock,
-            'status' => ! $available ? StockPrediction::STATUS_REVIEW
-                : ($stock < $safety ? StockPrediction::STATUS_URGENT
-                    : ($restock > 0 ? StockPrediction::STATUS_RESTOCK : StockPrediction::STATUS_SAFE)),
+            'status' => $status,
             'method' => $method,
             'confidence' => $confidence,
             'out_transaction_count' => $count,

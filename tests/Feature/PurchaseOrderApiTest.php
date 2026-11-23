@@ -332,7 +332,8 @@ class PurchaseOrderApiTest extends TestCase
             ->assertForbidden();
 
         // Pembuat menarik pengajuan ke Draft
-        $this->actingAs($this->staff)
+        $this->app['auth']->forgetGuards();
+        $this->actingAs($this->staff, 'web')
             ->postJson("/api/purchase-orders/{$po->id}/withdraw", ['reason' => 'Revisi item via API'])
             ->assertOk()
             ->assertJsonPath('data.status.value', 'draft');
@@ -366,18 +367,19 @@ class PurchaseOrderApiTest extends TestCase
         ]);
 
         // Staff tidak berwenang menyetujui PO -> 403 Forbidden (bukan 500)
-        $this->actingAs($this->staff)
+        $this->actingAs($this->staff, 'web')
             ->postJson("/api/purchase-orders/{$po->id}/approve")
             ->assertForbidden()
             ->assertJsonPath('error_code', 'unauthorized_role');
 
         // Manager tidak boleh menyetujui/menolak PO buatannya sendiri (SoD) -> 422 (bukan 500)
-        $this->actingAs($this->manager)
+        $this->app['auth']->forgetGuards();
+        $this->actingAs($this->manager, 'web')
             ->postJson("/api/purchase-orders/{$po->id}/approve")
             ->assertUnprocessable()
             ->assertJsonPath('error_code', 'guard_failed');
 
-        $this->actingAs($this->manager)
+        $this->actingAs($this->manager, 'web')
             ->postJson("/api/purchase-orders/{$po->id}/reject", ['reason' => 'Coba tolak sendiri'])
             ->assertUnprocessable()
             ->assertJsonPath('error_code', 'guard_failed');

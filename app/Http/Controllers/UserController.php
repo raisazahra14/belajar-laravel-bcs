@@ -6,6 +6,8 @@ use App\Models\GoodsReceipt;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -53,11 +55,30 @@ class UserController extends Controller
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
         ]);
 
+        $roleChanged = $data['role'] !== $user->role;
+        $passwordChanged = ! blank($data['password'] ?? null);
+
         if (blank($data['password'])) {
             unset($data['password']);
         }
 
         $user->update($data);
+
+        if ($roleChanged || $passwordChanged) {
+            $user->tokens()->delete();
+            $user->forceFill(['remember_token' => Str::random(60)])->save();
+
+            if (config('session.driver') === 'database') {
+                $sessionTable = (string) config('session.table', 'sessions');
+                if (Schema::hasTable($sessionTable)) {
+                    $sessions = DB::table($sessionTable)->where('user_id', $user->id);
+                    if ($request->user()?->is($user) && $request->hasSession()) {
+                        $sessions->where('id', '!=', $request->session()->getId());
+                    }
+                    $sessions->delete();
+                }
+            }
+        }
 
         return redirect('/users')->with('success', 'User berhasil diperbarui.');
     }

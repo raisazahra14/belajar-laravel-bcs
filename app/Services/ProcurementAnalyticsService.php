@@ -4,14 +4,36 @@ namespace App\Services;
 
 use App\Enums\PurchaseOrderStatus;
 use App\Models\DocumentVerification;
-use App\Models\PurchaseOrder;
-use App\Models\PurchaseOrderItem;
+use App\Support\SqlDateExpressions;
 use Carbon\Carbon;
+use Illuminate\Contracts\Database\Query\Builder as QueryBuilderContract;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class ProcurementAnalyticsService
 {
     public const SUMMARY_CACHE_TTL = 300;
+
+    private const CACHE_VERSION_KEY = 'procurement:analytics:version';
+
+    private const BUDGET_COMPARISON_LIMIT = 15;
+
+    /** @var list<string> */
+    private const VALID_STATUSES = [
+        PurchaseOrderStatus::APPROVED->value,
+        PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
+        PurchaseOrderStatus::COMPLETED->value,
+    ];
+
+    /** @var array<int, string> */
+    private const INDONESIAN_MONTHS = [
+        1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr',
+        5 => 'Mei', 6 => 'Jun', 7 => 'Jul', 8 => 'Agu',
+        9 => 'Sep', 10 => 'Okt', 11 => 'Nov', 12 => 'Des',
+    ];
 
     public function __construct(
         protected DocumentMetadataMapper $metadataMapper,
@@ -19,13 +41,13 @@ class ProcurementAnalyticsService
 
     public static function clearCache(): void
     {
-        $current = (int) Cache::get('procurement:analytics:version', 1);
-        Cache::forever('procurement:analytics:version', $current + 1);
+        $current = (int) Cache::get(self::CACHE_VERSION_KEY, 1);
+        Cache::forever(self::CACHE_VERSION_KEY, $current + 1);
     }
 
     /**
      * Menghasilkan ringkasan analitik pengadaan (Procurement Analytics & Budget Utilization)
-     * dalam jumlah kueri konstan O(1) tanpa N+1 query, dilindungi cache berversi.
+     * menggunakan agregasi SQL GROUP BY dalam jumlah kueri konstan O(1), dilindungi cache berversi.
      *
      * @return array{
      *     has_data: bool,
@@ -60,14 +82,14 @@ class ProcurementAnalyticsService
         ?string $startDate,
         ?string $endDate,
     ): string {
-        $version = (int) Cache::get('procurement:analytics:version', 1);
+        $version = (int) Cache::get(self::CACHE_VERSION_KEY, 1);
 
         return sprintf(
             'procurement:analytics:summary:v%d:w_%s:s_%s:c_%s:from_%s:to_%s',
             $version,
             $warehouseId ?? 'all',
             $supplierId ?? 'all',
-            $category === null || $category === '' ? 'all' : md5($category),
+            ! $this->hasCategoryFilter($category) ? 'all' : md5((string) $category),
             $startDate === null || $startDate === '' ? 'none' : $startDate,
             $endDate === null || $endDate === '' ? 'none' : $endDate,
         );
@@ -91,298 +113,48 @@ class ProcurementAnalyticsService
         ?string $startDate = null,
         ?string $endDate = null,
     ): array {
-        $validStatuses = [
-            PurchaseOrderStatus::APPROVED->value,
-            PurchaseOrderStatus::PARTIALLY_RECEIVED->value,
-            PurchaseOrderStatus::COMPLETED->value,
-        ];
+        $monthlyBuckets = $this->aggregateMonthlyBuckets($warehouseId, $supplierId, $category, $startDate, $endDate);
 
-        $poQuery = PurchaseOrder::query()
-            ->whereIn('status', $validStatuses)
-            ->when($warehouseId !== null, fn ($q) => $q->where('warehouse_id', $warehouseId))
-            ->when($supplierId !== null, fn ($q) => $q->where('supplier_id', $supplierId))
-            ->when($startDate !== null && $startDate !== '', fn ($q) => $q->whereDate('tanggal_pesan', '>=', $startDate))
-            ->when($endDate !== null && $endDate !== '', fn ($q) => $q->whereDate('tanggal_pesan', '<=', $endDate))
-            ->when($category !== null && $category !== '', function ($q) use ($category): void {
-                $q->whereHas('items.barang', fn ($sub) => $sub->where('kategori', $category));
-            })
-            ->orderBy('tanggal_pesan', 'asc')
-            ->orderBy('id', 'asc');
-
-        $orders = $poQuery->get();
-
-        if ($orders->isEmpty()) {
+        if ($monthlyBuckets === []) {
             return $this->emptySummary();
         }
 
-        // Eager load supplier & warehouse dalam 2 kueri konstan hanya ketika terdapat PO
-        $orders->load([
-            'supplier:id,kode_supplier,nama_supplier',
-            'warehouse:id,kode_gudang,nama_gudang',
-        ]);
+        $totalPoCount = array_sum(array_column($monthlyBuckets, 'po_count'));
+        $totalPoBudget = (float) array_sum(array_column($monthlyBuckets, 'po_spend'));
+        $totalOrderedUnits = array_sum(array_column($monthlyBuckets, 'ordered_units'));
+        $totalReceivedUnits = array_sum(array_column($monthlyBuckets, 'received_units'));
 
-        $poIds = $orders->pluck('id')->all();
-        $poNumbers = $orders->pluck('nomor_po')->filter()->unique()->values()->all();
+        $warehouseBuckets = $this->aggregateWarehouseBuckets($warehouseId, $supplierId, $category, $startDate, $endDate);
+        $categoryRows = $this->aggregateCategoryRows($warehouseId, $supplierId, $category, $startDate, $endDate);
 
-        // Ambil seluruh item PO beserta master barang dalam 1 kueri
-        $items = PurchaseOrderItem::query()
-            ->whereIn('purchase_order_id', $poIds)
-            ->with(['barang' => fn ($q) => $q->withTrashed()->select(['id', 'kode_barang', 'nama_barang', 'kategori', 'satuan'])])
-            ->get();
+        $invoiceSummary = $this->aggregateMatchedInvoices(
+            $warehouseId,
+            $supplierId,
+            $category,
+            $startDate,
+            $endDate,
+            $monthlyBuckets,
+            $warehouseBuckets,
+        );
 
-        $itemsByPoId = $items->groupBy('purchase_order_id');
-
-        // Ambil dokumen verifikasi OCR (Invoice / Surat Jalan) yang merujuk ke nomor PO dalam 1 kueri
-        $verificationsByPoNumber = collect();
-        if (! empty($poNumbers)) {
-            $verifications = DocumentVerification::query()
-                ->where(function ($q) use ($poNumbers): void {
-                    $q->whereIn('purchase_order_number', $poNumbers)
-                        ->orWhereIn('document_number', $poNumbers);
-                })
-                ->orderByDesc('id')
-                ->get();
-
-            foreach ($verifications as $doc) {
-                $matchedPoNum = $doc->purchase_order_number ?: $doc->document_number;
-                if ($matchedPoNum && ! $verificationsByPoNumber->has($matchedPoNum)) {
-                    $verificationsByPoNumber->put($matchedPoNum, $doc);
-                }
-            }
-        }
-
-        $totalPoCount = $orders->count();
-        $totalPoBudget = 0.0;
-        $matchedPoCount = 0;
-        $matchedPoBudget = 0.0;
-        $totalInvoicedAmount = 0.0;
-        $perfectMatchCount = 0;
-        $discrepancyCount = 0;
-        $uninvoicedCount = 0;
-        $totalOrderedUnits = 0;
-        $totalReceivedUnits = 0;
-
-        $monthlyBuckets = [];
-        $quarterlyBuckets = [];
-        $warehouseBuckets = [];
-        $categoryBuckets = [];
-        $budgetComparisonRows = [];
-
-        $indonesianMonths = [
-            1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr',
-            5 => 'Mei', 6 => 'Jun', 7 => 'Jul', 8 => 'Agu',
-            9 => 'Sep', 10 => 'Okt', 11 => 'Nov', 12 => 'Des',
-        ];
-
-        foreach ($orders as $po) {
-            $poItems = $itemsByPoId->get($po->id, collect());
-            if ($category !== null && $category !== '') {
-                $poItems = $poItems->filter(fn (PurchaseOrderItem $item) => $item->barang?->kategori === $category);
-            }
-
-            $poBudget = $category !== null && $category !== ''
-                ? (float) $poItems->sum('subtotal')
-                : (float) $po->total_biaya;
-
-            $poOrderedUnits = (int) $poItems->sum('jumlah_pesan');
-            $poReceivedUnits = (int) $poItems->sum('jumlah_diterima');
-
-            $totalPoBudget += $poBudget;
-            $totalOrderedUnits += $poOrderedUnits;
-            $totalReceivedUnits += $poReceivedUnits;
-
-            // Cek dokumen Invoice / Three-Way Matching
-            /** @var DocumentVerification|null $doc */
-            $doc = $verificationsByPoNumber->get($po->nomor_po);
-            $invoiceAmount = null;
-            $invoiceNumber = null;
-
-            if ($doc) {
-                $mapped = $this->metadataMapper->forVerification($doc);
-                $rawAmount = $mapped['total_amount'] ?? $mapped['subtotal'] ?? null;
-                if ($rawAmount !== null && is_numeric($rawAmount)) {
-                    $invoiceAmount = (float) $rawAmount;
-                }
-                $invoiceNumber = $mapped['invoice_number'] ?? $mapped['document_number'] ?? $doc->document_number ?: ('DOC-#'.$doc->id);
-            }
-
-            if ($invoiceAmount !== null) {
-                $matchedPoCount++;
-                $matchedPoBudget += $poBudget;
-                $totalInvoicedAmount += $invoiceAmount;
-                $variance = round($invoiceAmount - $poBudget, 2);
-
-                if (abs($variance) < 1.0) {
-                    $perfectMatchCount++;
-                    $matchingStatus = 'MATCHED';
-                    $matchingLabel = 'Cocok Sempurna';
-                    $matchingBadge = 'success';
-                } elseif ($variance > 0) {
-                    $discrepancyCount++;
-                    $matchingStatus = 'OVERBILLED';
-                    $matchingLabel = 'Tagihan Lebih Tinggi (Overbilling)';
-                    $matchingBadge = 'danger';
-                } else {
-                    $discrepancyCount++;
-                    $matchingStatus = 'UNDERBILLED';
-                    $matchingLabel = 'Tagihan Lebih Rendah';
-                    $matchingBadge = 'warning';
-                }
-            } else {
-                $uninvoicedCount++;
-                $variance = 0.0;
-                $matchingStatus = 'UNINVOICED';
-                $matchingLabel = 'Menunggu Invoice';
-                $matchingBadge = 'secondary';
-            }
-
-            $orderDate = $po->tanggal_pesan ? Carbon::parse($po->tanggal_pesan) : Carbon::parse($po->created_at);
-            $monthKey = $orderDate->format('Y-m');
-            $monthLabel = ($indonesianMonths[(int) $orderDate->format('n')] ?? $orderDate->format('M')).' '.$orderDate->format('Y');
-            $quarterNum = (int) ceil(((int) $orderDate->format('n')) / 3);
-            $quarterKey = $orderDate->format('Y').'-Q'.$quarterNum;
-            $quarterLabel = 'Q'.$quarterNum.' '.$orderDate->format('Y');
-
-            if (! isset($monthlyBuckets[$monthKey])) {
-                $monthlyBuckets[$monthKey] = [
-                    'key' => $monthKey,
-                    'label' => $monthLabel,
-                    'po_spend' => 0.0,
-                    'invoiced_spend' => 0.0,
-                    'po_count' => 0,
-                    'ordered_units' => 0,
-                    'received_units' => 0,
-                ];
-            }
-            $monthlyBuckets[$monthKey]['po_spend'] += $poBudget;
-            $monthlyBuckets[$monthKey]['invoiced_spend'] += ($invoiceAmount ?? 0.0);
-            $monthlyBuckets[$monthKey]['po_count']++;
-            $monthlyBuckets[$monthKey]['ordered_units'] += $poOrderedUnits;
-            $monthlyBuckets[$monthKey]['received_units'] += $poReceivedUnits;
-
-            if (! isset($quarterlyBuckets[$quarterKey])) {
-                $quarterlyBuckets[$quarterKey] = [
-                    'key' => $quarterKey,
-                    'label' => $quarterLabel,
-                    'po_spend' => 0.0,
-                    'invoiced_spend' => 0.0,
-                    'po_count' => 0,
-                    'ordered_units' => 0,
-                    'received_units' => 0,
-                ];
-            }
-            $quarterlyBuckets[$quarterKey]['po_spend'] += $poBudget;
-            $quarterlyBuckets[$quarterKey]['invoiced_spend'] += ($invoiceAmount ?? 0.0);
-            $quarterlyBuckets[$quarterKey]['po_count']++;
-            $quarterlyBuckets[$quarterKey]['ordered_units'] += $poOrderedUnits;
-            $quarterlyBuckets[$quarterKey]['received_units'] += $poReceivedUnits;
-
-            // Bucket Gudang
-            $whId = (int) $po->warehouse_id;
-            $whCode = $po->warehouse?->kode_gudang ?? 'WH-'.$whId;
-            $whName = $po->warehouse?->nama_gudang ?? 'Gudang #'.$whId;
-            if (! isset($warehouseBuckets[$whId])) {
-                $warehouseBuckets[$whId] = [
-                    'warehouse_id' => $whId,
-                    'kode_gudang' => $whCode,
-                    'nama_gudang' => $whName,
-                    'po_count' => 0,
-                    'ordered_units' => 0,
-                    'received_units' => 0,
-                    'total_spend' => 0.0,
-                    'invoiced_spend' => 0.0,
-                ];
-            }
-            $warehouseBuckets[$whId]['po_count']++;
-            $warehouseBuckets[$whId]['ordered_units'] += $poOrderedUnits;
-            $warehouseBuckets[$whId]['received_units'] += $poReceivedUnits;
-            $warehouseBuckets[$whId]['total_spend'] += $poBudget;
-            $warehouseBuckets[$whId]['invoiced_spend'] += ($invoiceAmount ?? 0.0);
-
-            // Bucket Kategori Barang
-            $seenCategoriesInPo = [];
-            foreach ($poItems as $poItem) {
-                $catName = $poItem->barang?->kategori ?: 'Lainnya';
-                if (! isset($categoryBuckets[$catName])) {
-                    $categoryBuckets[$catName] = [
-                        'kategori' => $catName,
-                        'po_count' => 0,
-                        'barang_ids' => [],
-                        'ordered_units' => 0,
-                        'received_units' => 0,
-                        'total_spend' => 0.0,
-                    ];
-                }
-                if (! isset($seenCategoriesInPo[$catName])) {
-                    $categoryBuckets[$catName]['po_count']++;
-                    $seenCategoriesInPo[$catName] = true;
-                }
-                $categoryBuckets[$catName]['barang_ids'][$poItem->barang_id] = true;
-                $categoryBuckets[$catName]['ordered_units'] += (int) $poItem->jumlah_pesan;
-                $categoryBuckets[$catName]['received_units'] += (int) $poItem->jumlah_diterima;
-                $categoryBuckets[$catName]['total_spend'] += (float) $poItem->subtotal;
-            }
-
-            $budgetComparisonRows[] = [
-                'po_id' => $po->id,
-                'nomor_po' => $po->nomor_po,
-                'tanggal_pesan' => $orderDate->format('d/m/Y'),
-                'supplier_name' => $po->supplier?->nama_supplier ?? '-',
-                'warehouse_name' => $whName,
-                'status_label' => $po->status->label(),
-                'status_variant' => $po->status->badgeVariant(),
-                'po_budget' => round($poBudget, 2),
-                'invoice_number' => $invoiceNumber,
-                'invoice_amount' => $invoiceAmount !== null ? round($invoiceAmount, 2) : null,
-                'variance' => $variance,
-                'matching_status' => $matchingStatus,
-                'matching_label' => $matchingLabel,
-                'matching_badge' => $matchingBadge,
-            ];
-        }
+        $matchedPoCount = $invoiceSummary['matched_po_count'];
+        $matchedPoBudget = $invoiceSummary['matched_po_budget'];
+        $totalInvoicedAmount = $invoiceSummary['total_invoiced_amount'];
+        $perfectMatchCount = $invoiceSummary['perfect_match_count'];
+        $discrepancyCount = $invoiceSummary['discrepancy_count'];
+        $uninvoicedCount = max(0, $totalPoCount - $matchedPoCount);
 
         ksort($monthlyBuckets);
-        ksort($quarterlyBuckets);
-
-        // Urutkan gudang & kategori berdasarkan nilai pengeluaran tertinggi
-        $warehouseRows = collect($warehouseBuckets)
-            ->sortByDesc('total_spend')
-            ->values()
-            ->map(function (array $row) use ($totalPoBudget): array {
-                $row['total_spend'] = round($row['total_spend'], 2);
-                $row['invoiced_spend'] = round($row['invoiced_spend'], 2);
-                $row['fulfillment_rate'] = $row['ordered_units'] > 0
-                    ? round(($row['received_units'] / $row['ordered_units']) * 100, 1)
-                    : 100.0;
-                $row['share_percentage'] = $totalPoBudget > 0
-                    ? round(($row['total_spend'] / $totalPoBudget) * 100, 1)
-                    : 0.0;
-
-                return $row;
-            })
-            ->all();
-
-        $totalCategorySpend = array_sum(array_column($categoryBuckets, 'total_spend'));
-        $categoryRows = collect($categoryBuckets)
-            ->sortByDesc('total_spend')
-            ->values()
-            ->map(function (array $row) use ($totalCategorySpend): array {
-                $spend = round($row['total_spend'], 2);
-                $ordered = (int) $row['ordered_units'];
-                $received = (int) $row['received_units'];
-
-                return [
-                    'kategori' => $row['kategori'],
-                    'po_count' => $row['po_count'],
-                    'item_variety_count' => count($row['barang_ids']),
-                    'ordered_units' => $ordered,
-                    'received_units' => $received,
-                    'fulfillment_rate' => $ordered > 0 ? round(($received / $ordered) * 100, 1) : 100.0,
-                    'total_spend' => $spend,
-                    'share_percentage' => $totalCategorySpend > 0 ? round(($spend / $totalCategorySpend) * 100, 1) : 0.0,
-                ];
-            })
-            ->all();
+        $quarterlyBuckets = $this->rollupQuarterlyBuckets($monthlyBuckets);
+        $warehouseRows = $this->finalizeWarehouseRows($warehouseBuckets, $totalPoBudget);
+        $budgetComparisonRows = $this->fetchLatestBudgetComparisonRows(
+            $warehouseId,
+            $supplierId,
+            $category,
+            $startDate,
+            $endDate,
+            $invoiceSummary['by_po_id'],
+        );
 
         $monthlyValues = array_values($monthlyBuckets);
         $quarterlyValues = array_values($quarterlyBuckets);
@@ -394,9 +166,6 @@ class ProcurementAnalyticsService
         $fulfillmentRate = $totalOrderedUnits > 0
             ? round(($totalReceivedUnits / $totalOrderedUnits) * 100, 1)
             : 100.0;
-
-        // Urutkan baris komparasi dari yang terbaru
-        $budgetComparisonRows = array_reverse($budgetComparisonRows);
 
         return [
             'has_data' => true,
@@ -415,24 +184,8 @@ class ProcurementAnalyticsService
                 'total_received_units' => $totalReceivedUnits,
                 'fulfillment_rate' => $fulfillmentRate,
             ],
-            'monthly_trend' => [
-                'has_activity' => ! empty($monthlyValues),
-                'labels' => array_column($monthlyValues, 'label'),
-                'keys' => array_column($monthlyValues, 'key'),
-                'po_spend' => array_map(fn ($v) => round((float) $v['po_spend'], 2), $monthlyValues),
-                'invoiced_spend' => array_map(fn ($v) => round((float) $v['invoiced_spend'], 2), $monthlyValues),
-                'po_counts' => array_column($monthlyValues, 'po_count'),
-                'rows' => $monthlyValues,
-            ],
-            'quarterly_trend' => [
-                'has_activity' => ! empty($quarterlyValues),
-                'labels' => array_column($quarterlyValues, 'label'),
-                'keys' => array_column($quarterlyValues, 'key'),
-                'po_spend' => array_map(fn ($v) => round((float) $v['po_spend'], 2), $quarterlyValues),
-                'invoiced_spend' => array_map(fn ($v) => round((float) $v['invoiced_spend'], 2), $quarterlyValues),
-                'po_counts' => array_column($quarterlyValues, 'po_count'),
-                'rows' => $quarterlyValues,
-            ],
+            'monthly_trend' => $this->formatTrendPayload($monthlyValues),
+            'quarterly_trend' => $this->formatTrendPayload($quarterlyValues),
             'budget_comparison' => [
                 'has_invoices' => $matchedPoCount > 0,
                 'summary_labels' => ['Total Anggaran PO', 'Anggaran PO Terverifikasi Invoice', 'Realisasi Tagihan Invoice (OCR)'],
@@ -441,11 +194,11 @@ class ProcurementAnalyticsService
                     round($matchedPoBudget, 2),
                     round($totalInvoicedAmount, 2),
                 ],
-                'rows' => array_slice($budgetComparisonRows, 0, 15),
-                'total_rows_count' => count($budgetComparisonRows),
+                'rows' => $budgetComparisonRows,
+                'total_rows_count' => $totalPoCount,
             ],
             'warehouse_distribution' => [
-                'has_data' => ! empty($warehouseRows),
+                'has_data' => $warehouseRows !== [],
                 'labels' => array_column($warehouseRows, 'nama_gudang'),
                 'codes' => array_column($warehouseRows, 'kode_gudang'),
                 'spend_values' => array_column($warehouseRows, 'total_spend'),
@@ -453,12 +206,634 @@ class ProcurementAnalyticsService
                 'rows' => $warehouseRows,
             ],
             'category_distribution' => [
-                'has_data' => ! empty($categoryRows),
+                'has_data' => $categoryRows !== [],
                 'labels' => array_column($categoryRows, 'kategori'),
                 'spend_values' => array_column($categoryRows, 'total_spend'),
                 'unit_values' => array_column($categoryRows, 'ordered_units'),
                 'rows' => $categoryRows,
             ],
+        ];
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function aggregateMonthlyBuckets(
+        ?int $warehouseId,
+        ?int $supplierId,
+        ?string $category,
+        ?string $startDate,
+        ?string $endDate,
+    ): array {
+        $monthExpr = SqlDateExpressions::yearMonth('COALESCE(po.tanggal_pesan, po.created_at)');
+        $buckets = [];
+
+        if ($this->hasCategoryFilter($category)) {
+            $query = DB::table('purchase_order_items as poi')
+                ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id')
+                ->join('barang as b', 'b.id', '=', 'poi.barang_id')
+                ->where('b.kategori', $category);
+            $this->applyPoFilters($query, $warehouseId, $supplierId, null, $startDate, $endDate, false);
+
+            $rows = $query
+                ->selectRaw("{$monthExpr} as month_key")
+                ->selectRaw('COUNT(DISTINCT po.id) as po_count')
+                ->selectRaw('COALESCE(SUM(poi.subtotal), 0) as po_spend')
+                ->selectRaw('COALESCE(SUM(poi.jumlah_pesan), 0) as ordered_units')
+                ->selectRaw('COALESCE(SUM(poi.jumlah_diterima), 0) as received_units')
+                ->groupByRaw($monthExpr)
+                ->orderBy('month_key')
+                ->get();
+
+            foreach ($rows as $row) {
+                $monthKey = (string) $row->month_key;
+                $buckets[$monthKey] = [
+                    'key' => $monthKey,
+                    'label' => $this->formatMonthLabel($monthKey),
+                    'po_spend' => (float) $row->po_spend,
+                    'invoiced_spend' => 0.0,
+                    'po_count' => (int) $row->po_count,
+                    'ordered_units' => (int) $row->ordered_units,
+                    'received_units' => (int) $row->received_units,
+                ];
+            }
+
+            return $buckets;
+        }
+
+        $poQuery = DB::table('purchase_orders as po');
+        $this->applyPoFilters($poQuery, $warehouseId, $supplierId, null, $startDate, $endDate, false);
+
+        $poRows = $poQuery
+            ->selectRaw("{$monthExpr} as month_key")
+            ->selectRaw('COUNT(po.id) as po_count')
+            ->selectRaw('COALESCE(SUM(po.total_biaya), 0) as po_spend')
+            ->groupByRaw($monthExpr)
+            ->orderBy('month_key')
+            ->get();
+
+        if ($poRows->isEmpty()) {
+            return [];
+        }
+
+        foreach ($poRows as $row) {
+            $monthKey = (string) $row->month_key;
+            $buckets[$monthKey] = [
+                'key' => $monthKey,
+                'label' => $this->formatMonthLabel($monthKey),
+                'po_spend' => (float) $row->po_spend,
+                'invoiced_spend' => 0.0,
+                'po_count' => (int) $row->po_count,
+                'ordered_units' => 0,
+                'received_units' => 0,
+            ];
+        }
+
+        $unitQuery = DB::table('purchase_order_items as poi')
+            ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id');
+        $this->applyPoFilters($unitQuery, $warehouseId, $supplierId, null, $startDate, $endDate, false);
+
+        $unitRows = $unitQuery
+            ->selectRaw("{$monthExpr} as month_key")
+            ->selectRaw('COALESCE(SUM(poi.jumlah_pesan), 0) as ordered_units')
+            ->selectRaw('COALESCE(SUM(poi.jumlah_diterima), 0) as received_units')
+            ->groupByRaw($monthExpr)
+            ->get();
+
+        foreach ($unitRows as $unitRow) {
+            $monthKey = (string) $unitRow->month_key;
+            if (isset($buckets[$monthKey])) {
+                $buckets[$monthKey]['ordered_units'] = (int) $unitRow->ordered_units;
+                $buckets[$monthKey]['received_units'] = (int) $unitRow->received_units;
+            }
+        }
+
+        return $buckets;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function aggregateWarehouseBuckets(
+        ?int $warehouseId,
+        ?int $supplierId,
+        ?string $category,
+        ?string $startDate,
+        ?string $endDate,
+    ): array {
+        $buckets = [];
+
+        if ($this->hasCategoryFilter($category)) {
+            $query = DB::table('purchase_order_items as poi')
+                ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id')
+                ->join('barang as b', 'b.id', '=', 'poi.barang_id')
+                ->leftJoin('warehouses as w', 'w.id', '=', 'po.warehouse_id')
+                ->where('b.kategori', $category);
+            $this->applyPoFilters($query, $warehouseId, $supplierId, null, $startDate, $endDate, false);
+
+            $rows = $query
+                ->selectRaw('po.warehouse_id, w.kode_gudang, w.nama_gudang')
+                ->selectRaw('COUNT(DISTINCT po.id) as po_count')
+                ->selectRaw('COALESCE(SUM(poi.subtotal), 0) as total_spend')
+                ->selectRaw('COALESCE(SUM(poi.jumlah_pesan), 0) as ordered_units')
+                ->selectRaw('COALESCE(SUM(poi.jumlah_diterima), 0) as received_units')
+                ->groupBy('po.warehouse_id', 'w.kode_gudang', 'w.nama_gudang')
+                ->get();
+
+            foreach ($rows as $row) {
+                $whId = (int) $row->warehouse_id;
+                $buckets[$whId] = [
+                    'warehouse_id' => $whId,
+                    'kode_gudang' => $row->kode_gudang ?? 'WH-'.$whId,
+                    'nama_gudang' => $row->nama_gudang ?? 'Gudang #'.$whId,
+                    'po_count' => (int) $row->po_count,
+                    'ordered_units' => (int) $row->ordered_units,
+                    'received_units' => (int) $row->received_units,
+                    'total_spend' => (float) $row->total_spend,
+                    'invoiced_spend' => 0.0,
+                ];
+            }
+
+            return $buckets;
+        }
+
+        $poQuery = DB::table('purchase_orders as po')
+            ->leftJoin('warehouses as w', 'w.id', '=', 'po.warehouse_id');
+        $this->applyPoFilters($poQuery, $warehouseId, $supplierId, null, $startDate, $endDate, false);
+
+        $poRows = $poQuery
+            ->selectRaw('po.warehouse_id, w.kode_gudang, w.nama_gudang')
+            ->selectRaw('COUNT(po.id) as po_count')
+            ->selectRaw('COALESCE(SUM(po.total_biaya), 0) as total_spend')
+            ->groupBy('po.warehouse_id', 'w.kode_gudang', 'w.nama_gudang')
+            ->get();
+
+        foreach ($poRows as $row) {
+            $whId = (int) $row->warehouse_id;
+            $buckets[$whId] = [
+                'warehouse_id' => $whId,
+                'kode_gudang' => $row->kode_gudang ?? 'WH-'.$whId,
+                'nama_gudang' => $row->nama_gudang ?? 'Gudang #'.$whId,
+                'po_count' => (int) $row->po_count,
+                'ordered_units' => 0,
+                'received_units' => 0,
+                'total_spend' => (float) $row->total_spend,
+                'invoiced_spend' => 0.0,
+            ];
+        }
+
+        $unitQuery = DB::table('purchase_order_items as poi')
+            ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id');
+        $this->applyPoFilters($unitQuery, $warehouseId, $supplierId, null, $startDate, $endDate, false);
+
+        $unitRows = $unitQuery
+            ->selectRaw('po.warehouse_id')
+            ->selectRaw('COALESCE(SUM(poi.jumlah_pesan), 0) as ordered_units')
+            ->selectRaw('COALESCE(SUM(poi.jumlah_diterima), 0) as received_units')
+            ->groupBy('po.warehouse_id')
+            ->get();
+
+        foreach ($unitRows as $unitRow) {
+            $whId = (int) $unitRow->warehouse_id;
+            if (isset($buckets[$whId])) {
+                $buckets[$whId]['ordered_units'] = (int) $unitRow->ordered_units;
+                $buckets[$whId]['received_units'] = (int) $unitRow->received_units;
+            }
+        }
+
+        return $buckets;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function aggregateCategoryRows(
+        ?int $warehouseId,
+        ?int $supplierId,
+        ?string $category,
+        ?string $startDate,
+        ?string $endDate,
+    ): array {
+        $categoryExpr = "COALESCE(NULLIF(b.kategori, ''), 'Lainnya')";
+
+        $query = DB::table('purchase_order_items as poi')
+            ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id')
+            ->leftJoin('barang as b', 'b.id', '=', 'poi.barang_id');
+        $this->applyPoFilters($query, $warehouseId, $supplierId, null, $startDate, $endDate, false);
+
+        if ($this->hasCategoryFilter($category)) {
+            $query->where('b.kategori', $category);
+        }
+
+        $rows = $query
+            ->selectRaw("{$categoryExpr} as kategori")
+            ->selectRaw('COUNT(DISTINCT po.id) as po_count')
+            ->selectRaw('COUNT(DISTINCT poi.barang_id) as item_variety_count')
+            ->selectRaw('COALESCE(SUM(poi.jumlah_pesan), 0) as ordered_units')
+            ->selectRaw('COALESCE(SUM(poi.jumlah_diterima), 0) as received_units')
+            ->selectRaw('COALESCE(SUM(poi.subtotal), 0) as total_spend')
+            ->groupByRaw($categoryExpr)
+            ->orderByDesc('total_spend')
+            ->get();
+
+        $totalCategorySpend = (float) $rows->sum(fn (object $row): float => (float) $row->total_spend);
+
+        return $rows->map(function (object $row) use ($totalCategorySpend): array {
+            $spend = round((float) $row->total_spend, 2);
+            $ordered = (int) $row->ordered_units;
+            $received = (int) $row->received_units;
+
+            return [
+                'kategori' => (string) $row->kategori,
+                'po_count' => (int) $row->po_count,
+                'item_variety_count' => (int) $row->item_variety_count,
+                'ordered_units' => $ordered,
+                'received_units' => $received,
+                'fulfillment_rate' => $ordered > 0 ? round(($received / $ordered) * 100, 1) : 100.0,
+                'total_spend' => $spend,
+                'share_percentage' => $totalCategorySpend > 0 ? round(($spend / $totalCategorySpend) * 100, 1) : 0.0,
+            ];
+        })->all();
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $monthlyBuckets
+     * @param  array<int, array<string, mixed>>  $warehouseBuckets
+     * @return array{
+     *     matched_po_count: int,
+     *     matched_po_budget: float,
+     *     total_invoiced_amount: float,
+     *     perfect_match_count: int,
+     *     discrepancy_count: int,
+     *     by_po_id: array<int, array{amount: float, number: string}>
+     * }
+     */
+    private function aggregateMatchedInvoices(
+        ?int $warehouseId,
+        ?int $supplierId,
+        ?string $category,
+        ?string $startDate,
+        ?string $endDate,
+        array &$monthlyBuckets,
+        array &$warehouseBuckets,
+    ): array {
+        $monthExpr = SqlDateExpressions::yearMonth('COALESCE(po.tanggal_pesan, po.created_at)');
+
+        $query = DocumentVerification::query()
+            ->join('purchase_orders as po', function (JoinClause $join): void {
+                $join->whereRaw(
+                    "COALESCE(NULLIF(document_verifications.purchase_order_number, ''), document_verifications.document_number) = po.nomor_po"
+                );
+            })
+            ->where('document_verifications.document_type', 'invoice')
+            ->where('document_verifications.process_status', DocumentVerification::PROCESS_COMPLETED)
+            ->where('document_verifications.authenticity_status', DocumentVerification::AUTHENTIC)
+            ->select([
+                'document_verifications.*',
+                'po.id as matched_po_id',
+                'po.warehouse_id as matched_warehouse_id',
+                'po.total_biaya as matched_po_total_biaya',
+            ])
+            ->selectRaw("{$monthExpr} as matched_month_key")
+            ->orderByDesc('document_verifications.id');
+
+        $this->applyPoFilters($query, $warehouseId, $supplierId, $category, $startDate, $endDate);
+
+        $docs = $query->get();
+
+        // Keep strictly the latest verified invoice per PO.
+        $latestDocsByPoId = [];
+        foreach ($docs as $doc) {
+            $poId = (int) $doc->getAttribute('matched_po_id');
+            if (! isset($latestDocsByPoId[$poId])) {
+                $latestDocsByPoId[$poId] = $doc;
+            }
+        }
+
+        $categoryBudgets = ($this->hasCategoryFilter($category) && $latestDocsByPoId !== [])
+            ? $this->fetchCategoryBudgetsByPoIds(array_keys($latestDocsByPoId), (string) $category)
+            : [];
+
+        $matchedPoCount = 0;
+        $matchedPoBudget = 0.0;
+        $totalInvoicedAmount = 0.0;
+        $perfectMatchCount = 0;
+        $discrepancyCount = 0;
+        $byPoId = [];
+
+        foreach ($latestDocsByPoId as $poId => $doc) {
+            $mapped = $this->metadataMapper->forVerification($doc);
+            $rawAmount = $mapped['total_amount'] ?? $mapped['subtotal'] ?? null;
+
+            if ($rawAmount === null || ! is_numeric($rawAmount)) {
+                continue;
+            }
+
+            $invoiceAmount = (float) $rawAmount;
+            $invoiceNumber = $mapped['invoice_number'] ?? $mapped['document_number'] ?? $doc->document_number ?: ('DOC-#'.$doc->id);
+            $poBudget = $this->hasCategoryFilter($category)
+                ? (float) ($categoryBudgets[$poId] ?? 0.0)
+                : (float) $doc->getAttribute('matched_po_total_biaya');
+
+            $matchedPoCount++;
+            $matchedPoBudget += $poBudget;
+            $totalInvoicedAmount += $invoiceAmount;
+
+            $match = $this->classifyInvoiceMatch($invoiceAmount, $poBudget);
+            if ($match['status'] === 'MATCHED') {
+                $perfectMatchCount++;
+            } else {
+                $discrepancyCount++;
+            }
+
+            $monthKey = (string) $doc->getAttribute('matched_month_key');
+            if (isset($monthlyBuckets[$monthKey])) {
+                $monthlyBuckets[$monthKey]['invoiced_spend'] += $invoiceAmount;
+            }
+
+            $whId = (int) $doc->getAttribute('matched_warehouse_id');
+            if (isset($warehouseBuckets[$whId])) {
+                $warehouseBuckets[$whId]['invoiced_spend'] += $invoiceAmount;
+            }
+
+            $byPoId[$poId] = [
+                'amount' => $invoiceAmount,
+                'number' => (string) $invoiceNumber,
+            ];
+        }
+
+        return [
+            'matched_po_count' => $matchedPoCount,
+            'matched_po_budget' => $matchedPoBudget,
+            'total_invoiced_amount' => $totalInvoicedAmount,
+            'perfect_match_count' => $perfectMatchCount,
+            'discrepancy_count' => $discrepancyCount,
+            'by_po_id' => $byPoId,
+        ];
+    }
+
+    /**
+     * @param  array<int, array{amount: float, number: string}>  $matchedInvoicesByPoId
+     * @return list<array<string, mixed>>
+     */
+    private function fetchLatestBudgetComparisonRows(
+        ?int $warehouseId,
+        ?int $supplierId,
+        ?string $category,
+        ?string $startDate,
+        ?string $endDate,
+        array $matchedInvoicesByPoId,
+    ): array {
+        $query = DB::table('purchase_orders as po')
+            ->leftJoin('suppliers as s', 's.id', '=', 'po.supplier_id')
+            ->leftJoin('warehouses as w', 'w.id', '=', 'po.warehouse_id')
+            ->select([
+                'po.id',
+                'po.nomor_po',
+                'po.tanggal_pesan',
+                'po.created_at',
+                'po.status',
+                'po.total_biaya',
+                's.nama_supplier as supplier_name',
+                'w.nama_gudang as warehouse_name',
+            ]);
+        $this->applyPoFilters($query, $warehouseId, $supplierId, $category, $startDate, $endDate);
+
+        $rows = $query
+            ->orderByDesc('po.tanggal_pesan')
+            ->orderByDesc('po.id')
+            ->limit(self::BUDGET_COMPARISON_LIMIT)
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $categoryBudgets = $this->hasCategoryFilter($category)
+            ? $this->fetchCategoryBudgetsByPoIds($rows->pluck('id')->map(fn (mixed $id): int => (int) $id)->all(), (string) $category)
+            : [];
+
+        return $rows->map(function (object $row) use ($category, $categoryBudgets, $matchedInvoicesByPoId): array {
+            $poId = (int) $row->id;
+            $poBudget = $this->hasCategoryFilter($category)
+                ? (float) ($categoryBudgets[$poId] ?? 0.0)
+                : (float) $row->total_biaya;
+
+            $invoice = $matchedInvoicesByPoId[$poId] ?? null;
+            $invoiceAmount = $invoice['amount'] ?? null;
+            $invoiceNumber = $invoice['number'] ?? null;
+            $match = $this->classifyInvoiceMatch($invoiceAmount, $poBudget);
+
+            $statusEnum = PurchaseOrderStatus::tryFrom((string) $row->status);
+            $orderDate = Carbon::parse($row->tanggal_pesan ?: $row->created_at);
+
+            return [
+                'po_id' => $poId,
+                'nomor_po' => (string) $row->nomor_po,
+                'tanggal_pesan' => $orderDate->format('d/m/Y'),
+                'supplier_name' => $row->supplier_name ?? '-',
+                'warehouse_name' => $row->warehouse_name ?? '-',
+                'status_label' => $statusEnum?->label() ?? ucfirst((string) $row->status),
+                'status_variant' => $statusEnum?->badgeVariant() ?? 'secondary',
+                'po_budget' => round($poBudget, 2),
+                'invoice_number' => $invoiceNumber,
+                'invoice_amount' => $invoiceAmount !== null ? round($invoiceAmount, 2) : null,
+                'variance' => $match['variance'],
+                'matching_status' => $match['status'],
+                'matching_label' => $match['label'],
+                'matching_badge' => $match['badge'],
+            ];
+        })->all();
+    }
+
+    /**
+     * @param  list<int>  $poIds
+     * @return array<int, float>
+     */
+    private function fetchCategoryBudgetsByPoIds(array $poIds, string $category): array
+    {
+        if ($poIds === []) {
+            return [];
+        }
+
+        return DB::table('purchase_order_items as poi')
+            ->join('barang as b', 'b.id', '=', 'poi.barang_id')
+            ->whereIn('poi.purchase_order_id', $poIds)
+            ->where('b.kategori', $category)
+            ->groupBy('poi.purchase_order_id')
+            ->selectRaw('poi.purchase_order_id, COALESCE(SUM(poi.subtotal), 0) as category_budget')
+            ->pluck('category_budget', 'purchase_order_id')
+            ->map(fn (mixed $value): float => (float) $value)
+            ->all();
+    }
+
+    private function applyPoFilters(
+        QueryBuilderContract|EloquentBuilder $query,
+        ?int $warehouseId,
+        ?int $supplierId,
+        ?string $category,
+        ?string $startDate,
+        ?string $endDate,
+        bool $applyCategoryExists = true,
+    ): QueryBuilderContract|EloquentBuilder {
+        $query
+            ->whereIn('po.status', self::VALID_STATUSES)
+            ->when($warehouseId !== null, fn ($q) => $q->where('po.warehouse_id', $warehouseId))
+            ->when($supplierId !== null, fn ($q) => $q->where('po.supplier_id', $supplierId))
+            ->when($startDate !== null && $startDate !== '', fn ($q) => $q->whereDate('po.tanggal_pesan', '>=', $startDate))
+            ->when($endDate !== null && $endDate !== '', fn ($q) => $q->whereDate('po.tanggal_pesan', '<=', $endDate));
+
+        if ($applyCategoryExists && $this->hasCategoryFilter($category)) {
+            $query->whereExists(function (QueryBuilder $sub) use ($category): void {
+                $sub->selectRaw('1')
+                    ->from('purchase_order_items as poi_filter')
+                    ->join('barang as b_filter', 'b_filter.id', '=', 'poi_filter.barang_id')
+                    ->whereColumn('poi_filter.purchase_order_id', 'po.id')
+                    ->where('b_filter.kategori', $category);
+            });
+        }
+
+        return $query;
+    }
+
+    private function hasCategoryFilter(?string $category): bool
+    {
+        return $category !== null && $category !== '';
+    }
+
+    private function formatMonthLabel(string $monthKey): string
+    {
+        if (preg_match('/^(\d{4})-(\d{2})$/', $monthKey, $matches) !== 1) {
+            return $monthKey;
+        }
+
+        $year = $matches[1];
+        $monthNum = (int) $matches[2];
+
+        return (self::INDONESIAN_MONTHS[$monthNum] ?? $matches[2]).' '.$year;
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $monthlyBuckets
+     * @return array<string, array<string, mixed>>
+     */
+    private function rollupQuarterlyBuckets(array $monthlyBuckets): array
+    {
+        $quarterly = [];
+
+        foreach ($monthlyBuckets as $monthKey => $bucket) {
+            if (preg_match('/^(\d{4})-(\d{2})$/', (string) $monthKey, $matches) !== 1) {
+                continue;
+            }
+
+            $year = $matches[1];
+            $quarterNum = (int) ceil(((int) $matches[2]) / 3);
+            $quarterKey = "{$year}-Q{$quarterNum}";
+
+            if (! isset($quarterly[$quarterKey])) {
+                $quarterly[$quarterKey] = [
+                    'key' => $quarterKey,
+                    'label' => "Q{$quarterNum} {$year}",
+                    'po_spend' => 0.0,
+                    'invoiced_spend' => 0.0,
+                    'po_count' => 0,
+                    'ordered_units' => 0,
+                    'received_units' => 0,
+                ];
+            }
+
+            $quarterly[$quarterKey]['po_spend'] += (float) $bucket['po_spend'];
+            $quarterly[$quarterKey]['invoiced_spend'] += (float) $bucket['invoiced_spend'];
+            $quarterly[$quarterKey]['po_count'] += (int) $bucket['po_count'];
+            $quarterly[$quarterKey]['ordered_units'] += (int) $bucket['ordered_units'];
+            $quarterly[$quarterKey]['received_units'] += (int) $bucket['received_units'];
+        }
+
+        ksort($quarterly);
+
+        return $quarterly;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $warehouseBuckets
+     * @return list<array<string, mixed>>
+     */
+    private function finalizeWarehouseRows(array $warehouseBuckets, float $totalPoBudget): array
+    {
+        return collect($warehouseBuckets)
+            ->sortByDesc('total_spend')
+            ->values()
+            ->map(function (array $row) use ($totalPoBudget): array {
+                $row['total_spend'] = round((float) $row['total_spend'], 2);
+                $row['invoiced_spend'] = round((float) $row['invoiced_spend'], 2);
+                $row['fulfillment_rate'] = $row['ordered_units'] > 0
+                    ? round(($row['received_units'] / $row['ordered_units']) * 100, 1)
+                    : 100.0;
+                $row['share_percentage'] = $totalPoBudget > 0
+                    ? round(($row['total_spend'] / $totalPoBudget) * 100, 1)
+                    : 0.0;
+
+                return $row;
+            })
+            ->all();
+    }
+
+    /**
+     * @return array{variance: float, status: string, label: string, badge: string}
+     */
+    private function classifyInvoiceMatch(?float $invoiceAmount, float $poBudget): array
+    {
+        if ($invoiceAmount === null) {
+            return [
+                'variance' => 0.0,
+                'status' => 'UNINVOICED',
+                'label' => 'Menunggu Invoice',
+                'badge' => 'secondary',
+            ];
+        }
+
+        $variance = round($invoiceAmount - $poBudget, 2);
+
+        if (abs($variance) < 1.0) {
+            return [
+                'variance' => $variance,
+                'status' => 'MATCHED',
+                'label' => 'Cocok Sempurna',
+                'badge' => 'success',
+            ];
+        }
+
+        if ($variance > 0) {
+            return [
+                'variance' => $variance,
+                'status' => 'OVERBILLED',
+                'label' => 'Tagihan Lebih Tinggi (Overbilling)',
+                'badge' => 'danger',
+            ];
+        }
+
+        return [
+            'variance' => $variance,
+            'status' => 'UNDERBILLED',
+            'label' => 'Tagihan Lebih Rendah',
+            'badge' => 'warning',
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $values
+     * @return array<string, mixed>
+     */
+    private function formatTrendPayload(array $values): array
+    {
+        return [
+            'has_activity' => $values !== [],
+            'labels' => array_column($values, 'label'),
+            'keys' => array_column($values, 'key'),
+            'po_spend' => array_map(static fn (array $v): float => round((float) $v['po_spend'], 2), $values),
+            'invoiced_spend' => array_map(static fn (array $v): float => round((float) $v['invoiced_spend'], 2), $values),
+            'po_counts' => array_column($values, 'po_count'),
+            'rows' => $values,
         ];
     }
 
@@ -469,6 +844,8 @@ class ProcurementAnalyticsService
      */
     private function emptySummary(): array
     {
+        $emptyTrend = $this->formatTrendPayload([]);
+
         return [
             'has_data' => false,
             'kpis' => [
@@ -486,24 +863,8 @@ class ProcurementAnalyticsService
                 'total_received_units' => 0,
                 'fulfillment_rate' => 100.0,
             ],
-            'monthly_trend' => [
-                'has_activity' => false,
-                'labels' => [],
-                'keys' => [],
-                'po_spend' => [],
-                'invoiced_spend' => [],
-                'po_counts' => [],
-                'rows' => [],
-            ],
-            'quarterly_trend' => [
-                'has_activity' => false,
-                'labels' => [],
-                'keys' => [],
-                'po_spend' => [],
-                'invoiced_spend' => [],
-                'po_counts' => [],
-                'rows' => [],
-            ],
+            'monthly_trend' => $emptyTrend,
+            'quarterly_trend' => $emptyTrend,
             'budget_comparison' => [
                 'has_invoices' => false,
                 'summary_labels' => ['Total Anggaran PO', 'Anggaran PO Terverifikasi Invoice', 'Realisasi Tagihan Invoice (OCR)'],

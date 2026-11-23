@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\InventoryMasterDataService;
+use App\Services\SupplierPerformanceService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
@@ -28,9 +29,14 @@ class Supplier extends Model
 
     protected static function booted(): void
     {
-        static::saved(fn (): mixed => InventoryMasterDataService::clearSuppliers());
-        static::deleted(fn (): mixed => InventoryMasterDataService::clearSuppliers());
-        static::restored(fn (): mixed => InventoryMasterDataService::clearSuppliers());
+        $clearCaches = static function (): void {
+            InventoryMasterDataService::clearSuppliers();
+            SupplierPerformanceService::clearCache();
+        };
+
+        static::saved($clearCaches);
+        static::deleted($clearCaches);
+        static::restored($clearCaches);
     }
 
     protected function casts(): array

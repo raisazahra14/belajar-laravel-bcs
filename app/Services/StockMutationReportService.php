@@ -279,6 +279,7 @@ class StockMutationReportService
         $topOutgoing = null;
         if ($itemCount > 0) {
             $outgoingTotals = $this->datedTransactions(clone $ids, $stockIds === null ? null : clone $stockIds, $supplierId)
+                ->effectiveOperational()
                 ->where('jenis', 'keluar')
                 ->where('created_at', '>=', $start)
                 ->where('created_at', '<', $endExclusive)

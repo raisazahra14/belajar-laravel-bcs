@@ -102,8 +102,9 @@ class DocumentVerificationController extends Controller
         $threeWayMatching = null;
 
         if (! empty($poNumber)) {
-            $associatedPo = PurchaseOrder::where('nomor_po', trim((string) $poNumber))->first();
-            if ($associatedPo) {
+            $candidatePo = PurchaseOrder::where('nomor_po', trim((string) $poNumber))->first();
+            if ($candidatePo && request()->user()?->can('view', $candidatePo)) {
+                $associatedPo = $candidatePo;
                 $threeWayMatching = $matchingService->match($associatedPo, $documentVerification);
             }
         }
@@ -124,45 +125,52 @@ class DocumentVerificationController extends Controller
         return view('verifications.processing', ['verification' => $documentVerification]);
     }
 
-    public function status(Request $request, DocumentVerification $documentVerification): JsonResponse
+    public function status(DocumentVerification $documentVerification): JsonResponse
     {
         $this->authorizeAccess($documentVerification);
 
-        // Self-Healing Inline Fallback:
-        // Jika antrean background worker tidak aktif (stalled) saat dokumen berstatus 'menunggu'
-        // dan telah menunggu lebih dari 4 detik atau dipicu langsung via query (?run_now=1),
-        // eksekusi dokumen secara langsung agar pengguna tidak tertahan di status 'menunggu antrean'.
-        if (
-            $documentVerification->process_status === DocumentVerification::PROCESS_WAITING
-            && (! app()->runningUnitTests() || $request->boolean('run_now'))
-        ) {
-            // Eksekusi sinkron hanya bila diminta eksplisit (run_now / auto_run) agar tidak memblokir worker HTTP saat polling
-            if ($request->boolean('run_now') || $request->boolean('auto_run')) {
-                $lockKey = "document_verification:auto_process:{$documentVerification->id}";
-                $lock = Cache::lock($lockKey, 60);
+        return response()->json($this->statusPayload($documentVerification));
+    }
 
-                if ($lock->get()) {
-                    try {
-                        $fresh = $documentVerification->fresh();
-                        if ($fresh && $fresh->process_status === DocumentVerification::PROCESS_WAITING) {
-                            // Hapus job dari tabel queue database hanya bila menggunakan database queue driver
-                            if (config('queue.default') === 'database' && Schema::hasTable('jobs')) {
-                                try {
-                                    DB::table('jobs')
-                                        ->where('payload', 'like', '%ProcessDocumentVerification%')
-                                        ->where('payload', 'like', '%"verificationId":'.$documentVerification->id.'%')
-                                        ->delete();
-                                } catch (Throwable) {
-                                }
+    public function processNow(Request $request, DocumentVerification $documentVerification): JsonResponse
+    {
+        $this->authorizeAccess($documentVerification);
+
+        if ($documentVerification->process_status !== DocumentVerification::PROCESS_WAITING) {
+            return response()->json($this->statusPayload($documentVerification));
+        }
+
+        $userLock = Cache::lock("document_verification:direct_user:{$request->user()->id}", 120);
+        if (! $userLock->get()) {
+            return response()->json([
+                'message' => 'Proses OCR langsung Anda masih berjalan untuk dokumen lain. Harap tunggu hingga selesai.',
+            ], 429);
+        }
+
+        try {
+            $docLock = Cache::lock("document_verification:auto_process:{$documentVerification->id}", 120);
+            if ($docLock->get()) {
+                try {
+                    $fresh = $documentVerification->fresh();
+                    if ($fresh && $fresh->process_status === DocumentVerification::PROCESS_WAITING) {
+                        if (config('queue.default') === 'database' && Schema::hasTable('jobs')) {
+                            try {
+                                DB::table('jobs')
+                                    ->where('payload', 'like', '%ProcessDocumentVerification%')
+                                    ->where('payload', 'like', '%verificationId";i:'.$documentVerification->id.';%')
+                                    ->delete();
+                            } catch (Throwable) {
                             }
-
-                            ProcessDocumentVerification::dispatchSync($documentVerification->id);
                         }
-                    } finally {
-                        $lock->release();
+
+                        ProcessDocumentVerification::dispatchSync($documentVerification->id);
                     }
+                } finally {
+                    $docLock->release();
                 }
             }
+        } finally {
+            $userLock->release();
         }
 
         return response()->json($this->statusPayload($documentVerification->fresh()));
@@ -228,66 +236,29 @@ class DocumentVerificationController extends Controller
     ): RedirectResponse {
         $this->authorizeAccess($documentVerification);
         abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
-        $requestId = (string) Str::uuid();
-        $replaceManual = $request->boolean('replace_manual') || ! $documentVerification->ocr_corrected_at;
-        DB::transaction(function () use ($documentVerification, $audit, $request, $requestId, $replaceManual): void {
-            $before = $audit->values($documentVerification);
-            $documentVerification->update([
-                'process_status' => DocumentVerification::PROCESSING,
-                'authenticity_status' => null,
-                'message' => 'Engine OCR sedang membaca dokumen.',
-                'error_message' => null,
-            ]);
-            $audit->record(
-                $documentVerification,
-                'ocr_reprocess_requested',
-                'reprocess',
-                "verification:{$documentVerification->id}:reprocess_requested:{$requestId}",
-                $request->user(),
-                before: $before,
-                after: $audit->values($documentVerification),
-                technicalMetadata: ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
-            );
-        });
+
+        $lock = Cache::lock("document_verification:reprocess:{$documentVerification->id}", 120);
+        if (! $lock->get()) {
+            return redirect()->route('verifications.show', $documentVerification)
+                ->withErrors(['document' => 'Dokumen ini sedang diproses ulang. Harap tunggu hingga selesai.']);
+        }
 
         try {
-            $result = $service->verify(
-                Storage::disk('local')->path($documentVerification->file_path),
-                $documentVerification->document_type,
-            );
-
-            $writer->complete(
-                $documentVerification,
-                $result,
-                $replaceManual,
-                'reprocess',
-                "verification:{$documentVerification->id}:reprocess_completed:{$requestId}",
-                ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
-            );
-            $audit->record(
-                $documentVerification->fresh(),
-                $replaceManual ? 'manual_corrections_replaced' : 'manual_corrections_preserved',
-                'reprocess',
-                "verification:{$documentVerification->id}:reprocess_choice:{$requestId}",
-                $request->user(),
-                technicalMetadata: ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
-            );
-            $documentVerification->refresh();
-        } catch (RuntimeException $exception) {
+            $requestId = (string) Str::uuid();
+            $replaceManual = $request->boolean('replace_manual') || ! $documentVerification->ocr_corrected_at;
             DB::transaction(function () use ($documentVerification, $audit, $request, $requestId, $replaceManual): void {
-                $documentVerification->refresh();
                 $before = $audit->values($documentVerification);
                 $documentVerification->update([
-                    'process_status' => DocumentVerification::PROCESS_FAILED,
+                    'process_status' => DocumentVerification::PROCESSING,
                     'authenticity_status' => null,
-                    'message' => 'Verifikasi dokumen gagal.',
-                    'error_message' => 'Dokumen tidak dapat diproses. Pastikan file dapat dibaca, lalu coba lagi.',
+                    'message' => 'Engine OCR sedang membaca dokumen.',
+                    'error_message' => null,
                 ]);
                 $audit->record(
                     $documentVerification,
-                    'ocr_reprocess_failed',
+                    'ocr_reprocess_requested',
                     'reprocess',
-                    "verification:{$documentVerification->id}:reprocess_failed:{$requestId}",
+                    "verification:{$documentVerification->id}:reprocess_requested:{$requestId}",
                     $request->user(),
                     before: $before,
                     after: $audit->values($documentVerification),
@@ -295,14 +266,62 @@ class DocumentVerificationController extends Controller
                 );
             });
 
-            return redirect()->route('verifications.show', $documentVerification)
-                ->withErrors([
-                    'document' => 'Proses ulang gagal. Pastikan dokumen dapat dibaca, lalu coba lagi.',
-                ]);
-        }
+            try {
+                $result = $service->verify(
+                    Storage::disk('local')->path($documentVerification->file_path),
+                    $documentVerification->document_type,
+                );
 
-        return redirect()->route('verifications.show', $documentVerification)
-            ->with('success', 'Dokumen berhasil diproses ulang dengan engine OCR terbaru.');
+                $writer->complete(
+                    $documentVerification,
+                    $result,
+                    $replaceManual,
+                    'reprocess',
+                    "verification:{$documentVerification->id}:reprocess_completed:{$requestId}",
+                    ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
+                );
+                $audit->record(
+                    $documentVerification->fresh(),
+                    $replaceManual ? 'manual_corrections_replaced' : 'manual_corrections_preserved',
+                    'reprocess',
+                    "verification:{$documentVerification->id}:reprocess_choice:{$requestId}",
+                    $request->user(),
+                    technicalMetadata: ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
+                );
+                $documentVerification->refresh();
+            } catch (RuntimeException $exception) {
+                DB::transaction(function () use ($documentVerification, $audit, $request, $requestId, $replaceManual): void {
+                    $documentVerification->refresh();
+                    $before = $audit->values($documentVerification);
+                    $documentVerification->update([
+                        'process_status' => DocumentVerification::PROCESS_FAILED,
+                        'authenticity_status' => null,
+                        'message' => 'Verifikasi dokumen gagal.',
+                        'error_message' => 'Dokumen tidak dapat diproses. Pastikan file dapat dibaca, lalu coba lagi.',
+                    ]);
+                    $audit->record(
+                        $documentVerification,
+                        'ocr_reprocess_failed',
+                        'reprocess',
+                        "verification:{$documentVerification->id}:reprocess_failed:{$requestId}",
+                        $request->user(),
+                        before: $before,
+                        after: $audit->values($documentVerification),
+                        technicalMetadata: ['request_id' => $requestId, 'choice' => $replaceManual ? 'replace' : 'preserve'],
+                    );
+                });
+
+                return redirect()->route('verifications.show', $documentVerification)
+                    ->withErrors([
+                        'document' => 'Proses ulang gagal. Pastikan dokumen dapat dibaca, lalu coba lagi.',
+                    ]);
+            }
+
+            return redirect()->route('verifications.show', $documentVerification)
+                ->with('success', 'Dokumen berhasil diproses ulang dengan engine OCR terbaru.');
+        } finally {
+            $lock->release();
+        }
     }
 
     public function updateMetadata(

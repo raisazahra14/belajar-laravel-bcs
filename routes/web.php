@@ -25,6 +25,7 @@ use App\Http\Controllers\SupplierPerformanceController;
 use App\Http\Controllers\SystemHealthController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseController;
+use App\Http\Controllers\WarehouseStockController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/barang');
@@ -44,22 +45,29 @@ Route::middleware('auth')->group(function () {
     Route::post('/verifications', [DocumentVerificationController::class, 'store'])->name('verifications.store');
     Route::get('/verifications/{documentVerification}/processing', [DocumentVerificationController::class, 'processing'])->name('verifications.processing');
     Route::get('/verifications/{documentVerification}/status', [DocumentVerificationController::class, 'status'])->name('verifications.status');
+    Route::post('/verifications/{documentVerification}/process-now', [DocumentVerificationController::class, 'processNow'])
+        ->middleware('throttle:ocr-direct')
+        ->name('verifications.process-now');
     Route::post('/verifications/{documentVerification}/retry', [DocumentVerificationController::class, 'retry'])->name('verifications.retry');
     Route::get('/verifications/{documentVerification}', [DocumentVerificationController::class, 'show'])->name('verifications.show');
     Route::get('/verifications/{documentVerification}/download', [DocumentVerificationController::class, 'download'])->name('verifications.download');
     Route::get('/verifications/{documentVerification}/preview', [DocumentVerificationController::class, 'preview'])->name('verifications.preview');
-    Route::post('/verifications/{documentVerification}/reprocess', [DocumentVerificationController::class, 'reprocess'])->name('verifications.reprocess');
+    Route::post('/verifications/{documentVerification}/reprocess', [DocumentVerificationController::class, 'reprocess'])
+        ->middleware('throttle:ocr-direct')
+        ->name('verifications.reprocess');
     Route::patch('/verifications/{documentVerification}/metadata', [DocumentVerificationController::class, 'updateMetadata'])->name('verifications.metadata.update');
 
     Route::get('/barang', [BarangController::class, 'index'])->name('barang.index');
     Route::get('/barang/scanner', [BarangController::class, 'scanner'])->name('barang.scanner');
     Route::get('/barang/scanner/cari', [BarangController::class, 'scanLookup'])->name('barang.scanner.lookup');
     Route::get('/suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
-    Route::get('/suppliers/performance', [SupplierPerformanceController::class, 'index'])->name('suppliers.performance');
-    Route::get('/suppliers/performance/export/excel', [SupplierPerformanceController::class, 'exportExcel'])->name('suppliers.performance.export-excel');
-    Route::get('/suppliers/performance/export/csv', [SupplierPerformanceController::class, 'exportCsv'])->name('suppliers.performance.export-csv');
-    Route::get('/suppliers/performance/export/pdf', [SupplierPerformanceController::class, 'exportPdf'])->name('suppliers.performance.export-pdf');
-    Route::get('/suppliers/{supplier}/performance', [SupplierPerformanceController::class, 'show'])->name('suppliers.performance.show');
+    Route::middleware('role:admin,manager')->group(function () {
+        Route::get('/suppliers/performance', [SupplierPerformanceController::class, 'index'])->name('suppliers.performance');
+        Route::get('/suppliers/performance/export/excel', [SupplierPerformanceController::class, 'exportExcel'])->name('suppliers.performance.export-excel');
+        Route::get('/suppliers/performance/export/csv', [SupplierPerformanceController::class, 'exportCsv'])->name('suppliers.performance.export-csv');
+        Route::get('/suppliers/performance/export/pdf', [SupplierPerformanceController::class, 'exportPdf'])->name('suppliers.performance.export-pdf');
+        Route::get('/suppliers/{supplier}/performance', [SupplierPerformanceController::class, 'show'])->name('suppliers.performance.show');
+    });
     Route::get('/warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
     Route::middleware('role:admin')->group(function () {
         Route::get('/suppliers/create', [SupplierController::class, 'create'])->name('suppliers.create');
@@ -89,6 +97,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/purchase-orders/{purchaseOrder}/receive', [PurchaseOrderController::class, 'receive'])->name('purchase-orders.receive');
     Route::get('/goods-receipts/{goodsReceipt}', [GoodsReceiptController::class, 'show'])->name('goods-receipts.show');
     Route::get('/goods-receipts/{goodsReceipt}/pdf', [GoodsReceiptController::class, 'pdf'])->name('goods-receipts.pdf');
+    Route::get('/goods-receipts/{goodsReceipt}/surat-jalan', [GoodsReceiptController::class, 'suratJalan'])->name('goods-receipts.surat-jalan');
     Route::get('/barang/results', [BarangController::class, 'inventoryResults'])->name('barang.results');
     Route::get('/barang/dashboard/activity', [BarangController::class, 'dashboardActivity'])->name('barang.dashboard.activity');
     Route::get('/barang/{barang}/qr-code', [BarangQrCodeController::class, 'show'])->name('barang.qr-code');
@@ -104,6 +113,8 @@ Route::middleware('auth')->group(function () {
         ->middleware('can:update-stock')->name('stock-transfers.create');
     Route::post('/barang/{barang}/transfer-stok', [StockTransferController::class, 'store'])
         ->middleware('can:update-stock')->name('stock-transfers.store');
+    Route::patch('/barang/{barang}/warehouses/{warehouse}/settings', [WarehouseStockController::class, 'update'])
+        ->middleware('role:admin,manager')->name('barang.warehouse-stock.update');
     Route::post('/stok-transactions/{stokTransaction}/reverse', [StockTransactionReversalController::class, 'store'])
         ->middleware('can:reverse-stock')->name('stock-transactions.reverse');
     Route::get('/prediksi-stok', [StockPredictionController::class, 'index'])->name('stock-predictions.index');

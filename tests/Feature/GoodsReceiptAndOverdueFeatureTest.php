@@ -69,6 +69,7 @@ class GoodsReceiptAndOverdueFeatureTest extends TestCase
 
     public function test_receiving_items_creates_goods_receipt_record_and_items(): void
     {
+        Storage::fake('local');
         Storage::fake('public');
 
         $po = PurchaseOrder::create([
@@ -121,7 +122,9 @@ class GoodsReceiptAndOverdueFeatureTest extends TestCase
         $this->assertNotNull($grn);
         $this->assertStringStartsWith('GRN-20261029-', $grn->nomor_grn);
         $this->assertNotNull($grn->foto_surat_jalan);
-        Storage::disk('public')->assertExists($grn->foto_surat_jalan);
+        Storage::disk('local')->assertExists($grn->foto_surat_jalan);
+        Storage::disk('public')->assertMissing($grn->foto_surat_jalan);
+        $this->assertSame(route('goods-receipts.surat-jalan', $grn), $grn->foto_surat_jalan_url);
 
         $this->assertDatabaseHas('goods_receipt_items', [
             'goods_receipt_id' => $grn->id,

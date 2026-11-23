@@ -570,6 +570,52 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests429"
 
+  /api/v1/stok/{stokTransaction}/reverse:
+    post:
+      tags:
+        - "Mutasi & Transfer Stok"
+      summary: "Pembatalan Mutasi Stok (Reversal Audit Trail)"
+      description: |
+        Membatalkan transaksi mutasi stok secara atomik dengan menerbitkan transaksi pembalik (`reversal`) dan menandai transaksi asal sebagai telah dibatalkan (`reversed_at`). Jika transaksi asal terkait Purchase Order, status PO dan Goods Receipt ikut disinkronkan secara atomik.
+        - **Required Ability & Role:** `stok:reverse` dan hak akses `reverse-stock` (`admin` atau `manager`).
+      operationId: "reverseStockTransaction"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StokTransactionIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StockReverseRequest"
+            example:
+              reason: "Koreksi salah input jumlah penerimaan pada shift malam"
+      responses:
+        "200":
+          description: "Transaksi stok berhasil dibatalkan melalui reversal."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockReverseSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
   /api/v1/purchase-orders:
     get:
       tags:
@@ -777,6 +823,312 @@ paths:
           $ref: "#/components/responses/NotFound404"
         "429":
           $ref: "#/components/responses/TooManyRequests429"
+    put:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Perbarui Purchase Order Berstatus Draft"
+      description: |
+        Memperbarui header dan daftar item Purchase Order yang masih berstatus `draft`.
+        - **Required Ability:** `po:update` (hanya pembuat PO, `admin`, atau `manager`).
+      operationId: "updatePurchaseOrderPut"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePurchaseOrderRequest"
+      responses:
+        "200":
+          description: "Purchase Order berhasil diperbarui."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    patch:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Perbarui Purchase Order Berstatus Draft (PATCH)"
+      description: |
+        Alias `PATCH` untuk memperbarui Purchase Order yang masih berstatus `draft`.
+        - **Required Ability:** `po:update`
+      operationId: "updatePurchaseOrderPatch"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePurchaseOrderRequest"
+      responses:
+        "200":
+          description: "Purchase Order berhasil diperbarui."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/submit:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Ajukan Purchase Order untuk Persetujuan"
+      description: |
+        Mengubah status PO dari `draft` menjadi `pending_approval` (minimal memiliki 1 item).
+        - **Required Ability:** `po:submit` (pembuat PO atau `admin`).
+      operationId: "submitPurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      responses:
+        "200":
+          description: "Purchase Order berhasil diajukan untuk persetujuan."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/approve:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Setujui Purchase Order (Maker-Checker)"
+      description: |
+        Menyetujui PO dari `pending_approval` ke `approved`. Menerapkan prinsip Separation of Duty (Maker-Checker): pembuat PO tidak dapat menyetujui PO miliknya sendiri (`403 FORBIDDEN`).
+        - **Required Ability:** `po:approve` (`admin` atau `manager` non-pembuat PO).
+      operationId: "approvePurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      responses:
+        "200":
+          description: "Purchase Order berhasil disetujui."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/reject:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Tolak Purchase Order dengan Alasan Wajib"
+      description: |
+        Menolak PO dari `pending_approval` ke `rejected` beserta catatan alasan penolakan (`reason` wajib diisi). Maker-Checker berlaku.
+        - **Required Ability:** `po:approve`
+      operationId: "rejectPurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderRequiredReasonRequest"
+      responses:
+        "200":
+          description: "Purchase Order berhasil ditolak."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/revise:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Kembalikan PO Ditolak ke Draft untuk Revisi"
+      description: |
+        Mengembalikan PO berstatus `rejected` ke `draft` agar dapat disunting ulang.
+        - **Required Ability:** `po:update`
+      operationId: "revisePurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderOptionalReasonRequest"
+      responses:
+        "200":
+          description: "Purchase Order dikembalikan ke status Draft."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/withdraw:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Tarik Pengajuan PO Menunggu Persetujuan ke Draft"
+      description: |
+        Menarik PO berstatus `pending_approval` kembali ke `draft`.
+        - **Required Ability:** `po:update`
+      operationId: "withdrawPurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderOptionalReasonRequest"
+      responses:
+        "200":
+          description: "Pengajuan Purchase Order berhasil ditarik kembali ke Draft."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/cancel:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Batalkan Purchase Order dengan Alasan Wajib"
+      description: |
+        Membatalkan PO pada status `draft`, `pending_approval`, `rejected`, atau `approved` beserta catatan alasan (`reason` wajib diisi).
+        - **Required Ability:** `po:update` atau `po:approve`
+      operationId: "cancelPurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderRequiredReasonRequest"
+      responses:
+        "200":
+          description: "Purchase Order berhasil dibatalkan."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
 
   /api/v1/purchase-orders/{purchaseOrder}/receive:
     post:
@@ -877,6 +1229,15 @@ components:
         type: "integer"
         minimum: 1
       example: 1
+    StokTransactionIdPath:
+      name: "stokTransaction"
+      in: "path"
+      required: true
+      description: "ID numerik transaksi mutasi stok."
+      schema:
+        type: "integer"
+        minimum: 1
+      example: 101
 
   headers:
     XApiVersion:
@@ -1788,6 +2149,15 @@ components:
           format: "uuid"
           nullable: true
           example: null
+        reversal_of_id:
+          type: "integer"
+          nullable: true
+          example: null
+        reversed_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: null
         reference_type:
           type: "string"
           nullable: true
@@ -2460,6 +2830,62 @@ components:
           nullable: true
           description: "Token idempotensi untuk mencegah pencatatan Goods Receipt ganda saat retry jaringan."
           example: "SCAN-TOKEN-001"
+
+    StockReverseRequest:
+      type: "object"
+      required:
+        - "reason"
+      properties:
+        reason:
+          type: "string"
+          minLength: 5
+          maxLength: 1000
+          example: "Koreksi salah input jumlah penerimaan"
+
+    StockReverseSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Transaksi stok berhasil dibatalkan melalui reversal"
+        data:
+          type: "object"
+          properties:
+            original_transaction:
+              $ref: "#/components/schemas/StockTransactionResource"
+            reversal_transaction:
+              $ref: "#/components/schemas/StockTransactionResource"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    PurchaseOrderRequiredReasonRequest:
+      type: "object"
+      required:
+        - "reason"
+      properties:
+        reason:
+          type: "string"
+          maxLength: 1000
+          example: "Harga penawaran melebihi anggaran kuartal berjalan"
+
+    PurchaseOrderOptionalReasonRequest:
+      type: "object"
+      properties:
+        reason:
+          type: "string"
+          maxLength: 1000
+          nullable: true
+          example: "Penyesuaian kuantitas pesanan"
 
   responses:
     BadRequest400:

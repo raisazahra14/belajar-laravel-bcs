@@ -59,10 +59,13 @@ def _base_result(
     count: int,
     out_days: int,
     history_days: int,
+    incoming_po: int = 0,
 ) -> dict[str, Any]:
     return {
         "barang_id": item_id,
         "current_stock": stock,
+        "incoming_po_stock": incoming_po,
+        "effective_stock": stock + incoming_po,
         "prediction_available": False,
         "predicted_30_day_need": None,
         "demand_30_days": None,
@@ -92,6 +95,8 @@ def predict(payload: dict[str, Any], today: date | None = None) -> dict[str, Any
     today = today or date.today()
     item = payload["item"]
     stock = max(0, int(item["current_stock"]))
+    incoming_po = max(0, int(item.get("incoming_po_stock") or 0))
+    effective_stock = stock + incoming_po
     minimum = max(0, int(item.get("minimum_stock", 5)))
     horizon = max(1, int(payload.get("forecast_days", 30)))
     minimum_history = max(1, int(payload.get("minimum_history_days", 30)))
@@ -106,6 +111,7 @@ def predict(payload: dict[str, Any], today: date | None = None) -> dict[str, Any
         valid_count,
         nonzero_days,
         history_days,
+        incoming_po,
     )
     lead_time = item.get("lead_time_days")
     lead_time = int(lead_time) if lead_time not in (None, "") else None
@@ -165,7 +171,9 @@ def predict(payload: dict[str, Any], today: date | None = None) -> dict[str, Any
             return result
     demand = sum(forecast_values)
     safety = max(minimum, int(math.ceil(daily_rate * (lead_time or 7))))
-    restock = max(int(math.ceil(demand + safety - stock)), 0)
+    restock = max(int(math.ceil(demand + safety - effective_stock)), 0)
+    if incoming_po > 0:
+        reason = f"{reason} Memperhitungkan {incoming_po} unit PO terbuka dalam pengiriman."
     minimum_date = (
         today + timedelta(days=max(0, math.ceil((stock - safety) / daily_rate)))
         if stock > safety
@@ -175,9 +183,11 @@ def predict(payload: dict[str, Any], today: date | None = None) -> dict[str, Any
     positive = [value for value in usage if value > 0]
     median = statistics.median(positive) if positive else 0
     outlier = bool(median and max(positive) > median * 5)
-    extreme = restock > max(stock * 5, minimum * 10, 100)
+    extreme = restock > max(effective_stock * 5, minimum * 10, 100)
     result.update(
         {
+            "incoming_po_stock": incoming_po,
+            "effective_stock": effective_stock,
             "prediction_available": True,
             "predicted_30_day_need": round(demand, 2),
             "demand_30_days": round(demand, 2),
@@ -192,8 +202,12 @@ def predict(payload: dict[str, Any], today: date | None = None) -> dict[str, Any
                 if outlier or extreme
                 else (
                     "Mendesak"
-                    if stock < safety
-                    else ("Perlu Restock" if restock > 0 else _stock_status(stock, safety))
+                    if stock < safety and (incoming_po == 0 or restock > 0)
+                    else (
+                        "Waspada"
+                        if stock < safety
+                        else ("Perlu Restock" if restock > 0 else _stock_status(stock, safety))
+                    )
                 )
             ),
             "method": method,

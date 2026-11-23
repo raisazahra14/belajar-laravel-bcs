@@ -7,6 +7,8 @@ use App\Services\GoodsReceiptPdfService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class GoodsReceiptController extends Controller
 {
@@ -37,6 +39,33 @@ class GoodsReceiptController extends Controller
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, no-store',
         ]);
+    }
+
+    /**
+     * Sajikan berkas bukti foto/dokumen surat jalan GRN secara terautentikasi dari storage privat.
+     */
+    public function suratJalan(Request $request, GoodsReceipt $goodsReceipt): StreamedResponse
+    {
+        $this->authorizeAccess($request, $goodsReceipt);
+
+        $path = $goodsReceipt->foto_surat_jalan;
+        abort_if(! is_string($path) || $path === '', 404);
+
+        $disk = Storage::disk('local')->exists($path)
+            ? 'local'
+            : (Storage::disk('public')->exists($path) ? 'public' : null);
+
+        abort_if($disk === null, 404);
+
+        return Storage::disk($disk)->response(
+            $path,
+            basename($path),
+            [
+                'Content-Disposition' => 'inline; filename="'.addslashes(basename($path)).'"',
+                'X-Content-Type-Options' => 'nosniff',
+                'Cache-Control' => 'private, no-store',
+            ],
+        );
     }
 
     private function authorizeAccess(Request $request, GoodsReceipt $goodsReceipt): void

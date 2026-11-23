@@ -65,7 +65,8 @@ class PurchaseOrderResource extends JsonResource
                     'id' => $this->resource->warehouse?->id,
                     'kode_gudang' => $this->resource->warehouse?->kode_gudang,
                     'nama_gudang' => $this->resource->warehouse?->nama_gudang,
-                    'lokasi' => $this->resource->warehouse?->lokasi,
+                    'lokasi' => $this->resource->warehouse?->alamat,
+                    'alamat' => $this->resource->warehouse?->alamat,
                 ];
             }),
             'creator' => $this->whenLoaded('creator', function () {

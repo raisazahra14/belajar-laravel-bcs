@@ -48,17 +48,28 @@ class AuthController extends Controller
         RateLimiter::clear($throttleKey);
 
         $deviceName = $validated['device_name'] ?? 'external-client';
-        $token = $user->createToken($deviceName)->plainTextToken;
+        $abilities = $user->defaultApiAbilities();
+        $expiration = config('sanctum.expiration');
+        $expiresAt = is_numeric($expiration) && (int) $expiration > 0
+            ? now()->addMinutes((int) $expiration)
+            : null;
+        $newToken = $user->createToken($deviceName, $abilities, $expiresAt);
 
         return response()->json([
-            'token' => $token,
+            'token' => $newToken->plainTextToken,
             'token_type' => 'Bearer',
+            'abilities' => $abilities,
+            'expires_at' => $newToken->accessToken->expires_at?->toIso8601String(),
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->role,
             ],
+        ], 200, [
+            'X-Content-Type-Options' => 'nosniff',
+            'X-Frame-Options' => 'DENY',
+            'Deprecation' => 'true',
         ]);
     }
 

@@ -264,6 +264,14 @@ class DocumentVerificationTest extends TestCase
         $this->actingAs($user)->getJson(route('verifications.status', [$verification, 'run_now' => 1]))
             ->assertOk()
             ->assertJson([
+                'process_status' => 'menunggu',
+                'authenticity_status' => null,
+                'result_url' => null,
+            ]);
+
+        $this->actingAs($user)->postJson(route('verifications.process-now', $verification))
+            ->assertOk()
+            ->assertJson([
                 'process_status' => 'selesai',
                 'authenticity_status' => 'asli',
                 'result_url' => route('verifications.show', $verification),

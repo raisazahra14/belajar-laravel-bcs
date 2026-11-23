@@ -3,7 +3,16 @@
 return [
 
     'stock_prediction' => [
-        'python_executable' => env('PYTHON_EXECUTABLE', 'python'),
+        'python_executable' => env(
+            'PYTHON_EXECUTABLE',
+            PHP_OS_FAMILY === 'Windows'
+                ? (is_file(base_path('python/.venv/Lib/site-packages/sklearn/__init__.py'))
+                    ? base_path('python/.venv/Scripts/python.exe')
+                    : 'python')
+                : (is_file(base_path('python/.venv/bin/python'))
+                    ? base_path('python/.venv/bin/python')
+                    : 'python3'),
+        ),
         'timeout' => (int) env('STOCK_PREDICTION_TIMEOUT', 30),
         'batch_timeout' => (int) env('STOCK_PREDICTION_BATCH_TIMEOUT', 120),
         'minimum_history_days' => (int) env('STOCK_PREDICTION_MINIMUM_HISTORY_DAYS', 30),
@@ -14,10 +23,15 @@ return [
     'document_checker' => [
         'python_executable' => env(
             'PYTHON_EXECUTABLE',
-            PHP_OS_FAMILY === 'Windows' && is_file(base_path('python/.venv/Lib/site-packages/pymupdf/__init__.py'))
-                ? base_path('python/.venv/Scripts/python.exe')
-                : 'python',
+            PHP_OS_FAMILY === 'Windows'
+                ? (is_file(base_path('python/.venv/Lib/site-packages/pymupdf/__init__.py'))
+                    ? base_path('python/.venv/Scripts/python.exe')
+                    : 'python')
+                : (is_file(base_path('python/.venv/bin/python'))
+                    ? base_path('python/.venv/bin/python')
+                    : 'python3'),
         ),
+        'tesseract_executable' => env('TESSERACT_EXECUTABLE'),
         'timeout' => (int) env('DOCUMENT_CHECKER_TIMEOUT', 240),
     ],
 

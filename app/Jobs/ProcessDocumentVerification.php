@@ -39,17 +39,35 @@ class ProcessDocumentVerification implements ShouldBeUnique, ShouldQueue
         DocumentVerificationAuditService $audit,
         DocumentVerificationNotificationService $notifications,
     ): void {
-        $verification = DocumentVerification::find($this->verificationId);
-        if (! $verification || ! in_array($verification->process_status, [DocumentVerification::PROCESS_WAITING, DocumentVerification::PROCESSING], true)) {
+        $jobId = (string) ($this->job?->getJobId() ?? "sync-{$this->verificationId}");
+        $verification = DB::transaction(function () use ($audit, $jobId): ?DocumentVerification {
+            $locked = DocumentVerification::whereKey($this->verificationId)->lockForUpdate()->first();
+            if (! $locked || $locked->process_status !== DocumentVerification::PROCESS_WAITING) {
+                return null;
+            }
+
+            $before = $audit->values($locked);
+            $locked->update([
+                'process_status' => DocumentVerification::PROCESSING,
+                'message' => 'Engine OCR sedang membaca dokumen.',
+                'error_message' => null,
+            ]);
+            $audit->record(
+                $locked,
+                'ocr_started',
+                'system',
+                "verification:{$locked->id}:ocr_started:{$jobId}",
+                before: $before,
+                after: $audit->values($locked),
+                technicalMetadata: ['job_id' => $jobId, 'queue' => 'default'],
+            );
+
+            return $locked;
+        });
+
+        if (! $verification) {
             return;
         }
-
-        $jobId = (string) ($this->job?->getJobId() ?? "sync-{$verification->id}");
-        DB::transaction(function () use ($verification, $audit, $jobId): void {
-            $before = $audit->values($verification);
-            $verification->update(['process_status' => DocumentVerification::PROCESSING, 'message' => 'Engine OCR sedang membaca dokumen.', 'error_message' => null]);
-            $audit->record($verification, 'ocr_started', 'system', "verification:{$verification->id}:ocr_started:{$jobId}", before: $before, after: $audit->values($verification), technicalMetadata: ['job_id' => $jobId, 'queue' => 'default']);
-        });
 
         try {
             if (! Storage::disk('local')->exists($verification->file_path)) {

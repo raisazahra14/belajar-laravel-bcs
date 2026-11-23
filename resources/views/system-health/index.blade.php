@@ -92,6 +92,9 @@
                                 <strong>{{ $comp['metrics']['core_tables_ready'] ? 'Lengkap' : 'Belum Lengkap' }} ({{ $comp['metrics']['migrations_applied'] }} migrasi)</strong>
                             </div>
                         @elseif($key === 'queue')
+                            @php
+                                $workerHb = $comp['metrics']['worker_heartbeat'] ?? null;
+                            @endphp
                             <div class="d-flex justify-content-between py-1 border-bottom">
                                 <span class="text-muted">Queue Driver</span>
                                 <strong>{{ strtoupper($comp['metrics']['driver']) }}</strong>
@@ -100,9 +103,46 @@
                                 <span class="text-muted">Antrean default (OCR) / stock-predictions</span>
                                 <strong>{{ $comp['metrics']['pending_default'] }} job / {{ $comp['metrics']['pending_stock_predictions'] }} job</strong>
                             </div>
-                            <div class="d-flex justify-content-between py-1">
+                            <div class="d-flex justify-content-between py-1 border-bottom">
                                 <span class="text-muted">Job Gagal (failed_jobs) &amp; Self-Healing OCR</span>
                                 <strong>{{ $comp['metrics']['failed_jobs'] }} gagal · Self-Healing Aktif</strong>
+                            </div>
+                            <div class="d-flex justify-content-between py-1">
+                                <span class="text-muted">Heartbeat Worker Terakhir</span>
+                                <strong>
+                                    @if(($workerHb['state'] ?? 'never_recorded') === 'alive')
+                                        Aktif ({{ $workerHb['age_seconds'] }} dtk lalu)
+                                    @elseif(($workerHb['state'] ?? '') === 'stale')
+                                        Stale ({{ $workerHb['age_seconds'] }} dtk lalu)
+                                    @else
+                                        Belum Tercatat
+                                    @endif
+                                </strong>
+                            </div>
+                        @elseif($key === 'scheduler')
+                            <div class="d-flex justify-content-between py-1 border-bottom">
+                                <span class="text-muted">Status Liveness Scheduler</span>
+                                <strong>
+                                    @if(($comp['metrics']['state'] ?? '') === 'alive')
+                                        Aktif ({{ $comp['metrics']['age_seconds'] }} dtk lalu)
+                                    @elseif(($comp['metrics']['state'] ?? '') === 'stale')
+                                        Kedaluwarsa ({{ $comp['metrics']['age_seconds'] }} dtk lalu)
+                                    @else
+                                        Belum Tercatat
+                                    @endif
+                                </strong>
+                            </div>
+                            <div class="d-flex justify-content-between py-1 border-bottom">
+                                <span class="text-muted">Heartbeat Terakhir</span>
+                                <strong>{{ $comp['metrics']['last_seen_at'] ? $comp['metrics']['last_seen_at'].' WIB' : 'N/A' }}</strong>
+                            </div>
+                            <div class="py-1">
+                                <span class="text-muted d-block mb-1">Tugas Terjadwal Aktif:</span>
+                                <div class="d-flex flex-wrap" style="gap: 0.35rem;">
+                                    @foreach(($comp['metrics']['scheduled_tasks'] ?? []) as $taskName)
+                                        <x-ui.badge variant="info">{{ $taskName }}</x-ui.badge>
+                                    @endforeach
+                                </div>
                             </div>
                         @elseif($key === 'python')
                             <div class="d-flex justify-content-between py-1 border-bottom">

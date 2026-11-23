@@ -6,14 +6,17 @@ use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Policies\PurchaseOrderPolicy;
 use App\Services\NotificationCenterService;
+use App\Services\SystemHealthService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -37,6 +40,10 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('api', function (Request $request): Limit {
             return Limit::perMinute(60)->by((string) ($request->user()?->id ?: $request->ip()));
+        });
+
+        RateLimiter::for('ocr-direct', function (Request $request): Limit {
+            return Limit::perMinute(6)->by((string) ($request->user()?->id ?: $request->ip()));
         });
 
         $slowQueryThreshold = (int) config('database.slow_query_threshold_ms', 500);
@@ -68,6 +75,16 @@ class AppServiceProvider extends ServiceProvider
                 : ['unread_count' => 0, 'notifications' => collect()];
 
             $view->with('notificationDropdown', $dropdown);
+        });
+
+        Queue::looping(static function (): void {
+            SystemHealthService::recordQueueWorkerHeartbeat();
+        });
+
+        Queue::after(static function (JobProcessed $event): void {
+            if ($event->connectionName !== 'sync') {
+                SystemHealthService::recordQueueWorkerHeartbeat();
+            }
         });
     }
 }

@@ -40,6 +40,7 @@ class InventoryDashboardService
             default => 'DATE(created_at)',
         };
         $activityRows = StokTransaction::query()
+            ->effectiveOperational()
             ->whereIn('jenis', ['masuk', 'keluar'])
             ->where('created_at', '>=', $start->utc())
             ->where('created_at', '<', $endExclusive->utc())

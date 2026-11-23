@@ -7,12 +7,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\IndexPurchaseOrderRequest;
 use App\Http\Requests\Api\V1\ReceivePurchaseOrderApiRequest;
 use App\Http\Requests\StorePurchaseOrderRequest;
+use App\Http\Requests\UpdatePurchaseOrderRequest;
 use App\Http\Resources\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
 use App\Services\PurchaseOrderService;
-use Illuminate\Database\ConcurrencyErrorDetector;
+use App\Support\DatabaseConcurrency;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class PurchaseOrderApiController extends Controller
@@ -44,7 +46,7 @@ class PurchaseOrderApiController extends Controller
     }
 
     /**
-     * Detail lengkap Purchase Order beserta item, riwayat status, dan Goods Receipt.
+     * Detail lengkap Purchase Order beserta item, riwayat status, dan Goods Receipts.
      */
     public function show(PurchaseOrder $purchaseOrder): JsonResponse
     {
@@ -76,6 +78,133 @@ class PurchaseOrderApiController extends Controller
     }
 
     /**
+     * Perbarui Purchase Order berstatus Draft melalui API v1.
+     */
+    public function update(
+        UpdatePurchaseOrderRequest $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service,
+    ): JsonResponse {
+        return $this->runWorkflowTransition(
+            fn () => $service->updatePO($purchaseOrder, $request->validated(), $request->user()),
+            'Purchase Order berhasil diperbarui',
+            'Terjadi kepadatan transaksi saat memperbarui Purchase Order. Silakan coba kembali beberapa saat lagi.',
+        );
+    }
+
+    /**
+     * Ajukan Purchase Order Draft ke tahap Menunggu Persetujuan.
+     */
+    public function submit(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service,
+    ): JsonResponse {
+        return $this->runWorkflowTransition(
+            fn () => $service->submitPO($purchaseOrder, $request->user()),
+            'Purchase Order berhasil diajukan untuk persetujuan',
+            'Terjadi kepadatan transaksi saat mengajukan Purchase Order. Silakan coba kembali beberapa saat lagi.',
+        );
+    }
+
+    /**
+     * Setujui Purchase Order oleh Manager atau Admin (Maker-Checker enforced).
+     */
+    public function approve(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service,
+    ): JsonResponse {
+        return $this->runWorkflowTransition(
+            fn () => $service->approvePO($purchaseOrder, $request->user()),
+            'Purchase Order berhasil disetujui',
+            'Terjadi kepadatan transaksi saat menyetujui Purchase Order. Silakan coba kembali beberapa saat lagi.',
+        );
+    }
+
+    /**
+     * Tolak Purchase Order dengan alasan wajib.
+     */
+    public function reject(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service,
+    ): JsonResponse {
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+        ], [
+            'reason.required' => 'Catatan alasan penolakan wajib diisi.',
+            'reason.max' => 'Catatan alasan penolakan maksimal 1.000 karakter.',
+        ]);
+
+        return $this->runWorkflowTransition(
+            fn () => $service->rejectPO($purchaseOrder, $request->user(), $validated['reason']),
+            'Purchase Order berhasil ditolak',
+            'Terjadi kepadatan transaksi saat menolak Purchase Order. Silakan coba kembali beberapa saat lagi.',
+        );
+    }
+
+    /**
+     * Kembalikan Purchase Order berstatus Ditolak ke Draft untuk revisi ulang.
+     */
+    public function revise(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service,
+    ): JsonResponse {
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return $this->runWorkflowTransition(
+            fn () => $service->revisePO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
+            'Purchase Order dikembalikan ke status Draft untuk revisi',
+            'Terjadi kepadatan transaksi saat merevisi Purchase Order. Silakan coba kembali beberapa saat lagi.',
+        );
+    }
+
+    /**
+     * Tarik kembali pengajuan Purchase Order ke status Draft.
+     */
+    public function withdraw(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service,
+    ): JsonResponse {
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return $this->runWorkflowTransition(
+            fn () => $service->withdrawPO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
+            'Pengajuan Purchase Order berhasil ditarik kembali ke status Draft',
+            'Terjadi kepadatan transaksi saat menarik pengajuan Purchase Order. Silakan coba kembali beberapa saat lagi.',
+        );
+    }
+
+    /**
+     * Batalkan Purchase Order pada status yang diizinkan beserta alasan pembatalan wajib.
+     */
+    public function cancel(
+        Request $request,
+        PurchaseOrder $purchaseOrder,
+        PurchaseOrderService $service,
+    ): JsonResponse {
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+        ], [
+            'reason.required' => 'Catatan alasan pembatalan wajib diisi.',
+            'reason.max' => 'Catatan alasan pembatalan maksimal 1.000 karakter.',
+        ]);
+
+        return $this->runWorkflowTransition(
+            fn () => $service->cancelPO($purchaseOrder, $request->user(), $validated['reason']),
+            'Purchase Order berhasil dibatalkan',
+            'Terjadi kepadatan transaksi saat membatalkan Purchase Order. Silakan coba kembali beberapa saat lagi.',
+        );
+    }
+
+    /**
      * Catat penerimaan fisik barang (Goods Receipt) langsung dari pemindai barcode atau batch payload.
      */
     public function receive(
@@ -84,14 +213,7 @@ class PurchaseOrderApiController extends Controller
         PurchaseOrderService $service,
     ): JsonResponse {
         $validated = $request->validated();
-        $receivedItems = $validated['items'] ?? [];
-
-        if ($receivedItems === [] && ! empty($validated['jumlah_diterima']) && $request->getPurchaseOrderItem()) {
-            $receivedItems = [[
-                'purchase_order_item_id' => $request->getPurchaseOrderItem()->id,
-                'jumlah_diterima' => (int) $validated['jumlah_diterima'],
-            ]];
-        }
+        $receivedItems = PurchaseOrderService::resolveReceivedItemsPayload($validated, $request->getPurchaseOrderItem());
 
         try {
             $po = $service->receiveItems(
@@ -105,13 +227,7 @@ class PurchaseOrderApiController extends Controller
                 $validated['receipt_token'] ?? null,
             );
         } catch (QueryException $e) {
-            $isDeadlock = (new ConcurrencyErrorDetector)->causedByConcurrencyError($e);
-
-            $friendlyMessage = $isDeadlock
-                ? 'Sistem mendeteksi kepadatan transaksi pada database saat memperbarui saldo stok di gudang. Transaksi dibatalkan dengan aman untuk menjaga integritas saldo. Silakan coba kembali beberapa saat lagi.'
-                : 'Terjadi kendala saat menyimpan mutasi stok ke database. Silakan coba beberapa saat lagi.';
-
-            throw new ConflictHttpException($friendlyMessage, $e);
+            throw new ConflictHttpException(DatabaseConcurrency::stockConflictMessage($e), $e);
         }
 
         $po->load(self::DETAIL_RELATIONS);
@@ -119,6 +235,34 @@ class PurchaseOrderApiController extends Controller
         return $this->successResponse(
             new PurchaseOrderResource($po),
             'Penerimaan barang Purchase Order berhasil dicatat',
+        );
+    }
+
+    /**
+     * Jalankan aksi workflow PO dengan pemuatan relasi detail & penanganan konflik transaksi terstandar.
+     *
+     * @param  callable(): PurchaseOrder  $action
+     */
+    private function runWorkflowTransition(
+        callable $action,
+        string $successMessage,
+        string $conflictMessage,
+    ): JsonResponse {
+        try {
+            $po = $action();
+        } catch (QueryException $e) {
+            $message = DatabaseConcurrency::isConflict($e)
+                ? $conflictMessage
+                : 'Terjadi kendala saat menyimpan perubahan Purchase Order ke database.';
+
+            throw new ConflictHttpException($message, $e);
+        }
+
+        $po->load(self::DETAIL_RELATIONS);
+
+        return $this->successResponse(
+            new PurchaseOrderResource($po),
+            $successMessage,
         );
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Barang;
+use App\Models\StokTransaction;
 use App\Models\Warehouse;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
@@ -726,6 +727,7 @@ class InventoryAnalyticsService
             ->whereNotNull('transactions.created_at')
             ->where('transactions.created_at', '>=', $start)
             ->where('transactions.created_at', '<=', $asOf);
+        StokTransaction::applyEffectiveOperationalFilter($query, 'transactions');
 
         if ($supplierId !== null) {
             $query->where('transactions.supplier_id', $supplierId);
@@ -820,6 +822,7 @@ class InventoryAnalyticsService
                 });
             })
             ->where('transactions.jenis', 'keluar')
+            ->tap(fn ($query) => StokTransaction::applyEffectiveOperationalFilter($query, 'transactions'))
             ->whereNotNull('transactions.created_at')
             ->where('transactions.created_at', '>=', $start)
             ->where('transactions.created_at', '<=', $asOf)
@@ -852,6 +855,7 @@ class InventoryAnalyticsService
                         ->whereNotNull('supplier_transactions.created_at')
                         ->where('supplier_transactions.created_at', '>=', $start)
                         ->where('supplier_transactions.created_at', '<=', $asOf);
+                    StokTransaction::applyEffectiveOperationalFilter($transactions, 'supplier_transactions');
                     if ($warehouseId !== null) {
                         $transactions->whereIn('supplier_transactions.warehouse_stock_id', function ($stocks) use ($warehouseId): void {
                             $stocks->select('id')
@@ -909,6 +913,7 @@ class InventoryAnalyticsService
                 })
                 ->leftJoin('warehouse_stocks as linked_stock', 'linked_stock.id', '=', 'transactions.warehouse_stock_id')
                 ->where('transactions.jenis', 'keluar')
+                ->tap(fn ($query) => StokTransaction::applyEffectiveOperationalFilter($query, 'transactions'))
                 ->whereNotNull('transactions.created_at')
                 ->where('transactions.created_at', '>=', $start60)
                 ->where('transactions.created_at', '<=', $asOf)
@@ -959,6 +964,7 @@ class InventoryAnalyticsService
             })
             ->leftJoin('warehouse_stocks as linked_stock', 'linked_stock.id', '=', 'transactions.warehouse_stock_id')
             ->where('transactions.jenis', 'keluar')
+            ->tap(fn ($query) => StokTransaction::applyEffectiveOperationalFilter($query, 'transactions'))
             ->whereNotNull('transactions.created_at')
             ->where('transactions.created_at', '>=', $start)
             ->where('transactions.created_at', '<=', $asOf)
