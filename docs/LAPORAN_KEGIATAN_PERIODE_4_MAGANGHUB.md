@@ -385,11 +385,13 @@ Koleksi Postman [`LogistikKu_API_v1.postman_collection.json`](./postman/Logistik
 
 *(Catatan Eksekusi Runner: Apabila menjalankan seluruh koleksi sekaligus via **Postman Collection Runner**, letakkan/nonaktifkan sementara eksekusi `POST /api/v1/auth/logout` di Folder 02 ke akhir skenario agar `{{bearer_token}}` tetap aktif untuk Folder 03–06).*
 
-> **Lampiran Bukti Tangkapan Layar Lokal (Diisi Setelah Run di Postman Desktop & Browser):**  
-> - **Bukti Pengujian Postman Collection Runner:** Jalankan koleksi [`LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) dengan environment [`LogistikKu_Local.postman_environment.json`](./postman/LogistikKu_Local.postman_environment.json) pada **Postman Desktop**, lalu simpan tangkapan layar hasil *Runner* ke `docs/images/postman-collection-runner-periode-4.png` (dan buka komentar Markdown di bawah jika ingin menampilkannya langsung di laporan):  
->   `<!-- ![Bukti Pengujian Postman Collection Runner Periode 4](./images/postman-collection-runner-periode-4.png) -->`  
-> - **Bukti Portal Dokumentasi Interaktif Swagger UI (`/docs/api`):** Buka `http://127.0.0.1:8000/docs/api` di browser saat `php artisan serve` aktif, uji fitur **Authorize + Try it out**, lalu simpan tangkapan layar ke `docs/images/swagger-ui-docs-api.png`:  
->   `<!-- ![Tampilan Swagger UI Portal Dokumentasi API LogistikKu](./images/swagger-ui-docs-api.png) -->`
+> **Lampiran Bukti Tangkapan Layar Pengujian Postman & Portal Swagger UI:**  
+> - **Bukti Pengujian Postman Collection Runner:** Hasil eksekusi seluruh 16 skenario koleksi [`LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) dengan environment [`LogistikKu_Local.postman_environment.json`](./postman/LogistikKu_Local.postman_environment.json) (`16/16 Requests Executed`, `33/33 Assertions Passed 100%`):  
+>
+>   ![Bukti Pengujian Postman Collection Runner Periode 4](./images/postman-collection-runner-periode-4.png)  
+> - **Bukti Portal Dokumentasi Interaktif Swagger UI (`/docs/api`):** Tampilan portal interaktif `http://127.0.0.1:8000/docs/api` dengan indikator **API Operational**, fitur **Authorize**, dan daftar operasi OpenAPI 3.0.3:  
+>
+>   ![Tampilan Swagger UI Portal Dokumentasi API LogistikKu](./images/swagger-ui-docs-api.png)
 
 #### E. Hasil Verifikasi Akhir Periode 4 (Minggu 1–4)
 

@@ -33,7 +33,9 @@ return [
 
     'allowed_origins' => $allowedOrigins,
 
-    'allowed_origins_patterns' => [],
+    'allowed_origins_patterns' => env('APP_ENV', 'production') === 'local'
+        ? ['#^https://([a-z0-9-]+\.)?postman\.co$#']
+        : [],
 
     'allowed_headers' => [
         'Accept',

@@ -51,7 +51,9 @@ class ApiDocumentationController extends Controller
     {
         abort_unless((bool) config('app.api_docs_enabled', true), 404);
 
-        if (! (bool) config('app.api_docs_public', false) && $request->user() === null) {
+        $isPublic = (bool) config('app.api_docs_public', ! app()->isProduction());
+
+        if (! $isPublic && ! $this->isAuthenticated($request)) {
             if ($redirectGuests && ! $request->expectsJson()) {
                 return redirect()->guest(route('login'));
             }
@@ -60,5 +62,13 @@ class ApiDocumentationController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Periksa apakah permintaan memiliki sesi web aktif atau Sanctum Bearer Token yang valid.
+     */
+    private function isAuthenticated(Request $request): bool
+    {
+        return $request->user() !== null || $request->user('sanctum') !== null;
     }
 }

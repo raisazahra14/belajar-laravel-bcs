@@ -380,6 +380,11 @@ class Phase5ScalabilityAndObservabilityTest extends TestCase
         $this->actingAs($admin)->get(route('docs.api'))->assertOk();
         $this->actingAs($admin)->get(route('docs.openapi'))->assertOk();
 
+        // Sanctum Bearer Token also unlocks private API documentation endpoints for stateless clients
+        auth()->logout();
+        $token = $admin->createToken('docs-reader', ['barang:read'])->plainTextToken;
+        $this->withToken($token)->get(route('docs.openapi'))->assertOk();
+
         // 3. Disabled mode: returns 404 even for authenticated users
         config(['app.api_docs_enabled' => false, 'app.api_docs_public' => false]);
         $this->actingAs($admin)->get(route('docs.api'))->assertNotFound();
