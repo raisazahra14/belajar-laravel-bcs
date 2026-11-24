@@ -111,7 +111,7 @@ Jika klien mencoba meminta *ability* yang tidak dimiliki oleh role user tersebut
 | Ability Scope | Admin | Manager | Staff | Endpoint Terkait |
 |---|:---:|:---:|:---:|---|
 | `barang:read` | Ya | Ya | Ya | `GET /barang`, `GET /barang/{barang}`, `GET /barang/{barang}/check-stock` |
-| `barang:write` | Ya | Tidak | Tidak | Manajemen master barang (cadangan ekspansi API) |
+| `barang:write` | Ya | Tidak | Tidak | `POST /barang`, `PUT/PATCH /barang/{barang}`, `DELETE /barang/{barang}` *(khusus role `admin`)* |
 | `stok:check` | Ya | Ya | Ya | `GET /barang/{barang}/check-stock` |
 | `stok:adjust` | Ya | Ya | Ya | `POST /stok/adjust` |
 | `stok:transfer` | Ya | Ya | Ya | `POST /stok/transfer` |
@@ -160,6 +160,9 @@ Jika klien mencoba meminta *ability* yang tidak dimiliki oleh role user tersebut
      - `Sunset: Wed, 30 Jun 2027 23:59:59 GMT` (dikonfigurasi melalui `LEGACY_API_SUNSET`)
      - `Link: </api/v1/...>; rel="successor-version"` (menunjuk langsung ke endpoint pengganti di `/api/v1/*`)
    - Seluruh integrasi baru wajib menggunakan kontrak tunggal `/api/v1/*`.
+6. **Outbound Webhook Purchase Order Bertanda Tangan HMAC-SHA256 (`PurchaseOrderWebhookService`):**
+   - Sistem dapat mengirimkan notifikasi HTTP `POST` secara otomatis setelah transaksi database *commit* (`DB::afterCommit`) setiap kali status Purchase Order berubah ke status target (default: `approved` dan `completed`, dikonfigurasi melalui `WEBHOOK_PO_URL`, `WEBHOOK_PO_SECRET`, dan `WEBHOOK_PO_EVENTS`).
+   - Setiap pengiriman menyertakan header `X-LogistikKu-Event` (misal `purchase_order.approved`), `X-LogistikKu-Delivery` (UUID), `X-LogistikKu-Timestamp` (Unix epoch), dan tanda tangan kriptografis `X-LogistikKu-Signature: sha256=<HMAC_SHA256(timestamp + "." + body, secret)>` yang dapat diverifikasi dengan `PurchaseOrderWebhookService::verifySignature()`.
 
 ---
 

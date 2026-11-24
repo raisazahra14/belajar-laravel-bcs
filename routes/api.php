@@ -20,9 +20,18 @@ Route::prefix('v1')->name('api.v1.')->middleware('throttle:api')->group(function
         Route::get('/barang', [BarangApiController::class, 'index'])
             ->middleware('ability:barang:read')
             ->name('barang.index');
+        Route::post('/barang', [BarangApiController::class, 'store'])
+            ->middleware('ability:barang:write')
+            ->name('barang.store');
         Route::get('/barang/{barang}', [BarangApiController::class, 'show'])
             ->middleware('ability:barang:read')
             ->name('barang.show');
+        Route::match(['put', 'patch'], '/barang/{barang}', [BarangApiController::class, 'update'])
+            ->middleware('ability:barang:write')
+            ->name('barang.update');
+        Route::delete('/barang/{barang}', [BarangApiController::class, 'destroy'])
+            ->middleware('ability:barang:write')
+            ->name('barang.destroy');
         Route::get('/barang/{barang}/check-stock', [BarangApiController::class, 'checkStock'])
             ->middleware('ability:stok:check,barang:read')
             ->name('barang.check-stock');

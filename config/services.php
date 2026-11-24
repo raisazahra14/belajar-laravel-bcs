@@ -68,4 +68,16 @@ return [
         ],
     ],
 
+    'webhooks' => [
+        'purchase_order' => [
+            'url' => env('WEBHOOK_PO_URL'),
+            'secret' => (string) env('WEBHOOK_PO_SECRET', ''),
+            'timeout' => (int) env('WEBHOOK_PO_TIMEOUT', 5),
+            'events' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) env('WEBHOOK_PO_EVENTS', 'approved,completed')),
+            ))),
+        ],
+    ],
+
 ];

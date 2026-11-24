@@ -302,4 +302,113 @@ class ApiV1BarangEndpointsTest extends TestCase
             ->assertJsonPath('code', 'VALIDATION_ERROR')
             ->assertJsonStructure(['errors' => ['warehouse_id', 'qty']]);
     }
+
+    public function test_admin_can_create_update_patch_and_soft_delete_barang_while_non_admin_is_forbidden(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $manager = User::factory()->create(['role' => 'manager']);
+
+        $adminToken = $admin->createToken('admin-mdm', User::apiAbilitiesForRole('admin'))->plainTextToken;
+
+        // 1. Admin membuat master barang baru beserta saldo awal gudang -> 201 Created + header Location
+        $createRes = $this->withToken($adminToken)
+            ->postJson('/api/v1/barang', [
+                'supplier_id' => $this->supplier->id,
+                'nama_barang' => 'Handheld Scanner 2D Pro',
+                'kategori' => 'Elektronik',
+                'stok' => 12,
+                'warehouse_id' => $this->warehouseA->id,
+                'harga_beli' => 1950000,
+                'daily_usage_estimate' => 2,
+                'lead_time_days' => 7,
+                'satuan' => 'Unit',
+                'lokasi' => 'Rak E-01',
+            ]);
+
+        $createRes->assertCreated()
+            ->assertHeader('Location')
+            ->assertHeader('X-API-Version', 'v1.0')
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.nama_barang', 'Handheld Scanner 2D Pro')
+            ->assertJsonPath('data.stok', 12)
+            ->assertJsonPath('data.harga_beli', 1950000);
+
+        $createdId = (int) $createRes->json('data.id');
+        $createdCode = (string) $createRes->json('data.kode_barang');
+        $this->assertMatchesRegularExpression('/^BRG-\d{6}$/', $createdCode);
+        $this->assertStringEndsWith("/api/v1/barang/{$createdId}", (string) $createRes->headers->get('Location'));
+        $this->assertDatabaseHas('warehouse_stocks', [
+            'barang_id' => $createdId,
+            'warehouse_id' => $this->warehouseA->id,
+            'stok' => 12,
+        ]);
+
+        // 2. Admin memperbarui penuh via PUT /api/v1/barang/{barang}
+        $putRes = $this->withToken($adminToken)
+            ->putJson("/api/v1/barang/{$createdId}", [
+                'supplier_id' => $this->supplier->id,
+                'nama_barang' => 'Handheld Scanner 2D Enterprise',
+                'kategori' => 'Elektronik',
+                'harga_beli' => 2100000,
+                'daily_usage_estimate' => 3,
+                'lead_time_days' => 14,
+                'satuan' => 'Unit',
+                'lokasi' => 'Rak E-02',
+            ]);
+
+        $putRes->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.nama_barang', 'Handheld Scanner 2D Enterprise')
+            ->assertJsonPath('data.harga_beli', 2100000)
+            ->assertJsonPath('data.lokasi', 'Rak E-02');
+
+        // 3. Admin memperbarui parsial via PATCH /api/v1/barang/{barang}
+        $patchRes = $this->withToken($adminToken)
+            ->patchJson("/api/v1/barang/{$createdId}", [
+                'lokasi' => 'Rak E-09',
+                'harga_beli' => 2250000,
+            ]);
+
+        $patchRes->assertOk()
+            ->assertJsonPath('data.nama_barang', 'Handheld Scanner 2D Enterprise')
+            ->assertJsonPath('data.lokasi', 'Rak E-09')
+            ->assertJsonPath('data.harga_beli', 2250000);
+
+        // 4. Staff & Manager (termasuk token yang sengaja diberi ability barang:write) ditolak 403 FORBIDDEN (Defense in Depth)
+        $this->app['auth']->forgetGuards();
+        $staffToken = $this->staff->createToken('staff-default', User::apiAbilitiesForRole('staff'))->plainTextToken;
+        $this->withToken($staffToken)
+            ->postJson('/api/v1/barang', [
+                'nama_barang' => 'Unauthorized Item',
+                'kategori' => 'ATK',
+                'stok' => 0,
+                'satuan' => 'Unit',
+                'lokasi' => 'Rak Z',
+            ])
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'FORBIDDEN');
+
+        $this->app['auth']->forgetGuards();
+        $managerWithWriteAbility = $manager->createToken('mgr-forced-write', ['barang:write'])->plainTextToken;
+        $this->withToken($managerWithWriteAbility)
+            ->patchJson("/api/v1/barang/{$createdId}", ['lokasi' => 'Rak Ilegal'])
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'FORBIDDEN');
+
+        $this->withToken($managerWithWriteAbility)
+            ->deleteJson("/api/v1/barang/{$createdId}")
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'FORBIDDEN');
+
+        // 5. Admin menghapus master barang via Soft Delete -> 200 OK & tersimpan deleted_at
+        $this->app['auth']->forgetGuards();
+        $this->withToken($adminToken)
+            ->deleteJson("/api/v1/barang/{$createdId}")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.id', $createdId)
+            ->assertJsonPath('data.kode_barang', $createdCode);
+
+        $this->assertSoftDeleted('barang', ['id' => $createdId]);
+    }
 }

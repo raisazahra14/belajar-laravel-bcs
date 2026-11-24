@@ -420,6 +420,8 @@ class Phase5ScalabilityAndObservabilityTest extends TestCase
         $this->assertStringContainsString('php-version: ["8.2", "8.3"]', $ciYaml);
         $this->assertStringContainsString('sh -n docker/entrypoint.sh', $ciYaml);
         $this->assertStringContainsString('docker compose -f docker-compose.prod.yml config -q', $ciYaml);
+        $this->assertStringContainsString('newman', $ciYaml);
+        $this->assertStringContainsString('docs/postman/LogistikKu_API_v1.postman_collection.json', $ciYaml);
     }
 
     private function createInvoiceDoc(

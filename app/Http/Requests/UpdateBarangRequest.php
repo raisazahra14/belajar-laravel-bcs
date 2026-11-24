@@ -13,8 +13,10 @@ class UpdateBarangRequest extends StoreBarangRequest
         $rules = parent::rules();
         unset($rules['stok'], $rules['warehouse_id']);
 
-        $barangId = $this->route('id');
-        $currentBarang = $barangId ? Barang::withTrashed()->find($barangId) : null;
+        $routeBarang = $this->route('barang') ?? $this->route('id');
+        $currentBarang = $routeBarang instanceof Barang
+            ? $routeBarang
+            : ($routeBarang ? Barang::withTrashed()->find($routeBarang) : null);
         $currentSupplierId = $currentBarang?->supplier_id;
         $rules['supplier_id'] = [
             'nullable',
@@ -34,6 +36,14 @@ class UpdateBarangRequest extends StoreBarangRequest
             $leadTimeOptions[] = (int) $currentBarang->lead_time_days;
         }
         $rules['lead_time_days'] = ['nullable', 'integer', Rule::in(array_unique($leadTimeOptions))];
+
+        if ($this->isMethod('PATCH')) {
+            foreach (['nama_barang', 'kategori', 'satuan', 'lokasi'] as $field) {
+                if (isset($rules[$field]) && is_array($rules[$field])) {
+                    array_unshift($rules[$field], 'sometimes');
+                }
+            }
+        }
 
         return $rules;
     }

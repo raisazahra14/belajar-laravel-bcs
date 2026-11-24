@@ -182,6 +182,27 @@ jobs:
       - name: Run PHPUnit
         run: php vendor/bin/phpunit --do-not-cache-result
 
+      - name: Run Postman Collection via Newman CLI
+        if: matrix.php-version == '8.3'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sqlite_db="$(mktemp /tmp/logistikku-newman-XXXXXX.sqlite)"
+          trap 'kill "${server_pid:-}" 2>/dev/null || true; rm -f "$sqlite_db"' EXIT
+          DB_CONNECTION=sqlite DB_DATABASE="$sqlite_db" php artisan migrate:fresh --seed --no-interaction
+          DB_CONNECTION=sqlite DB_DATABASE="$sqlite_db" CACHE_STORE=file SESSION_DRIVER=file QUEUE_CONNECTION=sync \
+            php artisan serve --host=127.0.0.1 --port=8000 > /tmp/laravel-newman.log 2>&1 &
+          server_pid=$!
+          for _ in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/api/v1/status > /dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          npx --yes newman@6 run docs/postman/LogistikKu_API_v1.postman_collection.json \
+            -e docs/postman/LogistikKu_Local.postman_environment.json \
+            --reporters cli
+
       - name: Ensure checks did not modify tracked files
         run: |
           git diff --check

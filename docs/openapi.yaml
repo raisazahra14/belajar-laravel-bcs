@@ -315,6 +315,44 @@ paths:
           $ref: "#/components/responses/ValidationError422"
         "429":
           $ref: "#/components/responses/TooManyRequests429"
+    post:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Buat Master Barang Baru & Inisialisasi Saldo Gudang (Khusus Admin)"
+      description: |
+        Membuat entitas master barang baru secara atomik dengan pembangkitan `kode_barang` otomatis (`BRG-######`) dan inisialisasi saldo stok awal pada `warehouse_id` bila `stok > 0`.
+        - **Required Ability:** `barang:write` (khusus role `admin`)
+      operationId: "storeBarang"
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreBarangRequest"
+      responses:
+        "201":
+          description: "Master barang baru berhasil dibuat."
+          headers:
+            Location:
+              $ref: "#/components/headers/LocationHeader"
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
 
   /api/v1/barang/{barang}:
     get:
@@ -342,6 +380,116 @@ paths:
                 $ref: "#/components/schemas/BarangDetailSuccessResponse"
         "400":
           $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    put:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Perbarui Representasi Penuh Master Barang (Khusus Admin)"
+      description: |
+        Memperbarui atribut master barang secara utuh (tanpa mengubah saldo stok; perubahan saldo stok wajib melalui `/api/v1/stok/adjust` atau `/api/v1/stok/transfer`).
+        - **Required Ability:** `barang:write` (khusus role `admin`)
+      operationId: "updateBarangPut"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BarangIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBarangRequest"
+      responses:
+        "200":
+          description: "Master barang berhasil diperbarui."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    patch:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Perbarui Parsial Atribut Master Barang (Khusus Admin)"
+      description: |
+        Memperbarui sebagian atribut master barang secara parsial (misalnya hanya memperbarui `harga_beli` atau `lokasi`).
+        - **Required Ability:** `barang:write` (khusus role `admin`)
+      operationId: "updateBarangPatch"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BarangIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBarangRequest"
+      responses:
+        "200":
+          description: "Master barang berhasil diperbarui."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    delete:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Hapus Master Barang via Soft Delete (Khusus Admin)"
+      description: |
+        Menghapus master barang dari katalog aktif menggunakan mekanisme *Soft Delete* (`deleted_at`) agar integritas riwayat transaksi tetap terjaga.
+        - **Required Ability:** `barang:write` (khusus role `admin`)
+      operationId: "destroyBarang"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BarangIdPath"
+      responses:
+        "200":
+          description: "Master barang berhasil dihapus (soft delete)."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangDeleteSuccessResponse"
         "401":
           $ref: "#/components/responses/Unauthorized401"
         "403":
@@ -840,7 +988,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreatePurchaseOrderRequest"
+              $ref: "#/components/schemas/StorePurchaseOrderRequest"
       responses:
         "200":
           description: "Purchase Order berhasil diperbarui."
@@ -882,7 +1030,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreatePurchaseOrderRequest"
+              $ref: "#/components/schemas/StorePurchaseOrderRequest"
       responses:
         "200":
           description: "Purchase Order berhasil diperbarui."
@@ -2886,6 +3034,128 @@ components:
           maxLength: 1000
           nullable: true
           example: "Penyesuaian kuantitas pesanan"
+
+    StoreBarangRequest:
+      type: "object"
+      required:
+        - "nama_barang"
+        - "kategori"
+        - "stok"
+        - "satuan"
+        - "lokasi"
+      properties:
+        supplier_id:
+          type: "integer"
+          nullable: true
+          example: 1
+        nama_barang:
+          type: "string"
+          maxLength: 255
+          example: "Scanner Barcode Industrial 2D"
+        kategori:
+          type: "string"
+          example: "Elektronik"
+        stok:
+          type: "integer"
+          minimum: 0
+          example: 10
+        warehouse_id:
+          type: "integer"
+          nullable: true
+          description: "Wajib diisi apabila `stok > 0`."
+          example: 1
+        harga_beli:
+          type: "number"
+          format: "float"
+          minimum: 0
+          nullable: true
+          example: 1750000
+        daily_usage_estimate:
+          type: "integer"
+          minimum: 1
+          nullable: true
+          example: 2
+        lead_time_days:
+          type: "integer"
+          enum: [3, 7, 14, 21, 30]
+          nullable: true
+          example: 7
+        satuan:
+          type: "string"
+          example: "Unit"
+        lokasi:
+          type: "string"
+          maxLength: 255
+          example: "Rak A2"
+
+    UpdateBarangRequest:
+      type: "object"
+      properties:
+        supplier_id:
+          type: "integer"
+          nullable: true
+          example: 1
+        nama_barang:
+          type: "string"
+          maxLength: 255
+          example: "Scanner Barcode Industrial 2D Pro"
+        kategori:
+          type: "string"
+          example: "Elektronik"
+        harga_beli:
+          type: "number"
+          format: "float"
+          minimum: 0
+          nullable: true
+          example: 1800000
+        daily_usage_estimate:
+          type: "integer"
+          minimum: 1
+          nullable: true
+          example: 3
+        lead_time_days:
+          type: "integer"
+          nullable: true
+          example: 7
+        satuan:
+          type: "string"
+          example: "Unit"
+        lokasi:
+          type: "string"
+          maxLength: 255
+          example: "Rak A3"
+
+    BarangDeleteSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Data barang berhasil dihapus"
+        data:
+          type: "object"
+          properties:
+            id:
+              type: "integer"
+              example: 12
+            kode_barang:
+              type: "string"
+              example: "BRG-000105"
+            deleted_at:
+              type: "string"
+              format: "date-time"
+              example: "2026-11-24T11:05:00+07:00"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
 
   responses:
     BadRequest400:

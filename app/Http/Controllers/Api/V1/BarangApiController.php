@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\CheckStockRequest;
 use App\Http\Requests\Api\V1\IndexBarangRequest;
+use App\Http\Requests\StoreBarangRequest;
+use App\Http\Requests\UpdateBarangRequest;
 use App\Http\Resources\BarangResource;
 use App\Models\Barang;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
+use App\Services\BarangPersistenceService;
 use Illuminate\Http\JsonResponse;
 
 class BarangApiController extends Controller
@@ -44,6 +47,61 @@ class BarangApiController extends Controller
             new BarangResource($barang),
             'Detail barang berhasil diambil',
         );
+    }
+
+    /**
+     * Buat master barang baru beserta inisialisasi saldo stok awal gudang secara atomik (khusus Admin).
+     */
+    public function store(StoreBarangRequest $request, BarangPersistenceService $persistence): JsonResponse
+    {
+        $barang = $persistence->store(
+            $request->safe()->except('foto_barang'),
+            $request->file('foto_barang'),
+        );
+
+        $barang->load(Barang::apiDetailRelations());
+
+        return $this->createdResponse(
+            new BarangResource($barang),
+            'Data barang berhasil ditambahkan',
+            [],
+            route('api.v1.barang.show', $barang),
+        );
+    }
+
+    /**
+     * Perbarui atribut master barang secara utuh (PUT) atau parsial (PATCH) (khusus Admin).
+     */
+    public function update(UpdateBarangRequest $request, Barang $barang, BarangPersistenceService $persistence): JsonResponse
+    {
+        $barang = $persistence->update(
+            $barang,
+            $request->safe()->except('foto_barang'),
+            $request->file('foto_barang'),
+        );
+
+        $barang->load(Barang::apiDetailRelations());
+
+        return $this->successResponse(
+            new BarangResource($barang),
+            'Data barang berhasil diperbarui',
+        );
+    }
+
+    /**
+     * Hapus master barang secara aman menggunakan Soft Delete (khusus Admin).
+     */
+    public function destroy(Barang $barang): JsonResponse
+    {
+        $this->authorize('manage-barang');
+
+        $barang->delete();
+
+        return $this->successResponse([
+            'id' => (int) $barang->id,
+            'kode_barang' => $barang->kode_barang,
+            'deleted_at' => $barang->deleted_at?->toIso8601String(),
+        ], 'Data barang berhasil dihapus');
     }
 
     /**

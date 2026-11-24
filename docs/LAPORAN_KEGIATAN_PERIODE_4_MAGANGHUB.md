@@ -11,7 +11,7 @@
 - **Nama Aplikasi / Proyek**: **LogistikKu** (Sistem Manajemen Inventaris, Pengadaan Multi-Gudang, & Analitik Logistik Terpadu)
 - **Tech Stack Utama**: PHP 8.2+, Laravel 12, Laravel Sanctum 4, Swagger UI (`swagger-ui-dist`), OpenAPI 3.0.3, MySQL/MariaDB & SQLite, Python 3.10+ (OCR Tesseract & Prediksi ML), PHPUnit 11, Laravel Pint
 - **Acuan Roadmap Teknis**: GitHub Issue `#12` — *Arsitektur RESTful API, Integrasi Endpoint Internal, Pengujian Postman & Dokumentasi OpenAPI*
-- **Status Capaian Saat Ini *(per 23 November 2026)***: **Minggu 1–4 (Materi 1–4) & Penguatan Paritas Penuh Fase 4–6 100% SELESAI & TERVERIFIKASI** (`570+ Automated Tests PASS`, `6.300+ Assertions`, `OpenAPI 3.0.3 Valid (20 Paths / 21 Operasi)`, `Laravel Pint PASSED`, `route:cache READY`)
+- **Status Capaian Saat Ini *(per 24 November 2026)***: **Minggu 1–4 (Materi 1–4), Hardening Fase 4–6, & Ekspansi API 100% SELESAI & TERVERIFIKASI** (`579 Automated Tests PASS`, `6.563 Assertions`, `OpenAPI 3.0.3 Valid (19 Paths / 26 Operasi; 24 Rute Laravel)`, `Outbound Webhook HMAC-SHA256`, `Newman CLI CI`, `Laravel Pint PASSED`, `route:cache READY`)
 - **Sifat Dokumen**: **Final Report Document Periode 4** (Menyajikan seluruh rangkaian hasil perancangan arsitektur, realisasi endpoint `/api/v1`, keamanan & koleksi Postman, portal Swagger UI `/docs/api`, spesifikasi OpenAPI 3.0.3, dan panduan integrasi pengembang).
 
 ---
@@ -350,29 +350,35 @@ Seluruh rancangan teoretis di atas telah diimplementasikan menjadi artefak kode 
 
 #### C. Ringkasan Cakupan Spesifikasi OpenAPI 3.0.3 (`docs/openapi.yaml`)
 
-1. **Kelengkapan Endpoint (20 Path / 21 Operasi):**
+1. **Kelengkapan Endpoint (19 Path / 26 Operasi; 24 Rute Laravel):**
    - `System & Status`: `GET /api/v1/status` (publik)
    - `Authentication`: `POST /api/v1/auth/login` (publik + rate limit 5x/60d), `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`
-   - `Master Barang & Stok`: `GET /api/v1/barang`, `GET /api/v1/barang/{barang}`, `GET /api/v1/barang/{barang}/check-stock`
+   - `Master Barang & Stok (Full CRUD + Stock Check)`: `GET /api/v1/barang`, `POST /api/v1/barang` (admin), `GET /api/v1/barang/{barang}`, `PUT/PATCH /api/v1/barang/{barang}` (admin), `DELETE /api/v1/barang/{barang}` (admin), `GET /api/v1/barang/{barang}/check-stock`
    - `Mutasi, Transfer & Reversal Stok`: `POST /api/v1/stok/adjust`, `POST /api/v1/stok/transfer`, `POST /api/v1/stok/{stokTransaction}/reverse`
-   - `Purchase Orders & GRN (Paritas Siklus Penuh)`: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `GET /api/v1/purchase-orders/{purchaseOrder}`, `PUT/PATCH /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/submit`, `POST /api/v1/purchase-orders/{purchaseOrder}/approve`, `POST /api/v1/purchase-orders/{purchaseOrder}/reject`, `POST /api/v1/purchase-orders/{purchaseOrder}/revise`, `POST /api/v1/purchase-orders/{purchaseOrder}/withdraw`, `POST /api/v1/purchase-orders/{purchaseOrder}/cancel`, dan `POST /api/v1/purchase-orders/{purchaseOrder}/receive`
-2. **Validasi Struktur & Referensi:** Seluruh referensi `$ref` internal pada skema, parameter, header (`X-API-Version`, `Location`, `Retry-After`), dan respon error tervalidasi utuh tanpa duplikasi path maupun referensi rusak.
+   - `Purchase Orders & GRN (Paritas Siklus Penuh + Webhook HMAC)`: `GET /api/v1/purchase-orders`, `POST /api/v1/purchase-orders`, `GET /api/v1/purchase-orders/{purchaseOrder}`, `PUT/PATCH /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/submit`, `POST /api/v1/purchase-orders/{purchaseOrder}/approve`, `POST /api/v1/purchase-orders/{purchaseOrder}/reject`, `POST /api/v1/purchase-orders/{purchaseOrder}/revise`, `POST /api/v1/purchase-orders/{purchaseOrder}/withdraw`, `POST /api/v1/purchase-orders/{purchaseOrder}/cancel`, dan `POST /api/v1/purchase-orders/{purchaseOrder}/receive`
+2. **Validasi Struktur & Referensi:** Seluruh `287` referensi `$ref` internal pada skema, parameter, header (`X-API-Version`, `Location`, `Retry-After`), dan respon error tervalidasi utuh tanpa duplikasi path maupun referensi rusak (`missing=0`).
 3. **Cakupan Respon Sukses & Error:** Setiap endpoint mendokumentasikan respon sukses (`200` / `201`) serta respon error terstruktur `400`, `401`, `403`, `404`, `409`, `422`, dan `429` dengan format amplop `ErrorResponse`.
-4. **Deprekasi Bertahap Rute Legacy `/api/*`:** Rute legacy non-versioned (`/api/login`, `/api/purchase-orders/*`) dilindungi middleware `deprecated.api` (`AddLegacyApiDeprecationHeaders`) yang memancarkan header `Deprecation: true`, `Sunset`, dan `Link: </api/v1/...>; rel="successor-version"`.
+4. **Integrasi Lanjutan (Outbound Webhook HMAC, Deprekasi `/api/*` & Newman CI):**
+   - `PurchaseOrderWebhookService` mengirim HTTP `POST` bertanda tangan `HMAC-SHA256` (`X-LogistikKu-Signature`) setelah transaksi database commit saat status PO berubah ke `approved` / `completed`.
+   - Rute legacy non-versioned (`/api/login`, `/api/purchase-orders/*`) dilindungi middleware `deprecated.api` (`AddLegacyApiDeprecationHeaders`) yang memancarkan header `Deprecation: true`, `Sunset`, dan `Link: </api/v1/...>; rel="successor-version"`.
+   - Pipeline GitHub Actions (`.github/workflows/ci.yml`) mengeksekusi otomatis koleksi Postman via `newman` pada setiap PR/push ke `main`.
 
-#### D. Matriks Verifikasi Pengujian Postman (16 Skenario / 6 Folder) & Lampiran Tangkapan Layar
+#### D. Matriks Verifikasi Pengujian Postman (19 Skenario / 6 Folder) & Lampiran Tangkapan Layar
 
-Koleksi Postman [`LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) memuat **16 request dalam 6 folder** yang seluruhnya dilengkapi skrip validasi otomatis `pm.test(...)`:
+Koleksi Postman [`LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) memuat **19 request dalam 6 folder** yang seluruhnya dilengkapi skrip validasi otomatis `pm.test(...)`:
 
 | Folder Postman | Request / Skenario Uji | Validasi Otomatis (`pm.test(...)`) & Hasil yang Diverifikasi |
 |---|---|---|
 | **01. Status & Health Contract** | `GET /api/v1/status` | Status `200`, header `X-API-Version: v1.0`, amplop `{success, message, data, meta}`. |
 | **02. Autentikasi Sanctum** | `POST /api/v1/auth/login` | Status `200`, terbit `token` Bearer, daftar `abilities`, `expires_at`, tanpa field `password`, otomatis menyimpan `{{bearer_token}}`. |
 | **02. Autentikasi Sanctum** | `GET /api/v1/auth/me` | Status `200`, memuat `token_abilities` & `token_expires_at`, menyembunyikan `password` & `remember_token`. |
-| **02. Autentikasi Sanctum** | `POST /api/v1/auth/logout` | Status `200`, `success: true`, mencabut token akses aktif. |
+| **02. Autentikasi Sanctum** | `POST /api/v1/auth/logout` | Status `200`, `success: true`, mencabut token akses aktif lalu menerbitkan ulang token untuk eksekusi CI Newman lanjutan. |
 | **03. Master Barang & Stok** | `GET /api/v1/barang` | Status `200`, array data terpaginasi, `meta` memuat `current_page`, `per_page`, `total`, `last_page`, dan HATEOAS `links`. |
 | **03. Master Barang & Stok** | `GET /api/v1/barang/{barang_id}` | Status `200`, memuat detail barang lengkap beserta array distribusi `warehouse_stocks`. |
 | **03. Master Barang & Stok** | `GET /api/v1/barang/{barang_id}/check-stock` | Status `200`, memuat `is_available`, `available_stock`, `requested_qty`, dan `shortage`. |
+| **03. Master Barang & Stok** | `POST /api/v1/barang` *(Admin)* | Status `201` + header `Location`, `kode_barang` format `BRG-######`, menyimpan `{{created_barang_id}}`. |
+| **03. Master Barang & Stok** | `PATCH /api/v1/barang/{created_barang_id}` *(Admin)* | Status `200`, pembaruan parsial `lokasi` dan `harga_beli` terverifikasi. |
+| **03. Master Barang & Stok** | `DELETE /api/v1/barang/{created_barang_id}` *(Admin)* | Status `200`, soft-delete berhasil dengan properti `deleted_at` terisi. |
 | **04. Mutasi & Transfer Stok** | `POST /api/v1/stok/adjust` | Status `201`, memuat `StockTransactionResource` (`stok_sebelum` → `stok_sesudah`) dengan `reference_number` unik. |
 | **04. Mutasi & Transfer Stok** | `POST /api/v1/stok/transfer` | Status `201`, memuat `transfer_group_uuid`, `reference_number`, serta pasangan transaksi `out` & `in`. |
 | **05. Pengadaan Terpadu (PO & GRN)** | `GET /api/v1/purchase-orders` | Status `200`, daftar terpaginasi, dan verifikasi *data masking* (`creator` tidak mengekspos `email`). |
@@ -383,10 +389,10 @@ Koleksi Postman [`LogistikKu_API_v1.postman_collection.json`](./postman/Logistik
 | **06. Negative & Security (OWASP)** | `GET /api/v1/barang?sort=...DROP TABLE...` | Status `422 VALIDATION_ERROR`, whitelist `sort` menolak payload SQL injection (`errors.sort`). |
 | **06. Negative & Security (OWASP)** | `POST /api/v1/auth/login` (`abilities: ["superadmin:root"]`) | Menolak eskalasi privilege (`422` / `401`) dengan amplop error JSON standar tanpa bocoran internal. |
 
-*(Catatan Eksekusi Runner: Apabila menjalankan seluruh koleksi sekaligus via **Postman Collection Runner**, letakkan/nonaktifkan sementara eksekusi `POST /api/v1/auth/logout` di Folder 02 ke akhir skenario agar `{{bearer_token}}` tetap aktif untuk Folder 03–06).*
+*(Catatan Eksekusi Runner: Request `POST /api/v1/auth/logout` dilengkapi skrip login ulang otomatis via `pm.sendRequest` agar eksekusi penuh **Postman Collection Runner** maupun **Newman CLI** tetap dapat melanjutkan Folder 03–06 secara berurutan).*
 
 > **Lampiran Bukti Tangkapan Layar Pengujian Postman & Portal Swagger UI:**  
-> - **Bukti Pengujian Postman Collection Runner:** Hasil eksekusi seluruh 16 skenario koleksi [`LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) dengan environment [`LogistikKu_Local.postman_environment.json`](./postman/LogistikKu_Local.postman_environment.json) (`16/16 Requests Executed`, `33/33 Assertions Passed 100%`):  
+> - **Bukti Pengujian Postman Collection Runner:** Hasil eksekusi seluruh 19 skenario koleksi [`LogistikKu_API_v1.postman_collection.json`](./postman/LogistikKu_API_v1.postman_collection.json) dengan environment [`LogistikKu_Local.postman_environment.json`](./postman/LogistikKu_Local.postman_environment.json) (`19/19 Requests Executed`, `39/39 Assertions Passed 100%`):
 >
 >   ![Bukti Pengujian Postman Collection Runner Periode 4](./images/postman-collection-runner-periode-4.png)  
 > - **Bukti Portal Dokumentasi Interaktif Swagger UI (`/docs/api`):** Tampilan portal interaktif `http://127.0.0.1:8000/docs/api` dengan indikator **API Operational**, fitur **Authorize**, dan daftar operasi OpenAPI 3.0.3:  

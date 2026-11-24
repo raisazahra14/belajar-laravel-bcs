@@ -49,7 +49,7 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
 - **Hindari Hierarki URI yang Terlalu Dalam (*Avoid Deep URI Hierarchies*):**
   Batasi kedalaman URI maksimal menjadi `collection/{id}/sub-resource` atau aksi domain terikat (misalnya `/api/v1/purchase-orders/{id}/receive` atau `/api/v1/barang/{id}/check-stock`), alih-alih rantai bersarang panjang seperti `/warehouses/{wId}/suppliers/{sId}/purchase-orders/{poId}/items/{itemId}`. Gunakan parameter query (`?warehouse_id=...&supplier_id=...`) untuk relasi penyaringan lintas entitas.
 
-### 2.2 Peta Status Implementasi Endpoint (20 Path / 21 Operasi Aktif)
+### 2.2 Peta Status Implementasi Endpoint (19 Path / 26 Operasi Aktif; 24 Rute Laravel)
 - **Aktif pada Minggu 1 (Fondasi Kontrak & Status API):**
   - `GET /api/v1/status` (`api.v1.status`) — Endpoint informasi layanan, arsitektur, tingkat kematangan REST, kata kerja HTTP yang didukung, dan tautan *self* / *docs* / *openapi*.
 - **Aktif pada Minggu 2 (Endpoint Integrasi Sistem Internal):**
@@ -61,10 +61,12 @@ Mengikuti prinsip *"Organize the API design around resources"* dari Microsoft Le
   - Penegakan granular *Sanctum Token Abilities* (`User::ROLE_API_ABILITIES` + middleware `ability:...`), `RateLimiter::for('api')` (60 req/menit), konfigurasi `config/cors.php`, *Data Masking* (`harga_beli` untuk staff & penyembunyian email internal pada `PurchaseOrderResource`), serta artefak Postman Collection (`docs/postman/LogistikKu_API_v1.postman_collection.json`) & `ApiEndpointsSecurityTest`.
 - **Aktif pada Minggu 4 (Dokumentasi OpenAPI 3.0.3 & Developer Portal):**
   - Spesifikasi OpenAPI 3.0.3 resmi di [`docs/openapi.yaml`](./openapi.yaml), portal web interaktif **Swagger UI** pada `/docs/api` beserta endpoint spec `/docs/openapi.yaml` (dilindungi gate `API_DOCS_ENABLED` & `API_DOCS_PUBLIC`), tautan penemuan HATEOAS (`links.docs`, `links.openapi`) di `GET /api/v1/status`, serta panduan integrasi pengembang di [`docs/api_integration_guide.md`](./api_integration_guide.md).
-- **Aktif pada Fase 6 (Paritas Penuh Siklus Hidup PO, Reversal Stok & Deprekasi Legacy `/api/*`):**
+- **Aktif pada Fase 6 & Ekspansi API (Paritas Penuh Siklus Hidup PO, CRUD Barang, Reversal, Webhook HMAC & Newman CI):**
+  - CRUD Master Barang `/api/v1` (khusus `admin` dengan ability `barang:write`): `POST /api/v1/barang`, `PUT/PATCH /api/v1/barang/{barang}`, dan `DELETE /api/v1/barang/{barang}` menggunakan [`BarangPersistenceService`](../app/Services/BarangPersistenceService.php).
   - Siklus Penuh Purchase Order di `/api/v1`: `PUT/PATCH /api/v1/purchase-orders/{purchaseOrder}`, `POST /api/v1/purchase-orders/{purchaseOrder}/submit`, `POST /api/v1/purchase-orders/{purchaseOrder}/approve`, `POST /api/v1/purchase-orders/{purchaseOrder}/reject`, `POST /api/v1/purchase-orders/{purchaseOrder}/revise`, `POST /api/v1/purchase-orders/{purchaseOrder}/withdraw`, dan `POST /api/v1/purchase-orders/{purchaseOrder}/cancel`.
   - Reversal Transaksi Stok di `/api/v1`: `POST /api/v1/stok/{stokTransaction}/reverse` (khusus `admin` & `manager` dengan ability `stok:reverse`).
-  - Deprekasi Rute Legacy `/api/*`: Middleware `deprecated.api` (`AddLegacyApiDeprecationHeaders`) menyematkan header `Deprecation: true`, `Sunset`, dan `Link: </api/v1/...>; rel="successor-version"`.
+  - Outbound Webhook Purchase Order: [`PurchaseOrderWebhookService`](../app/Services/PurchaseOrderWebhookService.php) mengirimkan notifikasi HTTP `POST` bertanda tangan `HMAC-SHA256` (`X-LogistikKu-Signature`) setelah transaksi database commit (`DB::afterCommit`).
+  - Deprekasi Rute Legacy `/api/*` & Newman CI: Middleware `deprecated.api` (`AddLegacyApiDeprecationHeaders`) menyematkan header `Deprecation: true`, `Sunset`, dan `Link: </api/v1/...>; rel="successor-version"`, serta eksekusi otomatis Postman Collection via `newman` pada `.github/workflows/ci.yml`.
 
 ---
 
@@ -260,7 +262,7 @@ Autentikasi menggunakan **Laravel Sanctum Bearer Token** yang terhubung pada tab
 | `/api/v1/barang` | `GET` | Ya | Ya | Ya | `barang:read` — Daftar barang dengan pencarian, filter kategori, sorting, & paginasi + HATEOAS `links`. |
 | `/api/v1/barang/{id}` | `GET` | Ya | Ya | Ya | `barang:read` — Detail barang lengkap beserta distribusi saldo per gudang (`warehouse_stocks`). |
 | `/api/v1/barang/{id}/check-stock` | `GET` | Ya | Ya | Ya | `stok:check` — Pemeriksaan cepat ketersediaan stok gudang untuk kasir/POS. |
-| CRUD Master Barang 🗺️ *Roadmap (modul web saja)* | `POST`/`PUT`/`PATCH`/`DELETE` | Ya | Tidak (`403`) | Tidak (`403`) | `barang:write` — Dibatasi khusus `admin` (`Gate::define('manage-barang')`). Belum ada rute v1. |
+| `/api/v1/barang` & `/api/v1/barang/{id}` ✅ | `POST`/`PUT`/`PATCH`/`DELETE` | Ya | Tidak (`403`) | Tidak (`403`) | `barang:write` — Sinkronisasi CRUD Master Barang khusus `admin` (`StoreBarangRequest`, `UpdateBarangRequest`, `Gate::define('manage-barang')`). |
 | **Mutasi & Transfer Stok Antar-Gudang** | | | | | |
 | `/api/v1/stok/adjust` ✅ | `POST` | Ya | Ya | Ya | `stok:adjust` — Penyesuaian stok masuk/keluar (`Gate::define('update-stock')`); `reference_number` duplikat → `409`. |
 | `/api/v1/stok/transfer` ✅ | `POST` | Ya | Ya | Ya | `stok:transfer` — Transfer stok atomik antar-gudang dengan referensi unik. |

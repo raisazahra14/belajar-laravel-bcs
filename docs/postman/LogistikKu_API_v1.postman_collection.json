@@ -169,6 +169,29 @@
                   "pm.test('Token berhasil dicabut', function () {",
                   "    const json = pm.response.json();",
                   "    pm.expect(json.success).to.be.true;",
+                  "});",
+                  "pm.sendRequest({",
+                  "    url: pm.environment.get('base_url') + '/api/v1/auth/login',",
+                  "    method: 'POST',",
+                  "    header: {",
+                  "        'Accept': 'application/json',",
+                  "        'Content-Type': 'application/json'",
+                  "    },",
+                  "    body: {",
+                  "        mode: 'raw',",
+                  "        raw: JSON.stringify({",
+                  "            email: pm.environment.get('user_email'),",
+                  "            password: pm.environment.get('user_password'),",
+                  "            device_name: 'Newman-CI-Runner'",
+                  "        })",
+                  "    }",
+                  "}, function (err, res) {",
+                  "    if (!err && res && res.code === 200) {",
+                  "        const body = res.json();",
+                  "        if (body && body.data && body.data.token) {",
+                  "            pm.environment.set('bearer_token', body.data.token);",
+                  "        }",
+                  "    }",
                   "});"
                 ]
               }
@@ -321,6 +344,130 @@
                   "value": "2"
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "POST Buat Master Barang Baru (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 201 Created dengan Header Location', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.expect(pm.response.headers.has('Location')).to.be.true;",
+                  "});",
+                  "pm.test('Respon memuat BarangResource dan menyimpan created_barang_id', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.kode_barang).to.match(/^BRG-\\d{6}$/);",
+                  "    pm.environment.set('created_barang_id', json.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_id\": {{supplier_id}},\n  \"nama_barang\": \"Scanner Barcode Newman CI\",\n  \"kategori\": \"Elektronik\",\n  \"stok\": 5,\n  \"warehouse_id\": {{warehouse_id}},\n  \"harga_beli\": 1450000,\n  \"daily_usage_estimate\": 2,\n  \"lead_time_days\": 7,\n  \"satuan\": \"Unit\",\n  \"lokasi\": \"Rak CI-01\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/barang",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barang"]
+            }
+          }
+        },
+        {
+          "name": "PATCH Perbarui Parsial Master Barang (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Atribut barang berhasil diperbarui parsial', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.lokasi).to.eql('Rak CI-02');",
+                  "    pm.expect(json.data.harga_beli).to.eql(1550000);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lokasi\": \"Rak CI-02\",\n  \"harga_beli\": 1550000\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/barang/{{created_barang_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barang", "{{created_barang_id}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Hapus Master Barang Soft Delete (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP Status adalah 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respon memuat timestamp soft delete (deleted_at)', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.deleted_at).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/barang/{{created_barang_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "barang", "{{created_barang_id}}"]
             }
           }
         }

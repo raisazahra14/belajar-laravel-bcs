@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\PurchaseOrderStatus;
 use App\Services\ProcurementAnalyticsService;
+use App\Services\PurchaseOrderWebhookService;
 use App\Services\SupplierPerformanceService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -160,13 +161,24 @@ class PurchaseOrder extends Model
         ?string $reason = null,
         ?array $metadata = null,
     ): PurchaseOrderStatusHistory {
-        return $this->statusHistories()->create([
+        $history = $this->statusHistories()->create([
             'from_status' => $from,
             'to_status' => $to,
             'user_id' => $user?->id,
             'reason' => $reason,
             'metadata' => $metadata,
         ]);
+
+        app(PurchaseOrderWebhookService::class)->dispatchAfterCommit(
+            po: $this,
+            from: $from,
+            to: $to,
+            actor: $user,
+            reason: $reason,
+            metadata: $metadata,
+        );
+
+        return $history;
     }
 
     /**
