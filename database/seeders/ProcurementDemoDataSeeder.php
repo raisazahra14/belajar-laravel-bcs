@@ -86,6 +86,19 @@ class ProcurementDemoDataSeeder extends Seeder
                 }
             }
             $allBarangs = Barang::with('supplier')->get();
+            if ($allBarangs->isEmpty()) {
+                $fallbackBarang = Barang::create([
+                    'supplier_id' => $suppliers->first()->id,
+                    'kode_barang' => 'BRG-000001',
+                    'nama_barang' => 'Barang Demo Pengadaan Default',
+                    'kategori' => 'Elektronik',
+                    'stok' => 50,
+                    'harga_beli' => 150000,
+                    'satuan' => 'Unit',
+                    'lokasi' => 'Rak A-01',
+                ]);
+                $allBarangs = collect([$fallbackBarang->load('supplier')]);
+            }
 
             // 5. Buat 80 Purchase Orders dan 50+ Goods Receipts
             $this->command?->info('📋 [2/5] Membuat 80 Purchase Orders (PO) dan 50+ Goods Receipts (GRN)...');
@@ -181,7 +194,9 @@ class ProcurementDemoDataSeeder extends Seeder
                         $candidateBarangs = $allBarangs->random(min(3, $allBarangs->count()));
                     }
 
-                    $selectedBarangs = $candidateBarangs->take(rand(1, min(3, $candidateBarangs->count())));
+                    $selectedBarangs = $candidateBarangs->isNotEmpty()
+                        ? $candidateBarangs->take(rand(1, min(3, $candidateBarangs->count())))
+                        : collect();
                     $totalBiaya = 0;
 
                     foreach ($selectedBarangs as $itemIdx => $barang) {

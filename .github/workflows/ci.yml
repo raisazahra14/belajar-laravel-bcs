@@ -188,10 +188,41 @@ jobs:
         run: |
           set -euo pipefail
           sqlite_db="$(mktemp /tmp/logistikku-newman-XXXXXX.sqlite)"
-          trap 'kill "${server_pid:-}" 2>/dev/null || true; rm -f "$sqlite_db"' EXIT
-          DB_CONNECTION=sqlite DB_DATABASE="$sqlite_db" php artisan migrate:fresh --seed --no-interaction
-          DB_CONNECTION=sqlite DB_DATABASE="$sqlite_db" CACHE_STORE=file SESSION_DRIVER=file QUEUE_CONNECTION=sync \
-            php artisan serve --host=127.0.0.1 --port=8000 > /tmp/laravel-newman.log 2>&1 &
+          trap 'kill "${server_pid:-}" 2>/dev/null || true; rm -f "$sqlite_db"; php artisan optimize:clear --no-interaction > /dev/null 2>&1 || true' EXIT
+          php artisan optimize:clear --no-interaction
+          export DB_CONNECTION=sqlite
+          export DB_DATABASE="$sqlite_db"
+          export CACHE_STORE=file
+          export SESSION_DRIVER=file
+          export QUEUE_CONNECTION=sync
+          php artisan migrate:fresh --no-interaction
+          php -r '
+            require "vendor/autoload.php";
+            $app = require "bootstrap/app.php";
+            $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            $admin = App\Models\User::updateOrCreate(
+                ["email" => "admin@logistikku.test"],
+                ["name" => "Administrator", "role" => "admin", "password" => Illuminate\Support\Facades\Hash::make("password")]
+            );
+            $supplier = App\Models\Supplier::firstOrCreate(
+                ["kode_supplier" => "SUP-CI-001"],
+                ["nama_supplier" => "PT Mitra CI Newman", "is_active" => true]
+            );
+            $wh1 = App\Models\Warehouse::find(1) ?? App\Models\Warehouse::create(["kode_gudang" => "GDG-UTAMA", "nama_gudang" => "Gudang Utama", "is_active" => true]);
+            $wh2 = App\Models\Warehouse::find(2) ?? App\Models\Warehouse::create(["kode_gudang" => "GDG-A", "nama_gudang" => "Gudang A", "is_active" => true]);
+            $barang = App\Models\Barang::firstOrCreate(
+                ["kode_barang" => "BRG-000001"],
+                ["supplier_id" => $supplier->id, "nama_barang" => "Barcode Scanner CI Fixture", "kategori" => "Elektronik", "stok" => 0, "harga_beli" => 1500000, "satuan" => "Unit", "lokasi" => "Rak CI-01"]
+            );
+            app(App\Services\StockAdjustmentService::class)->initializeStock($barang, 50, $wh1->id, "Saldo awal Newman CI");
+            app(App\Services\PurchaseOrderService::class)->createPO([
+                "supplier_id" => $supplier->id,
+                "warehouse_id" => $wh1->id,
+                "tanggal_pesan" => "2026-11-20",
+                "items" => [["barang_id" => $barang->id, "jumlah_pesan" => 5, "harga_satuan" => 1500000]],
+            ], $admin);
+          '
+          php artisan serve --host=127.0.0.1 --port=8000 > /tmp/laravel-newman.log 2>&1 &
           server_pid=$!
           for _ in {1..30}; do
             if curl -fsS http://127.0.0.1:8000/api/v1/status > /dev/null 2>&1; then
