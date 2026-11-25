@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Carbon\CarbonInterface;
+use DateTimeInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -119,13 +121,15 @@ class AuthApiController extends Controller
                 $tokenAbilities = array_values($accessToken->abilities);
             }
 
-            $tokenExpiresAt = $accessToken->expires_at;
+            $expiresAt = $accessToken->expires_at;
+            $createdAt = $accessToken->created_at;
+            $tokenExpiresAt = $expiresAt instanceof DateTimeInterface ? $expiresAt : null;
 
-            if ($tokenExpiresAt === null && $accessToken->created_at !== null) {
+            if ($tokenExpiresAt === null && $createdAt instanceof CarbonInterface) {
                 $expirationMinutes = $this->configuredExpirationMinutes();
 
                 if ($expirationMinutes !== null) {
-                    $tokenExpiresAt = $accessToken->created_at->copy()->addMinutes($expirationMinutes);
+                    $tokenExpiresAt = $createdAt->copy()->addMinutes($expirationMinutes);
                 }
             }
         }
@@ -136,8 +140,8 @@ class AuthApiController extends Controller
             'email' => $user->email,
             'role' => $user->role,
             'token_abilities' => $tokenAbilities,
-            'token_expires_at' => $tokenExpiresAt?->toIso8601String(),
-            'created_at' => $user->created_at?->toIso8601String(),
+            'token_expires_at' => $tokenExpiresAt instanceof DateTimeInterface ? $tokenExpiresAt->toIso8601String() : null,
+            'created_at' => $user->created_at instanceof DateTimeInterface ? $user->created_at->toIso8601String() : null,
         ], 'Profil pengguna berhasil diambil');
     }
 

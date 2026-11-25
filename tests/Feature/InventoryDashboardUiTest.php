@@ -179,6 +179,26 @@ class InventoryDashboardUiTest extends TestCase
         $this->assertNotContains('prediction-Mendesak', app(InventoryDashboardService::class)->attention($admin)->pluck('id')->all());
     }
 
+    public function test_attention_surfaces_all_document_verifications_for_manager_while_scoping_staff_to_own(): void
+    {
+        $manager = User::factory()->create(['role' => 'manager']);
+        $staffOwner = User::factory()->create(['role' => 'staff']);
+        $otherStaff = User::factory()->create(['role' => 'staff']);
+
+        $this->document($staffOwner, DocumentVerification::PROCESS_WAITING);
+        $this->document($otherStaff, DocumentVerification::PROCESS_FAILED);
+
+        $dashboard = app(InventoryDashboardService::class);
+
+        $managerIds = $dashboard->attention($manager)->pluck('id')->all();
+        $this->assertContains('document-'.DocumentVerification::PROCESS_WAITING, $managerIds);
+        $this->assertContains('document-'.DocumentVerification::PROCESS_FAILED, $managerIds);
+
+        $staffOwnerIds = $dashboard->attention($staffOwner)->pluck('id')->all();
+        $this->assertContains('document-'.DocumentVerification::PROCESS_WAITING, $staffOwnerIds);
+        $this->assertNotContains('document-'.DocumentVerification::PROCESS_FAILED, $staffOwnerIds);
+    }
+
     private function barang(array $attributes = []): Barang
     {
         return Barang::create(array_merge(['kode_barang' => 'DASH-01', 'nama_barang' => 'Barang Dashboard', 'kategori' => 'ATK', 'stok' => 10, 'satuan' => 'Pcs', 'lokasi' => 'Rak D'], $attributes));

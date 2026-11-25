@@ -183,7 +183,7 @@ class ProcurementAnalyticsExportService
                 $catVals = [
                     SpreadsheetSanitizer::neutralizeCell($cat['kategori'] ?? '-'),
                     (int) ($cat['po_count'] ?? 0),
-                    (int) ($cat['sku_count'] ?? 0),
+                    (int) ($cat['item_variety_count'] ?? $cat['sku_count'] ?? 0),
                     (int) ($cat['ordered_units'] ?? 0),
                     (int) ($cat['received_units'] ?? 0),
                     ((float) ($cat['fulfillment_rate'] ?? 0)).'%',
@@ -297,7 +297,7 @@ class ProcurementAnalyticsExportService
                 fputcsv($handle, [
                     SpreadsheetSanitizer::neutralizeCell($cat['kategori'] ?? '-'),
                     (int) ($cat['po_count'] ?? 0),
-                    (int) ($cat['sku_count'] ?? 0),
+                    (int) ($cat['item_variety_count'] ?? $cat['sku_count'] ?? 0),
                     (int) ($cat['ordered_units'] ?? 0),
                     (int) ($cat['received_units'] ?? 0),
                     ($cat['fulfillment_rate'] ?? 0).'%',

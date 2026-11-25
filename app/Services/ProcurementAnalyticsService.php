@@ -235,13 +235,23 @@ class ProcurementAnalyticsService
                 ->where('b.kategori', $category);
             $this->applyPoFilters($query, $warehouseId, $supplierId, null, $startDate, $endDate, false);
 
-            $rows = $query
+            $normalizedItems = $query
                 ->selectRaw("{$monthExpr} as month_key")
-                ->selectRaw('COUNT(DISTINCT po.id) as po_count')
-                ->selectRaw('COALESCE(SUM(poi.subtotal), 0) as po_spend')
-                ->selectRaw('COALESCE(SUM(poi.jumlah_pesan), 0) as ordered_units')
-                ->selectRaw('COALESCE(SUM(poi.jumlah_diterima), 0) as received_units')
-                ->groupByRaw($monthExpr)
+                ->addSelect([
+                    'po.id as purchase_order_id',
+                    'poi.subtotal',
+                    'poi.jumlah_pesan',
+                    'poi.jumlah_diterima',
+                ]);
+
+            $rows = DB::query()
+                ->fromSub($normalizedItems, 'monthly_po_items')
+                ->select('month_key')
+                ->selectRaw('COUNT(DISTINCT purchase_order_id) as po_count')
+                ->selectRaw('COALESCE(SUM(subtotal), 0) as po_spend')
+                ->selectRaw('COALESCE(SUM(jumlah_pesan), 0) as ordered_units')
+                ->selectRaw('COALESCE(SUM(jumlah_diterima), 0) as received_units')
+                ->groupBy('month_key')
                 ->orderBy('month_key')
                 ->get();
 
@@ -264,11 +274,16 @@ class ProcurementAnalyticsService
         $poQuery = DB::table('purchase_orders as po');
         $this->applyPoFilters($poQuery, $warehouseId, $supplierId, null, $startDate, $endDate, false);
 
-        $poRows = $poQuery
+        $monthlyPos = $poQuery
             ->selectRaw("{$monthExpr} as month_key")
-            ->selectRaw('COUNT(po.id) as po_count')
-            ->selectRaw('COALESCE(SUM(po.total_biaya), 0) as po_spend')
-            ->groupByRaw($monthExpr)
+            ->addSelect(['po.id', 'po.total_biaya']);
+
+        $poRows = DB::query()
+            ->fromSub($monthlyPos, 'monthly_pos')
+            ->select('month_key')
+            ->selectRaw('COUNT(id) as po_count')
+            ->selectRaw('COALESCE(SUM(total_biaya), 0) as po_spend')
+            ->groupBy('month_key')
             ->orderBy('month_key')
             ->get();
 
@@ -293,11 +308,16 @@ class ProcurementAnalyticsService
             ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id');
         $this->applyPoFilters($unitQuery, $warehouseId, $supplierId, null, $startDate, $endDate, false);
 
-        $unitRows = $unitQuery
+        $monthlyUnits = $unitQuery
             ->selectRaw("{$monthExpr} as month_key")
-            ->selectRaw('COALESCE(SUM(poi.jumlah_pesan), 0) as ordered_units')
-            ->selectRaw('COALESCE(SUM(poi.jumlah_diterima), 0) as received_units')
-            ->groupByRaw($monthExpr)
+            ->addSelect(['poi.jumlah_pesan', 'poi.jumlah_diterima']);
+
+        $unitRows = DB::query()
+            ->fromSub($monthlyUnits, 'monthly_po_units')
+            ->select('month_key')
+            ->selectRaw('COALESCE(SUM(jumlah_pesan), 0) as ordered_units')
+            ->selectRaw('COALESCE(SUM(jumlah_diterima), 0) as received_units')
+            ->groupBy('month_key')
             ->get();
 
         foreach ($unitRows as $unitRow) {
@@ -414,25 +434,34 @@ class ProcurementAnalyticsService
         ?string $startDate,
         ?string $endDate,
     ): array {
-        $categoryExpr = "COALESCE(NULLIF(b.kategori, ''), 'Lainnya')";
-
-        $query = DB::table('purchase_order_items as poi')
+        $baseQuery = DB::table('purchase_order_items as poi')
             ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id')
             ->leftJoin('barang as b', 'b.id', '=', 'poi.barang_id');
-        $this->applyPoFilters($query, $warehouseId, $supplierId, null, $startDate, $endDate, false);
+        $this->applyPoFilters($baseQuery, $warehouseId, $supplierId, null, $startDate, $endDate, false);
 
         if ($this->hasCategoryFilter($category)) {
-            $query->where('b.kategori', $category);
+            $baseQuery->where('b.kategori', $category);
         }
 
-        $rows = $query
-            ->selectRaw("{$categoryExpr} as kategori")
-            ->selectRaw('COUNT(DISTINCT po.id) as po_count')
-            ->selectRaw('COUNT(DISTINCT poi.barang_id) as item_variety_count')
-            ->selectRaw('COALESCE(SUM(poi.jumlah_pesan), 0) as ordered_units')
-            ->selectRaw('COALESCE(SUM(poi.jumlah_diterima), 0) as received_units')
-            ->selectRaw('COALESCE(SUM(poi.subtotal), 0) as total_spend')
-            ->groupByRaw($categoryExpr)
+        $normalizedItems = $baseQuery
+            ->selectRaw("CASE WHEN b.kategori IS NULL OR TRIM(b.kategori) = '' THEN 'Lainnya' ELSE b.kategori END as kategori")
+            ->addSelect([
+                'po.id as purchase_order_id',
+                'poi.barang_id',
+                'poi.jumlah_pesan',
+                'poi.jumlah_diterima',
+                'poi.subtotal',
+            ]);
+
+        $rows = DB::query()
+            ->fromSub($normalizedItems, 'categorized_po_items')
+            ->select('kategori')
+            ->selectRaw('COUNT(DISTINCT purchase_order_id) as po_count')
+            ->selectRaw('COUNT(DISTINCT barang_id) as item_variety_count')
+            ->selectRaw('COALESCE(SUM(jumlah_pesan), 0) as ordered_units')
+            ->selectRaw('COALESCE(SUM(jumlah_diterima), 0) as received_units')
+            ->selectRaw('COALESCE(SUM(subtotal), 0) as total_spend')
+            ->groupBy('kategori')
             ->orderByDesc('total_spend')
             ->get();
 

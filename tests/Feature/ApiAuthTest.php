@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class ApiAuthTest extends TestCase
@@ -140,5 +141,32 @@ class ApiAuthTest extends TestCase
             ->assertJsonFragment([
                 'message' => 'Terlalu banyak percobaan login. Coba lagi dalam 60 detik.',
             ]);
+    }
+
+    public function test_api_v1_auth_me_returns_profile_with_bearer_token_and_sanctum_acting_as(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'manager',
+            'email' => 'manager-api@example.com',
+        ]);
+
+        $token = $user->createToken('manager-client')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer '.$token)
+            ->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.id', $user->id)
+            ->assertJsonPath('data.email', 'manager-api@example.com')
+            ->assertJsonPath('data.role', 'manager');
+
+        Sanctum::actingAs($user, ['*']);
+
+        $this->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.id', $user->id)
+            ->assertJsonPath('data.email', 'manager-api@example.com')
+            ->assertJsonPath('data.role', 'manager');
     }
 }
