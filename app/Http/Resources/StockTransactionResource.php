@@ -19,7 +19,7 @@ class StockTransactionResource extends JsonResource
     public function toArray(Request $request): array
     {
         $canViewCost = $request->user() === null
-            || in_array($request->user()->role, ['admin', 'manager'], true);
+            || $request->user()->canViewFinancials();
 
         return [
             'id' => (int) $this->resource->id,

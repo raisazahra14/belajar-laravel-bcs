@@ -28,11 +28,11 @@ use Throwable;
 
 class DocumentVerificationController extends Controller
 {
-    public function index(): View
+    public function index(Request $request): View
     {
         $query = DocumentVerification::query()->with('user')->latest();
-        if (auth()->user()->role !== 'admin') {
-            $query->where('user_id', auth()->id());
+        if ($request->user()->cannot('viewAll', DocumentVerification::class)) {
+            $query->where('user_id', $request->user()->id);
         }
 
         return view('verifications.index', ['verifications' => $query->paginate(10)]);
@@ -92,7 +92,7 @@ class DocumentVerificationController extends Controller
         DocumentMetadataMapper $mapper,
         ThreeWayMatchingService $matchingService
     ): View {
-        $this->authorizeViewAccess($documentVerification);
+        $this->authorize('view', $documentVerification);
 
         $documentVerification->load(['ocrCorrector', 'audits.user']);
 
@@ -106,6 +106,9 @@ class DocumentVerificationController extends Controller
             if ($candidatePo && request()->user()?->can('view', $candidatePo)) {
                 $associatedPo = $candidatePo;
                 $threeWayMatching = $matchingService->match($associatedPo, $documentVerification);
+                if (! request()->user()?->canViewFinancials()) {
+                    $threeWayMatching = $matchingService->maskFinancials($threeWayMatching);
+                }
             }
         }
 
@@ -120,21 +123,21 @@ class DocumentVerificationController extends Controller
 
     public function processing(DocumentVerification $documentVerification): View
     {
-        $this->authorizeAccess($documentVerification);
+        $this->authorize('view', $documentVerification);
 
         return view('verifications.processing', ['verification' => $documentVerification]);
     }
 
     public function status(DocumentVerification $documentVerification): JsonResponse
     {
-        $this->authorizeAccess($documentVerification);
+        $this->authorize('view', $documentVerification);
 
         return response()->json($this->statusPayload($documentVerification));
     }
 
     public function processNow(Request $request, DocumentVerification $documentVerification): JsonResponse
     {
-        $this->authorizeAccess($documentVerification);
+        $this->authorize('manage', $documentVerification);
 
         if ($documentVerification->process_status !== DocumentVerification::PROCESS_WAITING) {
             return response()->json($this->statusPayload($documentVerification));
@@ -178,7 +181,7 @@ class DocumentVerificationController extends Controller
 
     public function retry(DocumentVerification $documentVerification, DocumentVerificationAuditService $audit): RedirectResponse
     {
-        $this->authorizeAccess($documentVerification);
+        $this->authorize('manage', $documentVerification);
         abort_unless($documentVerification->process_status === DocumentVerification::PROCESS_FAILED, 422);
         abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
 
@@ -202,7 +205,7 @@ class DocumentVerificationController extends Controller
 
     public function download(DocumentVerification $documentVerification): StreamedResponse
     {
-        $this->authorizeViewAccess($documentVerification);
+        $this->authorize('view', $documentVerification);
         abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
 
         return Storage::disk('local')->download(
@@ -213,7 +216,7 @@ class DocumentVerificationController extends Controller
 
     public function preview(Request $request, DocumentVerification $documentVerification): StreamedResponse
     {
-        $this->authorizeViewAccess($documentVerification);
+        $this->authorize('view', $documentVerification);
         abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
 
         if ($request->hasSession()) {
@@ -234,7 +237,7 @@ class DocumentVerificationController extends Controller
         DocumentVerificationResultWriter $writer,
         DocumentVerificationAuditService $audit,
     ): RedirectResponse {
-        $this->authorizeAccess($documentVerification);
+        $this->authorize('manage', $documentVerification);
         abort_unless(Storage::disk('local')->exists($documentVerification->file_path), 404);
 
         $lock = Cache::lock("document_verification:reprocess:{$documentVerification->id}", 120);
@@ -356,23 +359,6 @@ class DocumentVerificationController extends Controller
             'result_url' => $verification->process_status === DocumentVerification::PROCESS_COMPLETED ? route('verifications.show', $verification) : null,
             'retry_url' => $verification->process_status === DocumentVerification::PROCESS_FAILED ? route('verifications.retry', $verification) : null,
         ];
-    }
-
-    private function authorizeAccess(DocumentVerification $documentVerification): void
-    {
-        abort_unless(
-            auth()->user()->role === 'admin' || $documentVerification->user_id === auth()->id(),
-            403,
-        );
-    }
-
-    private function authorizeViewAccess(DocumentVerification $documentVerification): void
-    {
-        abort_unless(
-            in_array(auth()->user()->role, ['admin', 'manager'], true)
-                || $documentVerification->user_id === auth()->id(),
-            403,
-        );
     }
 
     /** @return array<string, array{status: string, label: string, help: string, message: string, confidence: ?string, source_text: ?string}> */

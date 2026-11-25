@@ -69,6 +69,9 @@ class BarangController extends Controller
             'prediction_counts' => $predictionCounts,
         ]);
         $procurementKpis = $poService->getProcurementKpis();
+        if (! $request->user()?->canViewFinancials()) {
+            $procurementKpis['monthly_spend'] = null;
+        }
 
         return view('barang.index', compact(
             'barang',

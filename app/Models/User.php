@@ -15,6 +15,18 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
+    public const ROLE_ADMIN = 'admin';
+
+    public const ROLE_MANAGER = 'manager';
+
+    public const ROLE_STAFF = 'staff';
+
+    /** @var list<string> */
+    public const ROLES_MANAGEMENT = [self::ROLE_ADMIN, self::ROLE_MANAGER];
+
+    /** @var list<string> */
+    public const ROLES_ALL = [self::ROLE_ADMIN, self::ROLE_MANAGER, self::ROLE_STAFF];
+
     /**
      * Peta kemampuan token Sanctum (Token Abilities) standar per role untuk /api/v1.
      *
@@ -147,5 +159,54 @@ class User extends Authenticatable
         $normalized = array_unique(array_map('strval', $requestedAbilities));
 
         return array_values(array_intersect($allowed, $normalized));
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === self::ROLE_ADMIN;
+    }
+
+    public function isManager(): bool
+    {
+        return $this->role === self::ROLE_MANAGER;
+    }
+
+    public function isStaff(): bool
+    {
+        return $this->role === self::ROLE_STAFF;
+    }
+
+    /**
+     * Periksa apakah pengguna memiliki salah satu role dalam daftar yang diberikan.
+     *
+     * @param  list<string>  $roles
+     */
+    public function hasAnyRole(array $roles): bool
+    {
+        return in_array($this->role, $roles, true);
+    }
+
+    /**
+     * Menentukan apakah pengguna boleh melihat nilai finansial (harga beli, total biaya PO, belanja).
+     */
+    public function canViewFinancials(): bool
+    {
+        return $this->hasAnyRole(self::ROLES_MANAGEMENT);
+    }
+
+    /**
+     * Menentukan apakah pengguna boleh mengakses modul Analitik Bisnis.
+     */
+    public function canViewBusinessAnalytics(): bool
+    {
+        return $this->hasAnyRole(self::ROLES_MANAGEMENT);
+    }
+
+    /**
+     * Menentukan apakah pengguna boleh melihat daftar seluruh verifikasi dokumen OCR.
+     */
+    public function canViewAllVerifications(): bool
+    {
+        return $this->hasAnyRole(self::ROLES_MANAGEMENT);
     }
 }

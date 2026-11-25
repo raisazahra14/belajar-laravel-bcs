@@ -60,6 +60,9 @@ class PurchaseOrderController extends Controller
         $statuses = PurchaseOrderStatus::cases();
         $overdueOnly = ! empty($validated['overdue']);
         $kpis = $service->getProcurementKpis();
+        if (! $request->user()?->canViewFinancials()) {
+            $kpis['monthly_spend'] = null;
+        }
 
         return view('purchase-orders.index', compact(
             'purchaseOrders',
@@ -80,7 +83,7 @@ class PurchaseOrderController extends Controller
         $this->authorize('viewAny', PurchaseOrder::class);
 
         $validated = $this->validateFilterRequest($request);
-        $includeFinancials = in_array($request->user()?->role, ['admin', 'manager'], true);
+        $includeFinancials = $request->user()?->canViewFinancials() ?? false;
 
         return $service->exportCsv($validated, $includeFinancials);
     }
@@ -247,6 +250,9 @@ class PurchaseOrderController extends Controller
             : $matchingDocuments->first();
 
         $threeWayMatching = $matchingService->match($purchaseOrder, $selectedDocument);
+        if (! $user?->canViewFinancials()) {
+            $threeWayMatching = $matchingService->maskFinancials($threeWayMatching);
+        }
 
         return view('purchase-orders.show', compact(
             'purchaseOrder',
@@ -276,11 +282,7 @@ class PurchaseOrderController extends Controller
 
             if ($verification === null) {
                 $rawDoc = DocumentVerification::find($selectedDocId);
-                if (
-                    $rawDoc !== null
-                    && ! in_array($user?->role, ['admin', 'manager'], true)
-                    && (int) $rawDoc->user_id !== (int) $user?->id
-                ) {
+                if ($rawDoc !== null && ! $user?->can('view', $rawDoc)) {
                     abort(403, 'Anda tidak memiliki hak akses terhadap dokumen verifikasi ini.');
                 }
 
@@ -291,6 +293,9 @@ class PurchaseOrderController extends Controller
         }
 
         $result = $matchingService->match($purchaseOrder, $verification);
+        if (! $user?->canViewFinancials()) {
+            $result = $matchingService->maskFinancials($result);
+        }
         $doc = $result['document'];
 
         return response()->json([
@@ -593,11 +598,12 @@ class PurchaseOrderController extends Controller
         }
     }
 
-    public function pdf(PurchaseOrder $purchaseOrder, PurchaseOrderPdfService $pdfService): Response
+    public function pdf(Request $request, PurchaseOrder $purchaseOrder, PurchaseOrderPdfService $pdfService): Response
     {
         $this->authorize('viewPdf', $purchaseOrder);
 
-        $pdfContent = $pdfService->make($purchaseOrder);
+        $includeFinancials = $request->user()?->canViewFinancials() ?? false;
+        $pdfContent = $pdfService->make($purchaseOrder, $includeFinancials);
 
         return response($pdfContent, 200, [
             'Content-Type' => 'application/pdf',

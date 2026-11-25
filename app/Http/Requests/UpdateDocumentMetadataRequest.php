@@ -12,7 +12,7 @@ class UpdateDocumentMetadataRequest extends FormRequest
         $verification = $this->route('documentVerification');
 
         return $verification instanceof DocumentVerification
-            && ($this->user()?->role === 'admin' || $verification->user_id === $this->user()?->id);
+            && ($this->user()?->can('manage', $verification) ?? false);
     }
 
     public function rules(): array

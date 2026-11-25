@@ -2,8 +2,10 @@
 
 namespace App\Providers;
 
+use App\Models\DocumentVerification;
 use App\Models\PurchaseOrder;
 use App\Models\User;
+use App\Policies\DocumentVerificationPolicy;
 use App\Policies\PurchaseOrderPolicy;
 use App\Services\NotificationCenterService;
 use App\Services\SystemHealthService;
@@ -61,13 +63,17 @@ class AppServiceProvider extends ServiceProvider
             );
         }
 
-        Gate::define('manage-barang', fn (User $user): bool => $user->role === 'admin');
-        Gate::define('update-stock', fn (User $user): bool => in_array($user->role, ['admin', 'manager', 'staff'], true));
-        Gate::define('view-stock-reports', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
-        Gate::define('reverse-stock', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
-        Gate::define('run-stock-prediction', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
-        Gate::define('approve-restock', fn (User $user): bool => in_array($user->role, ['admin', 'manager'], true));
+        Gate::define('manage-barang', fn (User $user): bool => $user->isAdmin());
+        Gate::define('view-business-analytics', fn (User $user): bool => $user->canViewBusinessAnalytics());
+        Gate::define('view-financials', fn (User $user): bool => $user->canViewFinancials());
+        Gate::define('view-all-verifications', fn (User $user): bool => $user->canViewAllVerifications());
+        Gate::define('update-stock', fn (User $user): bool => $user->hasAnyRole(User::ROLES_ALL));
+        Gate::define('view-stock-reports', fn (User $user): bool => $user->hasAnyRole(User::ROLES_MANAGEMENT));
+        Gate::define('reverse-stock', fn (User $user): bool => $user->hasAnyRole(User::ROLES_MANAGEMENT));
+        Gate::define('run-stock-prediction', fn (User $user): bool => $user->hasAnyRole(User::ROLES_MANAGEMENT));
+        Gate::define('approve-restock', fn (User $user): bool => $user->hasAnyRole(User::ROLES_MANAGEMENT));
         Gate::policy(PurchaseOrder::class, PurchaseOrderPolicy::class);
+        Gate::policy(DocumentVerification::class, DocumentVerificationPolicy::class);
 
         View::composer('layouts.skydash', function ($view): void {
             $dropdown = auth()->check()

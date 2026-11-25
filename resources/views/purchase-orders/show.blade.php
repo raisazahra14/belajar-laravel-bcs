@@ -158,16 +158,18 @@
             <p class="detail-label">Disetujui Oleh</p>
             <p class="detail-value">{{ $purchaseOrder->approver?->name ?? '—' }}</p>
         </div>
-        <div class="col-md-6 mb-2">
+        <div class="{{ auth()->user()?->can('view-financials') ? 'col-md-6' : 'col-md-12' }} mb-2">
             <p class="detail-label">Catatan</p>
             <p class="detail-value text-preline mb-0">{{ $purchaseOrder->catatan ?: '—' }}</p>
         </div>
+        @can('view-financials')
         <div class="col-md-6 mb-2 text-md-end">
             <p class="detail-label">Total Biaya PO</p>
             <p class="detail-value fs-4 fw-bold text-primary mb-0">
                 Rp {{ number_format((float) $purchaseOrder->total_biaya, 0, ',', '.') }}
             </p>
         </div>
+        @endcan
     </div>
 </x-ui.card>
 
@@ -189,8 +191,10 @@
                     <th class="text-center">Jumlah Pesan</th>
                     <th class="text-center">Diterima</th>
                     <th class="text-center">Sisa</th>
+                    @can('view-financials')
                     <th class="text-end">Harga Satuan</th>
                     <th class="text-end">Subtotal</th>
+                    @endcan
                 </tr>
             </thead>
             <tbody>
@@ -208,23 +212,27 @@
                                 <x-ui.badge variant="success">Lengkap</x-ui.badge>
                             @endif
                         </td>
+                        @can('view-financials')
                         <td class="text-end">Rp {{ number_format((float) $item->harga_satuan, 0, ',', '.') }}</td>
                         <td class="text-end fw-semibold">Rp {{ number_format((float) $item->subtotal, 0, ',', '.') }}</td>
+                        @endcan
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8">
+                        <td colspan="{{ auth()->user()?->can('view-financials') ? 8 : 6 }}">
                             <x-ui.empty-state icon="ti-package" title="Tidak ada item" description="Belum ada rincian barang pada Purchase Order ini." />
                         </td>
                     </tr>
                 @endforelse
             </tbody>
+            @can('view-financials')
             <tfoot>
                 <tr>
                     <th colspan="7" class="text-end">Total Biaya Keseluruhan:</th>
                     <th class="text-end text-primary">Rp {{ number_format((float) $purchaseOrder->total_biaya, 0, ',', '.') }}</th>
                 </tr>
             </tfoot>
+            @endcan
         </table>
     </div>
 </x-ui.card>
@@ -364,8 +372,11 @@
     @endif
 
     {{-- Grid Header Matching --}}
+    @php
+        $threeWayHeaderCol = auth()->user()?->can('view-financials') ? 'col-md-3 col-6' : 'col-md-4 col-6';
+    @endphp
     <div class="row g-2 mb-3">
-        <div class="col-md-3 col-6">
+        <div class="{{ $threeWayHeaderCol }}">
             <div class="p-2 border rounded bg-light">
                 <small class="text-muted d-block">Nomor PO (Sistem vs OCR)</small>
                 <div class="d-flex justify-content-between align-items-center mt-1">
@@ -385,7 +396,7 @@
                 </small>
             </div>
         </div>
-        <div class="col-md-3 col-6">
+        <div class="{{ $threeWayHeaderCol }}">
             <div class="p-2 border rounded bg-light">
                 <small class="text-muted d-block">No. Surat Jalan / DO</small>
                 <div class="d-flex justify-content-between align-items-center mt-1">
@@ -403,7 +414,7 @@
                 </small>
             </div>
         </div>
-        <div class="col-md-3 col-6">
+        <div class="{{ $threeWayHeaderCol }}">
             <div class="p-2 border rounded bg-light">
                 <small class="text-muted d-block">Nama Vendor / Pengirim</small>
                 <div class="d-flex justify-content-between align-items-center mt-1">
@@ -423,6 +434,7 @@
                 </small>
             </div>
         </div>
+        @can('view-financials')
         <div class="col-md-3 col-6">
             <div class="p-2 border rounded bg-light">
                 <small class="text-muted d-block">Total Tagihan Finansial</small>
@@ -445,6 +457,7 @@
                 </small>
             </div>
         </div>
+        @endcan
     </div>
 
     {{-- Matriks Perbandingan Baris Item (Three-Way Matrix) --}}
@@ -457,8 +470,10 @@
                     <th class="text-center">(1) PO Dipesan</th>
                     <th class="text-center">(2) Fisik GRN</th>
                     <th class="text-center">(3) Dokumen OCR</th>
+                    @can('view-financials')
                     <th class="text-end">Harga Satuan (PO vs OCR)</th>
                     <th class="text-end">Subtotal (PO vs OCR)</th>
+                    @endcan
                     <th class="text-center">Status Matching</th>
                     <th>Keterangan / Selisih</th>
                 </tr>
@@ -492,6 +507,7 @@
                                 <span class="text-muted">—</span>
                             @endif
                         </td>
+                        @can('view-financials')
                         <td class="text-end">
                             <div>Rp {{ number_format($mItem['price_ordered'], 0, ',', '.') }}</div>
                             @if($mItem['price_invoiced'] !== null)
@@ -508,6 +524,7 @@
                                 </small>
                             @endif
                         </td>
+                        @endcan
                         <td class="text-center">
                             <x-ui.badge :variant="$mItem['status_badge']">
                                 {{ $mItem['status_label'] }}
@@ -519,7 +536,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="9">
+                        <td colspan="{{ auth()->user()?->can('view-financials') ? 9 : 7 }}">
                             <x-ui.empty-state 
                                 icon="ti-receipt" 
                                 title="Tidak Ada Data Matching" 

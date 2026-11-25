@@ -104,14 +104,27 @@
             </div>
 
             <div class="col-lg-3 col-sm-6">
-                <div class="p-3 border rounded bg-light h-100">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <span class="text-muted small fw-semibold">Belanja Bulan Ini</span>
-                        <i class="ti-wallet text-primary fs-5"></i>
+                @can('view-financials')
+                    <div class="p-3 border rounded bg-light h-100">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="text-muted small fw-semibold">Belanja Bulan Ini</span>
+                            <i class="ti-wallet text-primary fs-5"></i>
+                        </div>
+                        <div class="fs-4 fw-bold text-primary">Rp {{ number_format(($procurementKpis['monthly_spend'] ?? 0) / 1000000, 1, ',', '.') }} jt</div>
+                        <small class="text-muted">Total: Rp {{ number_format($procurementKpis['monthly_spend'] ?? 0, 0, ',', '.') }}</small>
                     </div>
-                    <div class="fs-4 fw-bold text-primary">Rp {{ number_format(($procurementKpis['monthly_spend'] ?? 0) / 1000000, 1, ',', '.') }} jt</div>
-                    <small class="text-muted">Total: Rp {{ number_format($procurementKpis['monthly_spend'] ?? 0, 0, ',', '.') }}</small>
-                </div>
+                @else
+                    <a href="{{ route('purchase-orders.index', ['status' => 'completed']) }}" class="text-decoration-none d-block h-100">
+                        <div class="p-3 border rounded bg-light h-100">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="text-muted small fw-semibold">Pesanan Selesai</span>
+                                <i class="ti-check-box text-primary fs-5"></i>
+                            </div>
+                            <div class="fs-4 fw-bold text-primary">{{ number_format($procurementKpis['completed'] ?? 0, 0, ',', '.') }}</div>
+                            <small class="text-muted">PO selesai diterima lengkap &rarr;</small>
+                        </div>
+                    </a>
+                @endcan
             </div>
         </div>
     </x-ui.card>

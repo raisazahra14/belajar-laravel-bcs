@@ -144,12 +144,15 @@ Route::middleware('auth')->group(function () {
         Route::get('/laporan-mutasi-stok/pdf', [StockMutationReportController::class, 'pdf'])->name('stock-mutations.pdf');
     });
 
-    Route::middleware('role:admin')->group(function () {
+    Route::middleware('can:view-business-analytics')->group(function () {
         Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics.index');
         Route::get('/analytics/csv', [AnalyticsController::class, 'csv'])->name('analytics.csv');
         Route::get('/analytics/procurement/export/excel', [AnalyticsController::class, 'exportProcurementExcel'])->name('analytics.procurement.export-excel');
         Route::get('/analytics/procurement/export/csv', [AnalyticsController::class, 'exportProcurementCsv'])->name('analytics.procurement.export-csv');
         Route::get('/analytics/procurement/export/pdf', [AnalyticsController::class, 'exportProcurementPdf'])->name('analytics.procurement.export-pdf');
+    });
+
+    Route::middleware('role:admin')->group(function () {
         Route::get('/admin/system-health', [SystemHealthController::class, 'index'])->name('system-health.index');
         Route::get('/admin/system-health/json', [SystemHealthController::class, 'json'])->name('system-health.json');
         Route::get('/suppliers/{supplier}/edit', [SupplierController::class, 'edit'])->name('suppliers.edit');

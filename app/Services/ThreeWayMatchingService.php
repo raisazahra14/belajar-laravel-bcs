@@ -42,7 +42,7 @@ class ThreeWayMatchingService
         return DocumentVerification::query()
             ->where('process_status', DocumentVerification::PROCESS_COMPLETED)
             ->when(
-                $viewer !== null && ! in_array($viewer->role, ['admin', 'manager'], true),
+                $viewer !== null && ! $viewer->canViewAllVerifications(),
                 fn ($query) => $query->where('user_id', $viewer->id),
             )
             ->where(function ($query) use ($nomorPo, $grnDoNumbers) {
@@ -398,6 +398,60 @@ class ThreeWayMatchingService
             ])->all(),
             'discrepancies' => [],
         ];
+    }
+
+    /**
+     * Menyamarkan informasi finansial (nominal tagihan, harga satuan, subtotal) dari hasil Three-Way Matching
+     * untuk peran non-finansial (Blind Receiving bagi staf gudang).
+     *
+     * @param  array<string, mixed>  $result
+     * @return array<string, mixed>
+     */
+    public function maskFinancials(array $result): array
+    {
+        if (isset($result['header_matching']) && is_array($result['header_matching'])) {
+            $result['header_matching']['total_amount'] = [
+                'system' => null,
+                'ocr' => null,
+                'diff' => null,
+                'match' => null,
+            ];
+        }
+
+        if (isset($result['items']) && is_array($result['items'])) {
+            $result['items'] = array_map(function (array $item): array {
+                $item['price_ordered'] = null;
+                $item['price_invoiced'] = null;
+                $item['subtotal_ordered'] = null;
+                $item['subtotal_invoiced'] = null;
+
+                $notes = (string) ($item['notes'] ?? '');
+                if ($this->containsFinancialText($notes)) {
+                    $item['notes'] = 'Terdapat selisih nilai finansial (perlu peninjauan Manager/Admin).';
+                }
+
+                return $item;
+            }, $result['items']);
+        }
+
+        if (isset($result['discrepancies']) && is_array($result['discrepancies'])) {
+            $maskedDiscrepancies = array_map(function (string $discrepancy): string {
+                if ($this->containsFinancialText($discrepancy)) {
+                    return 'Terdapat selisih nilai finansial dokumen yang memerlukan peninjauan Manager/Admin.';
+                }
+
+                return $discrepancy;
+            }, $result['discrepancies']);
+
+            $result['discrepancies'] = array_values(array_unique($maskedDiscrepancies));
+        }
+
+        return $result;
+    }
+
+    private function containsFinancialText(string $text): bool
+    {
+        return preg_match('/(Rp\s*[\d.,]+|Nilai tagihan dokumen|Total tagihan pada dokumen|Harga invoice|Subtotal)/i', $text) === 1;
     }
 
     /**

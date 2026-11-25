@@ -4,7 +4,7 @@
 <x-ui.page-header title="Detail Supplier" description="Informasi pemasok, barang, dan transaksi terkait.">
     <div class="page-actions d-flex gap-2">
         <x-ui.button :href="route('suppliers.index')" variant="outline-secondary" icon="ti-arrow-left">Kembali</x-ui.button>
-        @if(in_array(auth()->user()?->role, ['admin', 'manager'], true))<x-ui.button :href="route('suppliers.performance.show', $supplier)" variant="outline-info" icon="ti-bar-chart">Analitik Performa</x-ui.button>@endif
+        @can('view-financials')<x-ui.button :href="route('suppliers.performance.show', $supplier)" variant="outline-info" icon="ti-bar-chart">Analitik Performa</x-ui.button>@endcan
         @can('manage-barang')<x-ui.button :href="route('suppliers.edit', $supplier)" icon="ti-pencil">Edit Supplier</x-ui.button>@endcan
     </div>
 </x-ui.page-header>
@@ -40,13 +40,23 @@
         </div>
     </div>
     <div class="col-md-3 col-sm-6 mb-2">
-        <div class="card border-start border-4 border-info shadow-sm h-100">
-            <div class="card-body p-3">
-                <span class="text-muted small fw-semibold text-uppercase d-block mb-1">Nilai Pengadaan</span>
-                <strong class="fs-5 text-dark">Rp {{ number_format($performanceMetrics['total_spend'], 0, ',', '.') }}</strong>
-                <small class="text-muted d-block">{{ $performanceMetrics['total_po'] }} Purchase Order</small>
+        @can('view-financials')
+            <div class="card border-start border-4 border-info shadow-sm h-100">
+                <div class="card-body p-3">
+                    <span class="text-muted small fw-semibold text-uppercase d-block mb-1">Nilai Pengadaan</span>
+                    <strong class="fs-5 text-dark">Rp {{ number_format($performanceMetrics['total_spend'] ?? 0, 0, ',', '.') }}</strong>
+                    <small class="text-muted d-block">{{ $performanceMetrics['total_po'] }} Purchase Order</small>
+                </div>
             </div>
-        </div>
+        @else
+            <div class="card border-start border-4 border-info shadow-sm h-100">
+                <div class="card-body p-3">
+                    <span class="text-muted small fw-semibold text-uppercase d-block mb-1">Total Pesanan</span>
+                    <strong class="fs-4 text-dark">{{ number_format($performanceMetrics['total_po'] ?? 0, 0, ',', '.') }} PO</strong>
+                    <small class="text-muted d-block">{{ number_format($performanceMetrics['completed_po'] ?? 0, 0, ',', '.') }} selesai</small>
+                </div>
+            </div>
+        @endcan
     </div>
 </div>
 @endif

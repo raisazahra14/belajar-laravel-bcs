@@ -57,7 +57,7 @@ class SupplierController extends Controller
             ->with('success', 'Supplier berhasil ditambahkan.');
     }
 
-    public function show(Supplier $supplier, SupplierPerformanceService $performanceService): View
+    public function show(Request $request, Supplier $supplier, SupplierPerformanceService $performanceService): View
     {
         $barang = $supplier->barang()->orderBy('nama_barang')->paginate(10, ['*'], 'barang_page')->withQueryString();
         $transactions = $supplier->stokTransactions()
@@ -66,6 +66,9 @@ class SupplierController extends Controller
             ->paginate(10, ['*'], 'transaksi_page')->withQueryString();
 
         $performanceMetrics = $performanceService->calculateForSupplier($supplier);
+        if (! $request->user()?->canViewFinancials()) {
+            $performanceMetrics['total_spend'] = null;
+        }
 
         return view('suppliers.show', compact('supplier', 'barang', 'transactions', 'performanceMetrics'));
     }
