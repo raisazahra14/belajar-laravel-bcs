@@ -2,14 +2,13 @@
 
 namespace App\Services;
 
+use App\Support\SpreadsheetSanitizer;
 use Carbon\CarbonInterface;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AnalyticsCsv
 {
-    private const BOM = "\xEF\xBB\xBF";
-
     /** @param array<string,mixed> $data */
     public function download(array $data): StreamedResponse
     {
@@ -20,9 +19,9 @@ class AnalyticsCsv
             }
 
             try {
-                fwrite($stream, self::BOM);
+                fwrite($stream, SpreadsheetSanitizer::UTF8_BOM);
                 foreach ($this->rows($data) as $row) {
-                    fputcsv($stream, array_map($this->safeCell(...), $row), ',', '"', '', "\r\n");
+                    fputcsv($stream, SpreadsheetSanitizer::neutralizeRow($row), ',', '"', '', "\r\n");
                 }
             } finally {
                 fclose($stream);
@@ -148,16 +147,5 @@ class AnalyticsCsv
     private function dateTime(?CarbonInterface $date): string
     {
         return $date?->format('Y-m-d H:i:s T') ?? 'Tidak tersedia';
-    }
-
-    private function safeCell(mixed $value): string
-    {
-        $value = (string) $value;
-        if (preg_match('/\A[\s\p{Z}\x{FEFF}]*[=+@\-\x{FF1D}\x{FF0B}\x{FF0D}\x{FF20}]/u', $value) === 1
-            || preg_match('/\A[\t\r\n]/', $value) === 1) {
-            return "\t".$value;
-        }
-
-        return $value;
     }
 }

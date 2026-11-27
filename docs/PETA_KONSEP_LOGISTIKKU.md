@@ -65,8 +65,8 @@ flowchart TD
 
 - Menyimpan kode, nama, alamat, catatan, status aktif, dan soft delete.
 - Migration menyediakan `GDG-UTAMA`, `GDG-A`, `GDG-B`, dan `GDG-C` secara aman/idempoten.
-- `warehouse_stocks` menyimpan saldo unik setiap pasangan barang-gudang.
-- Semua role dapat melihat daftar/detail saldo; Admin dapat CRUD master.
+- `warehouse_stocks` menyimpan saldo unik setiap pasangan barang-gudang beserta metadata lokasi fisik rak (`zone`, `rack_location`, `bin_code`) dan `stok_minimum` per gudang yang dapat diperbarui melalui `PATCH /barang/{barang}/warehouses/{warehouse}/settings`.
+- Semua role dapat melihat daftar/detail saldo dan lokasi rak; Admin & Manager dapat memperbarui konfigurasi rak/stok minimum gudang; Admin dapat CRUD master gudang.
 
 ## 4. Stok masuk dan keluar
 
@@ -236,9 +236,9 @@ flowchart TD
     SLA --> N[1-Click Create PO & Notifikasi]
 ```
 
-Prediksi menghasilkan status Aman, Waspada, Perlu Restock, Mendesak, atau Perlu Ditinjau beserta kebutuhan, tanggal minimum/habis, safety stock, jumlah restock, metode, confidence, dan alasan.
+Prediksi menghasilkan status Aman, Waspada, Perlu Restock, Mendesak, atau Perlu Ditinjau beserta kebutuhan, tanggal minimum/habis, safety stock, jumlah restock, metode, confidence, dan alasan. Perhitungan memfilter mutasi operasional efektif (`StokTransaction::effectiveOperational()`), menjumlahkan stok pesanan terbuka (`incoming_po_stock` dari PO `approved`/`partially_received`), dan memakai ambang minimum dinamis `Barang::effectiveMinimumStock()` (`max(5, SUM(warehouse_stocks.stok_minimum))`).
 
-Semua role dapat melihat hasil. Admin/Manager dapat menjalankan analisis, melihat proses, menerapkan rekomendasi ke form stok masuk, atau menekan tombol **`1-Click Create PO`** yang secara otomatis memilih vendor dengan skor kepatuhan SLA tertinggi (`COMPLIANT`, *On-Time Delivery* terbaik) dan mengisi form PO (`/purchase-orders/create?from_prediction={id}`). Prediksi tidak pernah mengubah stok secara otomatis.
+Semua role dapat melihat hasil. Admin/Manager dapat menjalankan analisis, melihat proses, menerapkan rekomendasi ke form stok masuk, atau menekan tombol **`1-Click Create PO`** yang secara otomatis memilih vendor dengan skor kepatuhan SLA tertinggi (`COMPLIANT`, *On-Time Delivery* terbaik) dan mengisi form PO (`/purchase-orders/create?from_prediction={id}`). Perubahan `stok_minimum` gudang atau status PO juga otomatis memicu penjadwalan ulang prediksi. Prediksi tidak pernah mengubah stok secara otomatis.
 
 ## 12. Pengadaan barang (Purchase Order, Goods Receipt, Three-Way Matching & SLA Vendor)
 
@@ -268,7 +268,12 @@ Badge diperbarui melalui polling endpoint internal. Pengguna dapat membuka sumbe
 | Pengadaan | `purchase_orders`, `purchase_order_items`, `purchase_order_status_histories`, `goods_receipts`, `goods_receipt_items` |
 | OCR | `document_verifications`, `document_verification_audits`, `notifications` |
 | Prediksi | `stock_predictions`, `stock_prediction_processes`, `stock_prediction_notifications`, `stock_prediction_notification_reads` |
-| Infrastruktur | `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs`, `migrations` |
+| Infrastruktur | `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs`, `migrations`, `personal_access_tokens` |
+
+## 14b. RESTful API v1 (`/api/v1/*`) & System Health (`/system-health`)
+
+- **RESTful API v1**: Menyediakan 20 path / 21 operasi berotentikasi Laravel Sanctum (`auth:sanctum` + `ability:<scope>`) untuk cek status, login/logout/profil token, baca katalog & cek stok real-time POS, mutasi/transfer/reversal stok, serta siklus penuh Purchase Order & penerimaan fisik GRN barcode. Dilengkapi spesifikasi OpenAPI 3.0.3 (`/docs/openapi.yaml`), portal Swagger UI (`/docs/api`), dan header deprekasi (`Deprecation`, `Sunset`, `Link`) pada rute legacy `/api/*`.
+- **System Health (`/system-health`)**: Memantau kesehatan database (termasuk pendeteksian selisih `barang.stok != SUM(warehouse_stocks.stok)`), heartbeat scheduler (`system:heartbeat`) & queue worker, ketersediaan runtime Python & Tesseract OCR, serta ruang penyimpanan disk secara lintas platform.
 
 ## 15. Prinsip operasional
 

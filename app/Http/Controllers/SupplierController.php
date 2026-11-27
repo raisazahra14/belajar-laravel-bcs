@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Http\Requests\StoreSupplierRequest;
 use App\Http\Requests\UpdateSupplierRequest;
 use App\Models\Supplier;
@@ -56,7 +57,7 @@ class SupplierController extends Controller
             ->with('success', 'Supplier berhasil ditambahkan.');
     }
 
-    public function show(Supplier $supplier, SupplierPerformanceService $performanceService): View
+    public function show(Request $request, Supplier $supplier, SupplierPerformanceService $performanceService): View
     {
         $barang = $supplier->barang()->orderBy('nama_barang')->paginate(10, ['*'], 'barang_page')->withQueryString();
         $transactions = $supplier->stokTransactions()
@@ -65,6 +66,9 @@ class SupplierController extends Controller
             ->paginate(10, ['*'], 'transaksi_page')->withQueryString();
 
         $performanceMetrics = $performanceService->calculateForSupplier($supplier);
+        if (! $request->user()?->canViewFinancials()) {
+            $performanceMetrics['total_spend'] = null;
+        }
 
         return view('suppliers.show', compact('supplier', 'barang', 'transactions', 'performanceMetrics'));
     }
@@ -84,6 +88,19 @@ class SupplierController extends Controller
 
     public function destroy(Supplier $supplier)
     {
+        $hasActivePo = $supplier->purchaseOrders()
+            ->whereIn('status', [
+                PurchaseOrderStatus::DRAFT,
+                PurchaseOrderStatus::PENDING_APPROVAL,
+                PurchaseOrderStatus::APPROVED,
+                PurchaseOrderStatus::PARTIALLY_RECEIVED,
+            ])
+            ->exists();
+
+        if ($hasActivePo) {
+            return back()->with('error', 'Supplier tidak dapat dihapus karena masih memiliki Purchase Order aktif yang sedang berjalan.');
+        }
+
         $supplier->delete();
 
         return redirect()->route('suppliers.index')

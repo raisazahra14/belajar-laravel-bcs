@@ -10,7 +10,7 @@ class PurchaseOrderPdfService
     /**
      * Menghasilkan dokumen PDF resmi Purchase Order dalam bentuk string biner PDF 1.4.
      */
-    public function make(PurchaseOrder $po): string
+    public function make(PurchaseOrder $po, bool $includeFinancials = true): string
     {
         $po->loadMissing(['supplier', 'warehouse', 'creator', 'approver', 'items.barang']);
 
@@ -34,7 +34,7 @@ class PurchaseOrderPdfService
             $pageId = $nextId++;
             $contentId = $nextId++;
             $pageIds[] = $pageId;
-            $stream = $this->renderPage($po, $pageItems, $pageIndex + 1, $totalPages);
+            $stream = $this->renderPage($po, $pageItems, $pageIndex + 1, $totalPages, $includeFinancials);
             $objects[$pageId] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {$contentId} 0 R >>";
             $objects[$contentId] = '<< /Length '.strlen($stream)." >>\nstream\n{$stream}\nendstream";
         }
@@ -57,7 +57,7 @@ class PurchaseOrderPdfService
         return $pdf."trailer\n<< /Size ".(max(array_keys($objects)) + 1)." /Root 1 0 R >>\nstartxref\n{$xref}\n%%EOF";
     }
 
-    private function renderPage(PurchaseOrder $po, $items, int $page, int $totalPages): string
+    private function renderPage(PurchaseOrder $po, $items, int $page, int $totalPages, bool $includeFinancials = true): string
     {
         $commands = [];
 
@@ -114,16 +114,20 @@ class PurchaseOrderPdfService
             $nama = (string) ($item->barang?->nama_barang ?? '-');
             $qty = (string) $item->jumlah_pesan;
             $satuan = (string) ($item->barang?->satuan ?? 'Unit');
-            $harga = number_format((float) $item->harga_satuan, 0, ',', '.');
-            $subtotal = number_format((float) $item->subtotal, 0, ',', '.');
+            $harga = $includeFinancials
+                ? 'Rp '.number_format((float) $item->harga_satuan, 0, ',', '.')
+                : '-';
+            $subtotal = $includeFinancials
+                ? 'Rp '.number_format((float) $item->subtotal, 0, ',', '.')
+                : '-';
 
             $commands[] = "BT /F1 8 Tf 45 {$y} Td (".$this->escape($num).') Tj ET';
             $commands[] = "BT /F1 8 Tf 70 {$y} Td (".$this->escape(mb_strimwidth($kode, 0, 14, '...')).') Tj ET';
             $commands[] = "BT /F1 8 Tf 155 {$y} Td (".$this->escape(mb_strimwidth($nama, 0, 32, '...')).') Tj ET';
             $commands[] = "BT /F1 8 Tf 325 {$y} Td (".$this->escape($qty).') Tj ET';
             $commands[] = "BT /F1 8 Tf 360 {$y} Td (".$this->escape(mb_strimwidth($satuan, 0, 8, '...')).') Tj ET';
-            $commands[] = "BT /F1 8 Tf 405 {$y} Td (Rp ".$this->escape($harga).') Tj ET';
-            $commands[] = "BT /F2 8 Tf 470 {$y} Td (Rp ".$this->escape($subtotal).') Tj ET';
+            $commands[] = "BT /F1 8 Tf 405 {$y} Td (".$this->escape($harga).') Tj ET';
+            $commands[] = "BT /F2 8 Tf 470 {$y} Td (".$this->escape($subtotal).') Tj ET';
 
             $commands[] = '40 '.($y - 4).' m 555 '.($y - 4).' l 0.3 w S';
             $y -= 16;
@@ -131,7 +135,9 @@ class PurchaseOrderPdfService
 
         // 4. Bagian Bawah (Hanya pada halaman terakhir)
         if ($page === $totalPages) {
-            $totalFormatted = 'Rp '.number_format((float) $po->total_biaya, 0, ',', '.');
+            $totalFormatted = $includeFinancials
+                ? 'Rp '.number_format((float) $po->total_biaya, 0, ',', '.')
+                : '-';
 
             // Baris Total
             $commands[] = "40 {$y} m 555 {$y} l 1 w S";

@@ -423,8 +423,9 @@ Direktori `bootstrap/cache` dan `storage` harus dapat ditulis oleh pengguna pros
 | Melihat dan export laporan mutasi | Ya | Ya | Tidak |
 | Menjalankan prediksi dan menyetujui restock | Ya | Ya | Tidak |
 | Upload dan melihat verifikasi dokumen sendiri | Ya | Ya | Ya |
-| Melihat semua verifikasi dokumen | Ya | Tidak | Tidak |
+| Melihat semua verifikasi dokumen | Ya | Ya | Tidak |
 | Melihat daftar dan detail Purchase Order | Ya | Ya | Ya |
+| Melihat nilai finansial pengadaan (harga, total biaya PO, belanja) | Ya | Ya | Tidak |
 | Membuat dan mengubah draft Purchase Order | Ya | Ya | Ya (pembuat) |
 | Mengajukan (submit), menarik (withdraw), dan merevisi PO | Ya | Ya (pembuat) | Ya (pembuat) |
 | Menyetujui dan menolak Purchase Order | Ya* | Ya* | Tidak |
@@ -436,12 +437,13 @@ Direktori `bootstrap/cache` dan `storage` harus dapat ditulis oleh pengguna pros
 | Mencetak dokumen PDF Purchase Order | Ya | Ya | Ya |
 | CRUD barang, supplier, dan gudang | Ya | Tidak | Tidak |
 | Import/export inventaris dan Tong Sampah | Ya | Tidak | Tidak |
-| Analitik bisnis | Ya | Tidak | Tidak |
+| Analitik bisnis | Ya | Ya | Tidak |
 | Kelola pengguna | Ya | Tidak | Tidak |
 
 Catatan hak akses modul pengadaan:
 - `*` Admin dan Manager hanya dapat menyetujui atau menolak PO yang diajukan oleh pengguna lain (prinsip *Separation of Duty* / Maker-Checker; tidak boleh menyetujui PO buatannya sendiri).
 - `**` Staff Gudang hanya berwenang membatalkan PO yang dibuat oleh dirinya sendiri saat masih berstatus `Draft` atau `Rejected`.
+- **Blind Receiving**: Untuk menjaga kerahasiaan data finansial perusahaan, tampilan Web UI, ekspor CSV/PDF PO, serta hasil *Three-Way Matching* untuk role `Staff` menyembunyikan informasi harga satuan, subtotal, total nilai PO, dan metrik belanja bulanan agar staf fokus pada verifikasi kuantitas serta kondisi fisik barang.
 
 Otorisasi diterapkan melalui middleware `auth`, middleware role, Laravel Gate, validasi request, dan pemeriksaan kepemilikan data.
 

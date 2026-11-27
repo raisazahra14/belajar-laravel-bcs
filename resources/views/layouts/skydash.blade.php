@@ -46,10 +46,12 @@
             <li class="nav-item {{ request()->is('barang/low-stock') ? 'active' : '' }}"><a class="nav-link" href="/barang/low-stock"><i class="ti-alert menu-icon"></i><span class="menu-title">Stok Menipis</span></a></li>
             @can('manage-barang')<li class="nav-item"><a class="nav-link" href="{{ route('barang.index', ['import' => 1]) }}"><i class="ti-upload menu-icon"></i><span class="menu-title">Import Data</span></a></li>@endcan
             <li class="nav-section-label" aria-hidden="true">Analisis</li>
-            @can('manage-barang')<li class="nav-item {{ request()->routeIs('analytics.*') ? 'active' : '' }}"><a class="nav-link" href="{{ route('analytics.index') }}"><i class="ti-bar-chart menu-icon"></i><span class="menu-title">Analitik Bisnis</span></a></li>@endcan
+            @can('view-business-analytics')<li class="nav-item {{ request()->routeIs('analytics.*') ? 'active' : '' }}"><a class="nav-link" href="{{ route('analytics.index') }}"><i class="ti-bar-chart menu-icon"></i><span class="menu-title">Analitik Bisnis</span></a></li>@endcan
             @can('view-stock-reports')<li class="nav-item {{ request()->routeIs('stock-mutations.*') ? 'active' : '' }}"><a class="nav-link" href="{{ route('stock-mutations.index') }}"><i class="ti-exchange-vertical menu-icon"></i><span class="menu-title">Mutasi Stok</span></a></li>@endcan
             <li class="nav-item {{ request()->is('prediksi-stok*') ? 'active' : '' }}"><a class="nav-link" href="{{ route('stock-predictions.index') }}"><i class="ti-stats-up menu-icon"></i><span class="menu-title">Prediksi Stok</span></a></li>
             <li class="nav-item {{ request()->is('verifications*') ? 'active' : '' }}"><a class="nav-link" href="{{ route('verifications.index') }}"><i class="ti-check-box menu-icon"></i><span class="menu-title">Verifikasi Dokumen</span></a></li>
+            <li class="nav-section-label" aria-hidden="true">Developer</li>
+            <li class="nav-item {{ request()->routeIs('docs.api') ? 'active' : '' }}"><a class="nav-link" href="{{ route('docs.api') }}" target="_blank" rel="noopener"><i class="ti-book menu-icon"></i><span class="menu-title">Dokumentasi API</span></a></li>
             @can('manage-barang')
             <li class="nav-section-label" aria-hidden="true">Administrasi</li>
             <li class="nav-item {{ request()->is('users*') ? 'active' : '' }}"><a class="nav-link" href="/users"><i class="ti-user menu-icon"></i><span class="menu-title">Kelola Pengguna</span></a></li>

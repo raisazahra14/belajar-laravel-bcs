@@ -2,6 +2,7 @@
 @section('content')
 <x-ui.page-header title="Detail Barang" description="Informasi lengkap persediaan barang."><div class="page-actions"><x-ui.button :href="route('barang.index')" variant="outline-secondary" icon="ti-arrow-left">Kembali</x-ui.button><x-ui.button :href="route('barang.stock-history', $barang->id)" variant="outline-primary" icon="ti-time">Riwayat Stok</x-ui.button>@can('update-stock')<x-ui.button :href="route('stock-transfers.create', $barang)" variant="outline-primary" icon="ti-exchange-vertical">Transfer</x-ui.button><x-ui.button :href="route('barang.stok', $barang->id)" icon="ti-package">Kelola Stok</x-ui.button>@endcan</div></x-ui.page-header>
 @if(session('success'))<x-ui.alert type="success">{{ session('success') }}</x-ui.alert>@endif
+@if($errors->any())<x-ui.alert type="danger" dismissible><strong>Perhatian:</strong> {{ $errors->first() }}</x-ui.alert>@endif
 <div class="barang-detail-layout"><x-ui.card><div class="row">
 <div class="col-12 mb-4"><p class="detail-label">Foto Barang</p>@if($barang->foto_barang)<img class="barang-photo-detail mt-2" src="{{ Storage::url($barang->foto_barang) }}" alt="Foto {{ $barang->nama_barang }}">@else<span class="barang-illustration barang-photo-detail mt-2" style="background-position: {{ $barang->illustrationPosition() }}" role="img" aria-label="Ilustrasi {{ $barang->nama_barang }}"></span><small class="d-block text-muted mt-2">Ilustrasi katalog otomatis</small>@endif</div>
 <div class="col-md-6 mb-4"><p class="detail-label">Kode Barang</p><p class="detail-value"><x-ui.badge variant="primary">{{ $barang->kode_barang }}</x-ui.badge></p></div>
@@ -63,6 +64,7 @@
     @php
         $totalWarehouseStok = (int) $barang->warehouseStocks->sum('stok');
         $masterStok = (int) $barang->stok;
+        $canConfigureWarehouseStock = in_array(auth()->user()?->role, ['admin', 'manager'], true);
     @endphp
     @if($totalWarehouseStok !== $masterStok)
         <div class="alert alert-warning d-flex align-items-center mb-3 py-2 px-3" role="alert">
@@ -82,6 +84,7 @@
                     <th>Stok Minimum</th>
                     <th class="text-end">Jumlah Stok</th>
                     <th style="width: 200px;">Porsi Distribusi</th>
+                    @if($canConfigureWarehouseStock)<th class="text-end">Aksi</th>@endif
                 </tr>
             </thead>
             <tbody>
@@ -131,10 +134,30 @@
                                 <small class="fw-bold text-muted" style="min-width: 44px; text-align: right;">{{ $percentage }}%</small>
                             </div>
                         </td>
+                        @if($canConfigureWarehouseStock)
+                            <td class="text-end">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-primary js-edit-wh-stock-btn"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#warehouseStockSettingsModal"
+                                    data-toggle="modal"
+                                    data-target="#warehouseStockSettingsModal"
+                                    data-action="{{ route('barang.warehouse-stock.update', ['barang' => $barang->id, 'warehouse' => $balance['warehouse']->id]) }}"
+                                    data-warehouse-name="{{ $balance['warehouse']->nama_gudang }}"
+                                    data-stok-minimum="{{ (int) ($stockModel?->stok_minimum ?? 0) }}"
+                                    data-zone="{{ $stockModel?->zone ?? '' }}"
+                                    data-rack-location="{{ $stockModel?->rack_location ?? '' }}"
+                                    data-bin-code="{{ $stockModel?->bin_code ?? '' }}"
+                                >
+                                    <i class="ti-settings me-1"></i>Atur Lokasi
+                                </button>
+                            </td>
+                        @endif
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="6">
+                        <td colspan="{{ $canConfigureWarehouseStock ? 7 : 6 }}">
                             <x-ui.empty-state compact icon="ti-home" title="Master gudang belum tersedia" description="Admin perlu menambahkan Master Gudang sebelum stok dapat dicatat." />
                         </td>
                     </tr>
@@ -143,11 +166,72 @@
         </table>
     </div>
 </x-ui.card>
+
+@if($canConfigureWarehouseStock)
+    <div class="modal fade" id="warehouseStockSettingsModal" tabindex="-1" aria-labelledby="warehouseStockSettingsModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <form method="POST" action="" id="warehouse-stock-settings-form" class="modal-content">
+                @csrf
+                @method('PATCH')
+                <div class="modal-header">
+                    <h5 class="modal-title" id="warehouseStockSettingsModalLabel">Atur Lokasi Rak &amp; Stok Minimum</h5>
+                    <button type="button" class="btn-close close" data-bs-dismiss="modal" data-dismiss="modal" aria-label="Tutup"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">
+                        Gudang: <strong id="wh-settings-warehouse-name" class="text-dark">—</strong> · Barang: <strong class="text-dark">{{ $barang->nama_barang }}</strong>
+                    </p>
+                    <div class="mb-3">
+                        <label for="wh-stok-minimum-input" class="form-label">Stok Minimum Gudang ({{ $barang->satuan }})</label>
+                        <input type="number" class="form-control" id="wh-stok-minimum-input" name="stok_minimum" min="0" max="10000000" required value="0">
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-4 mb-2">
+                            <label for="wh-zone-input" class="form-label">Zona</label>
+                            <input type="text" class="form-control" id="wh-zone-input" name="zone" maxlength="50" placeholder="Misal: ZONA-A">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label for="wh-rack-input" class="form-label">Lokasi Rak</label>
+                            <input type="text" class="form-control" id="wh-rack-input" name="rack_location" maxlength="100" placeholder="Misal: RAK-02">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label for="wh-bin-input" class="form-label">Kode Bin</label>
+                            <input type="text" class="form-control" id="wh-bin-input" name="bin_code" maxlength="50" placeholder="Misal: BIN-B1">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-primary">Simpan Pengaturan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+@endif
 @endsection
 
 @push('scripts')
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const whForm = document.getElementById('warehouse-stock-settings-form');
+    if (whForm) {
+        const whName = document.getElementById('wh-settings-warehouse-name');
+        const minInput = document.getElementById('wh-stok-minimum-input');
+        const zoneInput = document.getElementById('wh-zone-input');
+        const rackInput = document.getElementById('wh-rack-input');
+        const binInput = document.getElementById('wh-bin-input');
+
+        document.querySelectorAll('.js-edit-wh-stock-btn').forEach(function (button) {
+            button.addEventListener('click', function () {
+                whForm.action = button.getAttribute('data-action') || '';
+                if (whName) whName.textContent = button.getAttribute('data-warehouse-name') || '—';
+                if (minInput) minInput.value = button.getAttribute('data-stok-minimum') || '0';
+                if (zoneInput) zoneInput.value = button.getAttribute('data-zone') || '';
+                if (rackInput) rackInput.value = button.getAttribute('data-rack-location') || '';
+                if (binInput) binInput.value = button.getAttribute('data-bin-code') || '';
+            });
+        });
+    }
     const form = document.getElementById('label-print-config-form');
     const copiesInput = document.getElementById('label-copies-input');
     const startSlotInput = document.getElementById('label-start-slot-input');

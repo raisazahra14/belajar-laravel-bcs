@@ -105,6 +105,7 @@ class SupplierPerformanceController extends Controller
         return response($pdfContent, 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="laporan-performa-vendor-'.now()->format('YmdHis').'.pdf"',
+            'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, no-store',
         ]);
     }

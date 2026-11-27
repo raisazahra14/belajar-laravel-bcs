@@ -120,6 +120,14 @@ enum PurchaseOrderStatus: string
     }
 
     /**
+     * Purchase Order hanya boleh dibatalkan selama transisi ke CANCELLED diizinkan.
+     */
+    public function isCancellable(): bool
+    {
+        return $this->canTransitionTo(self::CANCELLED);
+    }
+
+    /**
      * Goods Receipt hanya boleh dicatat untuk PO yang sudah resmi dikirim.
      */
     public function canReceiveGoods(): bool

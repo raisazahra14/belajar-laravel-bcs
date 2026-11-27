@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Supplier;
 use App\Models\Warehouse;
+use App\Support\SpreadsheetSanitizer;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
@@ -16,8 +17,6 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StockMutationExportService
 {
-    private const BOM = "\xEF\xBB\xBF";
-
     private const HEADERS = [
         'Kode', 'Nama Barang', 'Kategori', 'Supplier Saat Ini', 'Satuan',
         'Saldo Awal', 'Masuk', 'Nilai Masuk', 'Keluar', 'Nilai Keluar',
@@ -34,9 +33,9 @@ class StockMutationExportService
             }
 
             try {
-                fwrite($stream, self::BOM);
+                fwrite($stream, SpreadsheetSanitizer::UTF8_BOM);
                 foreach ($this->exportRows($report, $filters) as $row) {
-                    fputcsv($stream, array_map($this->safeCsvCell(...), $row), ',', '"', '', "\r\n");
+                    fputcsv($stream, SpreadsheetSanitizer::neutralizeRow($row), ',', '"', '', "\r\n");
                 }
             } finally {
                 fclose($stream);
@@ -292,17 +291,6 @@ class StockMutationExportService
         $ascii = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value) ?: $value;
 
         return str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $ascii);
-    }
-
-    private function safeCsvCell(mixed $value): string
-    {
-        $value = (string) $value;
-        if (preg_match('/\A[\s\p{Z}\x{FEFF}]*[=+@\-\x{FF1D}\x{FF0B}\x{FF0D}\x{FF20}]/u', $value) === 1
-            || preg_match('/\A[\t\r\n]/', $value) === 1) {
-            return "\t".$value;
-        }
-
-        return $value;
     }
 
     /** @return array<string,string> */

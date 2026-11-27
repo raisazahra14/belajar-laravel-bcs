@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class ApiAuthTest extends TestCase
@@ -109,5 +110,63 @@ class ApiAuthTest extends TestCase
 
         $response->assertOk()
             ->assertJsonStructure(['data']);
+    }
+
+    public function test_api_login_normalizes_email_and_rate_limits_after_five_failed_attempts(): void
+    {
+        User::factory()->create([
+            'email' => 'scanner@example.com',
+            'password' => Hash::make('password123'),
+        ]);
+
+        // Login berhasil meski email mengandung huruf kapital dan spasi
+        $this->postJson('/api/login', [
+            'email' => '  SCANNER@EXAMPLE.COM  ',
+            'password' => 'password123',
+        ])->assertOk()->assertJsonStructure(['token']);
+
+        // 5 kali percobaan gagal
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->postJson('/api/login', [
+                'email' => 'SCANNER@example.com',
+                'password' => 'salah-password',
+            ])->assertStatus(401);
+        }
+
+        // Percobaan ke-6 harus terkena rate limiter 429
+        $this->postJson('/api/login', [
+            'email' => 'scanner@example.com',
+            'password' => 'password123',
+        ])->assertStatus(429)
+            ->assertJsonFragment([
+                'message' => 'Terlalu banyak percobaan login. Coba lagi dalam 60 detik.',
+            ]);
+    }
+
+    public function test_api_v1_auth_me_returns_profile_with_bearer_token_and_sanctum_acting_as(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'manager',
+            'email' => 'manager-api@example.com',
+        ]);
+
+        $token = $user->createToken('manager-client')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer '.$token)
+            ->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.id', $user->id)
+            ->assertJsonPath('data.email', 'manager-api@example.com')
+            ->assertJsonPath('data.role', 'manager');
+
+        Sanctum::actingAs($user, ['*']);
+
+        $this->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.id', $user->id)
+            ->assertJsonPath('data.email', 'manager-api@example.com')
+            ->assertJsonPath('data.role', 'manager');
     }
 }

@@ -264,6 +264,14 @@ class DocumentVerificationTest extends TestCase
         $this->actingAs($user)->getJson(route('verifications.status', [$verification, 'run_now' => 1]))
             ->assertOk()
             ->assertJson([
+                'process_status' => 'menunggu',
+                'authenticity_status' => null,
+                'result_url' => null,
+            ]);
+
+        $this->actingAs($user)->postJson(route('verifications.process-now', $verification))
+            ->assertOk()
+            ->assertJson([
                 'process_status' => 'selesai',
                 'authenticity_status' => 'asli',
                 'result_url' => route('verifications.show', $verification),
@@ -461,15 +469,49 @@ class DocumentVerificationTest extends TestCase
         $this->actingAs($user)->get(route('verifications.show', $foreign))->assertForbidden();
     }
 
-    public function test_admin_can_see_all_history(): void
+    public function test_admin_and_manager_can_see_all_history_while_manager_remains_read_only_for_other_users(): void
     {
+        Storage::fake('local');
         $admin = User::factory()->create(['role' => 'admin']);
+        $manager = User::factory()->create(['role' => 'manager']);
         $staff = User::factory()->create(['role' => 'staff']);
-        DocumentVerification::create($this->historyData($staff, 'staff-document.pdf'));
+
+        $completedDoc = DocumentVerification::create($this->historyData($staff, 'staff-document.pdf'));
+        $waitingDoc = DocumentVerification::create([
+            ...$this->historyData($staff, 'staff-waiting.pdf'),
+            'process_status' => DocumentVerification::PROCESS_WAITING,
+            'authenticity_status' => null,
+            'file_path' => 'document-verifications/'.$staff->id.'/staff-waiting.pdf',
+        ]);
+        Storage::disk('local')->put($waitingDoc->file_path, 'waiting-doc');
 
         $this->actingAs($admin)->get(route('verifications.index'))
             ->assertOk()
-            ->assertSee('staff-document.pdf');
+            ->assertSee('staff-document.pdf')
+            ->assertSee('staff-waiting.pdf');
+
+        $this->actingAs($manager)->get(route('verifications.index'))
+            ->assertOk()
+            ->assertSee('staff-document.pdf')
+            ->assertSee('staff-waiting.pdf')
+            ->assertSee($staff->name);
+
+        // Manager dapat melihat halaman status & polling status dokumen milik staff secara read-only
+        $this->actingAs($manager)->get(route('verifications.processing', $waitingDoc))
+            ->assertOk()
+            ->assertSee('data-can-manage="0"', false);
+        $this->actingAs($manager)->getJson(route('verifications.status', $waitingDoc))
+            ->assertOk()
+            ->assertJson(['process_status' => DocumentVerification::PROCESS_WAITING]);
+        $this->actingAs($manager)->get(route('verifications.show', $completedDoc))
+            ->assertOk();
+
+        // Manager tidak boleh memutasi dokumen milik user lain
+        $this->actingAs($manager)->postJson(route('verifications.process-now', $waitingDoc))->assertForbidden();
+        $this->actingAs($manager)->post(route('verifications.reprocess', $completedDoc))->assertForbidden();
+        $this->actingAs($manager)->patch(route('verifications.metadata.update', $completedDoc), [
+            'document_number' => 'TAMPERED-001',
+        ])->assertForbidden();
     }
 
     public function test_history_displays_separate_process_and_authenticity_badges(): void

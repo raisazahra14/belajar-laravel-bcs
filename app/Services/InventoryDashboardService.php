@@ -36,10 +36,11 @@ class InventoryDashboardService
         $offsetSeconds = $today->offset;
         $dateExpression = match ($driver) {
             'sqlite' => "date(datetime(created_at, '".sprintf('%+d seconds', $offsetSeconds)."'))",
-            'mysql' => "DATE(CONVERT_TZ(created_at, '+00:00', '".$today->format('P')."'))",
+            'mysql', 'mariadb' => "DATE(CONVERT_TZ(created_at, '+00:00', '".$today->format('P')."'))",
             default => 'DATE(created_at)',
         };
         $activityRows = StokTransaction::query()
+            ->effectiveOperational()
             ->whereIn('jenis', ['masuk', 'keluar'])
             ->where('created_at', '>=', $start->utc())
             ->where('created_at', '<', $endExclusive->utc())
@@ -96,7 +97,7 @@ class InventoryDashboardService
         }
 
         $documentCounts = DocumentVerification::query()
-            ->when($user->role !== 'admin', fn ($query) => $query->where('user_id', $user->id))
+            ->when(! $user->canViewAllVerifications(), fn ($query) => $query->where('user_id', $user->id))
             ->whereIn('process_status', [DocumentVerification::PROCESS_WAITING, DocumentVerification::PROCESSING, DocumentVerification::PROCESS_FAILED])
             ->selectRaw('process_status, COUNT(*) as aggregate')->groupBy('process_status')->pluck('aggregate', 'process_status');
         foreach ([DocumentVerification::PROCESS_FAILED => [15, 'Gagal', 'danger'], DocumentVerification::PROCESSING => [50, 'Diproses', 'info'], DocumentVerification::PROCESS_WAITING => [60, 'Menunggu', 'warning']] as $status => [$priority, $label, $variant]) {

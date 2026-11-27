@@ -29,5 +29,7 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="API_DOCS_ENABLED" value="true"/>
+        <env name="API_DOCS_PUBLIC" value="true"/>
     </php>
 </phpunit>

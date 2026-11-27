@@ -2,10 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Models\Barang;
+use App\Models\PurchaseOrder;
 use App\Models\StokTransaction;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\Warehouse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -96,6 +99,48 @@ class SupplierCrudTest extends TestCase
             $this->actingAs($user)->put(route('suppliers.update', $supplier), [])->assertForbidden();
             $this->actingAs($user)->delete(route('suppliers.destroy', $supplier))->assertForbidden();
         }
+    }
+
+    public function test_supplier_cannot_be_deleted_while_having_active_purchase_order(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $supplier = $this->supplier([
+            'kode_supplier' => 'SUP-GUARD-01',
+            'nama_supplier' => 'Supplier Dengan PO Aktif',
+        ]);
+        $warehouse = Warehouse::create([
+            'kode_gudang' => 'GDG-SUP-GUARD',
+            'nama_gudang' => 'Gudang Guard Supplier',
+            'is_active' => true,
+        ]);
+
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261118-SP01',
+            'supplier_id' => $supplier->id,
+            'warehouse_id' => $warehouse->id,
+            'status' => PurchaseOrderStatus::PARTIALLY_RECEIVED,
+            'tanggal_pesan' => '2026-11-18',
+            'total_biaya' => 500000,
+            'created_by' => $admin->id,
+        ]);
+
+        // Ditolak saat PO masih aktif
+        $this->actingAs($admin)
+            ->from(route('suppliers.show', $supplier))
+            ->delete(route('suppliers.destroy', $supplier))
+            ->assertRedirect(route('suppliers.show', $supplier))
+            ->assertSessionHas('error');
+
+        $this->assertNotSoftDeleted('suppliers', ['id' => $supplier->id]);
+
+        // Setelah PO dibatalkan/selesai, supplier dapat dihapus
+        $po->update(['status' => PurchaseOrderStatus::CANCELLED]);
+        $this->actingAs($admin)
+            ->delete(route('suppliers.destroy', $supplier))
+            ->assertRedirect(route('suppliers.index'))
+            ->assertSessionHas('success');
+
+        $this->assertSoftDeleted('suppliers', ['id' => $supplier->id]);
     }
 
     private function supplier(array $overrides = []): Supplier

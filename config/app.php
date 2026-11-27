@@ -41,7 +41,13 @@ return [
 
     'debug' => (bool) env('APP_DEBUG', false),
 
-    'auto_login' => (bool) env('APP_AUTO_LOGIN', false),
+    'auto_login' => env('APP_ENV', 'production') !== 'production' && (bool) env('APP_AUTO_LOGIN', false),
+
+    'api_docs_enabled' => (bool) env('API_DOCS_ENABLED', true),
+
+    'api_docs_public' => (bool) env('API_DOCS_PUBLIC', env('APP_ENV', 'production') !== 'production'),
+
+    'legacy_api_sunset' => env('LEGACY_API_SUNSET', 'Wed, 30 Jun 2027 23:59:59 GMT'),
 
     /*
     |--------------------------------------------------------------------------

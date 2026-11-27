@@ -1,4 +1,4 @@
-FROM php:8.2-fpm-bookworm
+FROM php:8.3-fpm-bookworm
 
 # Set working directory
 WORKDIR /var/www
@@ -25,8 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PHP extensions required by Laravel
-RUN docker-php-ext-install pdo_mysql mbstring zip exif pcntl bcmath gd opcache
+# Install PHP extensions required by Laravel (including phpredis for production Redis stack)
+RUN docker-php-ext-install pdo_mysql mbstring zip exif pcntl bcmath gd opcache \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && rm -rf /tmp/pear
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -55,7 +58,7 @@ EXPOSE 9000
 
 # Copy entrypoint script
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["php-fpm"]

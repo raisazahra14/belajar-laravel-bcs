@@ -47,12 +47,23 @@
         <small>{{ number_format($kpis['active_po_count'] ?? 0, 0, ',', '.') }} PO aktif berjalan</small>
     </x-ui.card>
 
-    <x-ui.card class="stat-card stat-info">
-        <div class="stat-icon"><i class="ti-wallet"></i></div>
-        <p>Belanja Bulan Ini</p>
-        <strong>Rp {{ number_format(($kpis['monthly_spend'] ?? 0) / 1000000, 1, ',', '.') }} jt</strong>
-        <small>Total: Rp {{ number_format($kpis['monthly_spend'] ?? 0, 0, ',', '.') }}</small>
-    </x-ui.card>
+    @can('view-financials')
+        <x-ui.card class="stat-card stat-info">
+            <div class="stat-icon"><i class="ti-wallet"></i></div>
+            <p>Belanja Bulan Ini</p>
+            <strong>Rp {{ number_format(($kpis['monthly_spend'] ?? 0) / 1000000, 1, ',', '.') }} jt</strong>
+            <small>Total: Rp {{ number_format($kpis['monthly_spend'] ?? 0, 0, ',', '.') }}</small>
+        </x-ui.card>
+    @else
+        <a href="{{ route('purchase-orders.index', ['status' => 'completed']) }}" class="stat-link" title="Lihat PO Selesai">
+            <x-ui.card class="stat-card stat-info">
+                <div class="stat-icon"><i class="ti-check-box"></i></div>
+                <p>PO Selesai</p>
+                <strong>{{ number_format($kpis['completed'] ?? 0, 0, ',', '.') }}</strong>
+                <small>Pesanan selesai diterima <i class="ti-arrow-right"></i></small>
+            </x-ui.card>
+        </a>
+    @endcan
 </div>
 @endif
 
@@ -155,7 +166,7 @@
                     <th>Supplier</th>
                     <th>Gudang Tujuan</th>
                     <th class="text-center">Item</th>
-                    <th class="text-end">Total Biaya</th>
+                    @can('view-financials')<th class="text-end">Total Biaya</th>@endcan
                     <th>Status</th>
                     <th>Pembuat</th>
                     <th class="text-end">Aksi</th>
@@ -189,7 +200,7 @@
                             @endif
                         </td>
                         <td class="text-center">{{ number_format($po->items_count, 0, ',', '.') }}</td>
-                        <td class="text-end fw-semibold">Rp {{ number_format((float) $po->total_biaya, 0, ',', '.') }}</td>
+                        @can('view-financials')<td class="text-end fw-semibold">Rp {{ number_format((float) $po->total_biaya, 0, ',', '.') }}</td>@endcan
                         <td>
                             <div class="d-flex flex-column gap-1">
                                 <x-ui.badge :variant="$po->status->badgeVariant()" data-po-status="{{ $po->status->value }}">
@@ -223,7 +234,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="10">
+                        <td colspan="{{ auth()->user()?->can('view-financials') ? 10 : 9 }}">
                             <x-ui.empty-state
                                 icon="ti-shopping-cart"
                                 title="Purchase Order tidak ditemukan"

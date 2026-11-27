@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\ProcurementAnalyticsService;
+use App\Services\SupplierPerformanceService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -36,13 +37,13 @@ class PurchaseOrderItem extends Model
             $item->subtotal = $item->jumlah_pesan * $item->harga_satuan;
         });
 
-        static::saved(function (): void {
+        $clearCaches = static function (): void {
             ProcurementAnalyticsService::clearCache();
-        });
+            SupplierPerformanceService::clearCache();
+        };
 
-        static::deleted(function (): void {
-            ProcurementAnalyticsService::clearCache();
-        });
+        static::saved($clearCaches);
+        static::deleted($clearCaches);
     }
 
     public function purchaseOrder(): BelongsTo

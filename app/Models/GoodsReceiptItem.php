@@ -2,13 +2,15 @@
 
 namespace App\Models;
 
+use App\Services\SupplierPerformanceService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class GoodsReceiptItem extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $table = 'goods_receipt_items';
 
@@ -18,6 +20,9 @@ class GoodsReceiptItem extends Model
         'barang_id',
         'jumlah_diterima',
         'catatan_kondisi',
+        'reversed_at',
+        'reversed_by',
+        'reversal_reason',
     ];
 
     /**
@@ -27,7 +32,22 @@ class GoodsReceiptItem extends Model
     {
         return [
             'jumlah_diterima' => 'integer',
+            'reversed_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        $clearCaches = static fn (): mixed => SupplierPerformanceService::clearCache();
+
+        static::saved($clearCaches);
+        static::deleted($clearCaches);
+        static::restored($clearCaches);
+    }
+
+    public function reversedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reversed_by');
     }
 
     public function goodsReceipt(): BelongsTo

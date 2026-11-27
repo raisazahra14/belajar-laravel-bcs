@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Imports\BarangImport;
+use App\Support\SpreadsheetSanitizer;
 use Generator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
@@ -11,7 +12,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class BarangCsv
 {
-    public const BOM = "\xEF\xBB\xBF";
+    public const BOM = SpreadsheetSanitizer::UTF8_BOM;
 
     /** Read one logical CSV record at a time; keys are physical starting line numbers. */
     public function rows(UploadedFile $file): Generator
@@ -92,7 +93,7 @@ class BarangCsv
                 fwrite($stream, self::BOM);
                 fputcsv($stream, $headers, ',', '"', '', "\r\n");
                 foreach ($rows as $row) {
-                    fputcsv($stream, array_map($this->safeCell(...), $row), ',', '"', '', "\r\n");
+                    fputcsv($stream, SpreadsheetSanitizer::neutralizeRow($row), ',', '"', '', "\r\n");
                 }
             } finally {
                 fclose($stream);
@@ -102,19 +103,6 @@ class BarangCsv
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, no-store',
         ]);
-    }
-
-    private function safeCell(mixed $value): string
-    {
-        $value = (string) $value;
-        // Quoting alone does not stop spreadsheet formulas, including whitespace-prefixed ones.
-        if (preg_match('/\A[\s\p{Z}\x{FEFF}]*[=+@\-＝＋－＠]/u', $value) === 1
-            || preg_match('/\A[\t\r\n]/', $value) === 1) {
-            // A tab forces fputcsv to quote the field and makes Excel treat it as text.
-            return "\t".$value;
-        }
-
-        return $value;
     }
 
     private function invalid(int $line, string $message): never

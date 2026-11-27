@@ -12,6 +12,7 @@ use App\Http\Requests\UpdatePurchaseOrderRequest;
 use App\Http\Resources\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
 use App\Services\PurchaseOrderService;
+use App\Support\DatabaseConcurrency;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,8 @@ class PurchaseOrderApiController extends Controller
      */
     public function index(Request $request, PurchaseOrderService $service): AnonymousResourceCollection
     {
+        $this->authorize('viewAny', PurchaseOrder::class);
+
         $statusValues = array_map(
             static fn (PurchaseOrderStatus $case): string => $case->value,
             PurchaseOrderStatus::cases(),
@@ -64,6 +67,8 @@ class PurchaseOrderApiController extends Controller
      */
     public function show(PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
+        $this->authorize('view', $purchaseOrder);
+
         $purchaseOrder->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
 
         return new PurchaseOrderResource($purchaseOrder);
@@ -91,17 +96,9 @@ class PurchaseOrderApiController extends Controller
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
-        try {
-            $po = $service->approvePO($purchaseOrder, $request->user());
-            $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
-
-            return new PurchaseOrderResource($po);
-        } catch (InvalidPurchaseOrderTransitionException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-                'error_code' => $e->errorCode,
-            ], $e->statusCode);
-        }
+        return $this->runTransition(
+            fn () => $service->approvePO($purchaseOrder, $request->user()),
+        );
     }
 
     /**
@@ -118,17 +115,9 @@ class PurchaseOrderApiController extends Controller
             'reason.required' => 'Catatan alasan penolakan wajib diisi.',
         ]);
 
-        try {
-            $po = $service->rejectPO($purchaseOrder, $request->user(), $validated['reason']);
-            $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
-
-            return new PurchaseOrderResource($po);
-        } catch (InvalidPurchaseOrderTransitionException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-                'error_code' => $e->errorCode,
-            ], $e->statusCode);
-        }
+        return $this->runTransition(
+            fn () => $service->rejectPO($purchaseOrder, $request->user(), $validated['reason']),
+        );
     }
 
     /**
@@ -139,9 +128,12 @@ class PurchaseOrderApiController extends Controller
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
-        return $this->runDraftTransition(
-            $request,
-            fn () => $service->revisePO($purchaseOrder, $request->user(), $request->input('reason')),
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return $this->runTransition(
+            fn () => $service->revisePO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
         );
     }
 
@@ -153,21 +145,20 @@ class PurchaseOrderApiController extends Controller
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
-        return $this->runDraftTransition(
-            $request,
-            fn () => $service->withdrawPO($purchaseOrder, $request->user(), $request->input('reason')),
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return $this->runTransition(
+            fn () => $service->withdrawPO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
         );
     }
 
     /**
      * @param  callable(): PurchaseOrder  $action
      */
-    private function runDraftTransition(Request $request, callable $action): PurchaseOrderResource|JsonResponse
+    private function runTransition(callable $action): PurchaseOrderResource|JsonResponse
     {
-        $request->validate([
-            'reason' => ['nullable', 'string', 'max:1000'],
-        ]);
-
         try {
             $po = $action();
             $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
@@ -190,14 +181,7 @@ class PurchaseOrderApiController extends Controller
         PurchaseOrderService $service,
     ): PurchaseOrderResource|JsonResponse {
         $validated = $request->validated();
-        $receivedItems = $validated['items'] ?? [];
-
-        if (empty($receivedItems) && ! empty($validated['jumlah_diterima']) && $request->getPurchaseOrderItem()) {
-            $receivedItems = [[
-                'purchase_order_item_id' => $request->getPurchaseOrderItem()->id,
-                'jumlah_diterima' => (int) $validated['jumlah_diterima'],
-            ]];
-        }
+        $receivedItems = PurchaseOrderService::resolveReceivedItemsPayload($validated, $request->getPurchaseOrderItem());
 
         try {
             $po = $service->receiveItems(
@@ -217,21 +201,10 @@ class PurchaseOrderApiController extends Controller
             return response()->json([
                 'message' => $e->getMessage(),
                 'error_code' => $e->errorCode,
-            ], $e->statusCode);
+            ], $e->httpStatus());
         } catch (QueryException $e) {
-            $isDeadlock = in_array((string) $e->getCode(), ['40001', '1213'], true)
-                || (isset($e->errorInfo[1]) && in_array((int) $e->errorInfo[1], [1205, 1213], true))
-                || str_contains(strtolower($e->getMessage()), 'deadlock')
-                || str_contains(strtolower($e->getMessage()), 'lock wait timeout')
-                || str_contains(strtolower($e->getMessage()), 'database is locked')
-                || str_contains(strtolower($e->getMessage()), 'busy');
-
-            $friendlyMessage = $isDeadlock
-                ? 'Sistem mendeteksi kepadatan transaksi pada database saat memperbarui saldo stok di gudang. Transaksi dibatalkan dengan aman untuk menjaga integritas saldo. Silakan coba kembali beberapa saat lagi.'
-                : 'Terjadi kendala saat menyimpan mutasi stok ke database. Silakan coba beberapa saat lagi.';
-
             return response()->json([
-                'message' => $friendlyMessage,
+                'message' => DatabaseConcurrency::stockConflictMessage($e),
                 'error_code' => 'database_conflict',
             ], 409);
         }

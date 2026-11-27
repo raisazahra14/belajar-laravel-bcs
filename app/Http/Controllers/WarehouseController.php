@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Http\Requests\StoreWarehouseRequest;
 use App\Http\Requests\UpdateWarehouseRequest;
 use App\Models\Warehouse;
@@ -79,6 +80,19 @@ class WarehouseController extends Controller
 
     public function destroy(Warehouse $warehouse)
     {
+        $hasActivePo = $warehouse->purchaseOrders()
+            ->whereIn('status', [
+                PurchaseOrderStatus::DRAFT,
+                PurchaseOrderStatus::PENDING_APPROVAL,
+                PurchaseOrderStatus::APPROVED,
+                PurchaseOrderStatus::PARTIALLY_RECEIVED,
+            ])
+            ->exists();
+
+        if ($hasActivePo) {
+            return back()->with('error', 'Gudang tidak dapat dihapus karena masih memiliki Purchase Order aktif yang sedang berjalan.');
+        }
+
         $warehouse->delete();
 
         return redirect()->route('warehouses.index')

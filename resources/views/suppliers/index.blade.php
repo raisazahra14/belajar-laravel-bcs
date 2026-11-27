@@ -3,7 +3,7 @@
 <x-ui.breadcrumb :items="[['label' => 'Supplier']]" />
 <x-ui.page-header title="Supplier" description="Kelola data pemasok barang LogistikKu.">
     <div class="page-actions d-flex gap-2">
-        <x-ui.button :href="route('suppliers.performance')" variant="outline-info" icon="ti-bar-chart">Dashboard Performa</x-ui.button>
+        @if(in_array(auth()->user()?->role, ['admin', 'manager'], true))<x-ui.button :href="route('suppliers.performance')" variant="outline-info" icon="ti-bar-chart">Dashboard Performa</x-ui.button>@endif
         @can('manage-barang')<x-ui.button :href="route('suppliers.create')" icon="ti-plus">Tambah Supplier</x-ui.button>@endcan
     </div>
 </x-ui.page-header>

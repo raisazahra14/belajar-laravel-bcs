@@ -3,17 +3,18 @@
 namespace App\Models;
 
 use App\Services\ProcurementAnalyticsService;
+use App\Services\SupplierPerformanceService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class GoodsReceipt extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $table = 'goods_receipts';
 
@@ -23,9 +24,13 @@ class GoodsReceipt extends Model
         'warehouse_id',
         'tanggal_terima',
         'nomor_surat_jalan',
+        'receipt_token',
         'foto_surat_jalan',
         'catatan',
         'received_by',
+        'reversed_at',
+        'reversed_by',
+        'reversal_reason',
     ];
 
     /**
@@ -35,6 +40,7 @@ class GoodsReceipt extends Model
     {
         return [
             'tanggal_terima' => 'date',
+            'reversed_at' => 'datetime',
         ];
     }
 
@@ -46,13 +52,14 @@ class GoodsReceipt extends Model
             }
         });
 
-        static::saved(function (): void {
+        $clearCaches = static function (): void {
             ProcurementAnalyticsService::clearCache();
-        });
+            SupplierPerformanceService::clearCache();
+        };
 
-        static::deleted(function (): void {
-            ProcurementAnalyticsService::clearCache();
-        });
+        static::saved($clearCaches);
+        static::deleted($clearCaches);
+        static::restored($clearCaches);
     }
 
     /**
@@ -71,7 +78,7 @@ class GoodsReceipt extends Model
         $dateStr = $carbon->format('Ymd');
         $prefix = "GRN-{$dateStr}-";
 
-        $latest = static::query()
+        $latest = static::withTrashed()
             ->where('nomor_grn', 'like', "{$prefix}%")
             ->orderByDesc('nomor_grn')
             ->lockForUpdate()
@@ -102,13 +109,18 @@ class GoodsReceipt extends Model
         return $this->belongsTo(User::class, 'received_by');
     }
 
+    public function reversedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reversed_by');
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(GoodsReceiptItem::class, 'goods_receipt_id');
     }
 
     /**
-     * Mendapatkan URL publik foto surat jalan jika ada.
+     * Mendapatkan URL terautentikasi untuk foto/dokumen surat jalan jika ada.
      */
     public function getFotoSuratJalanUrlAttribute(): ?string
     {
@@ -116,6 +128,6 @@ class GoodsReceipt extends Model
             return null;
         }
 
-        return Storage::disk('public')->url($this->foto_surat_jalan);
+        return route('goods-receipts.surat-jalan', $this);
     }
 }

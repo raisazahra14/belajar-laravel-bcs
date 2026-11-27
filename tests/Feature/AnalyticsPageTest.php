@@ -29,7 +29,7 @@ class AnalyticsPageTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_analytics_page_and_csv_are_admin_only(): void
+    public function test_analytics_page_and_csv_are_accessible_to_admin_and_manager_only(): void
     {
         $staff = User::factory()->create(['role' => 'staff']);
         $manager = User::factory()->create(['role' => 'manager']);
@@ -38,8 +38,17 @@ class AnalyticsPageTest extends TestCase
         $this->get(route('analytics.index'))->assertRedirect(route('login'));
         $this->get(route('analytics.csv'))->assertRedirect(route('login'));
         $this->actingAs($staff)->get(route('analytics.index'))->assertForbidden();
-        $this->actingAs($manager)->get(route('analytics.index'))->assertForbidden();
         $this->actingAs($staff)->get(route('analytics.csv'))->assertForbidden();
+        $this->actingAs($staff)->get(route('analytics.procurement.export-excel'))->assertForbidden();
+        $this->actingAs($staff)->get(route('analytics.procurement.export-csv'))->assertForbidden();
+        $this->actingAs($staff)->get(route('analytics.procurement.export-pdf'))->assertForbidden();
+
+        $this->actingAs($manager)->get(route('analytics.index'))->assertOk()->assertSee('Analitik Bisnis');
+        $this->actingAs($manager)->get(route('analytics.csv'))->assertOk()->assertDownload('analitik-bisnis-20260930-120000.csv');
+        $this->actingAs($manager)->get(route('analytics.procurement.export-excel'))->assertOk();
+        $this->actingAs($manager)->get(route('analytics.procurement.export-csv'))->assertOk();
+        $this->actingAs($manager)->get(route('analytics.procurement.export-pdf'))->assertOk();
+
         $this->actingAs($admin)->get(route('analytics.index'))->assertOk()->assertSee('Analitik Bisnis');
         $this->get(route('analytics.csv'))->assertOk()->assertDownload('analitik-bisnis-20260930-120000.csv');
     }

@@ -320,4 +320,152 @@ class ProcurementAnalyticsDashboardTest extends TestCase
         $this->assertSame($populatedSummary, $cachedSummary);
         $this->assertCount(0, $queries);
     }
+
+    public function test_procurement_analytics_normalizes_blank_categories_to_lainnya_without_nullif_in_group_by(): void
+    {
+        $blankItem = Barang::create([
+            'kode_barang' => 'BRG-PROC-BLANK',
+            'nama_barang' => 'Barang Kategori Kosong',
+            'kategori' => '',
+            'stok' => 10,
+            'satuan' => 'Unit',
+            'lokasi' => 'Rak B-01',
+            'harga_beli' => 150000,
+            'supplier_id' => $this->supplierA->id,
+        ]);
+
+        $whitespaceItem = Barang::create([
+            'kode_barang' => 'BRG-PROC-SPACE',
+            'nama_barang' => 'Barang Kategori Spasi',
+            'kategori' => '   ',
+            'stok' => 10,
+            'satuan' => 'Unit',
+            'lokasi' => 'Rak B-02',
+            'harga_beli' => 250000,
+            'supplier_id' => $this->supplierA->id,
+        ]);
+
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261115-BLANK',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseUtama->id,
+            'status' => PurchaseOrderStatus::COMPLETED,
+            'tanggal_pesan' => '2026-11-15',
+            'estimasi_tiba' => '2026-11-20',
+            'total_biaya' => 650000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'barang_id' => $blankItem->id,
+            'jumlah_pesan' => 1,
+            'jumlah_diterima' => 1,
+            'harga_satuan' => 150000,
+            'subtotal' => 150000,
+        ]);
+
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'barang_id' => $whitespaceItem->id,
+            'jumlah_pesan' => 2,
+            'jumlah_diterima' => 2,
+            'harga_satuan' => 250000,
+            'subtotal' => 500000,
+        ]);
+
+        ProcurementAnalyticsService::clearCache();
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $summary = app(ProcurementAnalyticsService::class)->summary();
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        foreach ($queries as $entry) {
+            $this->assertDoesNotMatchRegularExpression(
+                '/group\s+by\b.*NULLIF/is',
+                $entry['query'],
+                'Query analitik pengadaan tidak boleh menggunakan NULLIF di dalam klausa GROUP BY.'
+            );
+        }
+
+        $categoryRows = collect($summary['category_distribution']['rows']);
+        $this->assertCount(1, $categoryRows);
+        $this->assertSame('Lainnya', $categoryRows->first()['kategori']);
+        $this->assertSame(2, $categoryRows->first()['item_variety_count']);
+        $this->assertSame(650000.0, $categoryRows->first()['total_spend']);
+    }
+
+    public function test_procurement_exports_succeed_and_include_non_zero_category_sku_count(): void
+    {
+        $secondElektronik = Barang::create([
+            'kode_barang' => 'BRG-PROC-003',
+            'nama_barang' => 'Printer Label Industrial',
+            'kategori' => 'Elektronik',
+            'stok' => 5,
+            'satuan' => 'Unit',
+            'lokasi' => 'Rak E-02',
+            'harga_beli' => 1500000,
+            'supplier_id' => $this->supplierA->id,
+        ]);
+
+        $po = PurchaseOrder::create([
+            'nomor_po' => 'PO-20261118-EXP',
+            'supplier_id' => $this->supplierA->id,
+            'warehouse_id' => $this->warehouseUtama->id,
+            'status' => PurchaseOrderStatus::COMPLETED,
+            'tanggal_pesan' => '2026-11-18',
+            'estimasi_tiba' => '2026-11-22',
+            'total_biaya' => 3500000,
+            'created_by' => $this->staff->id,
+            'approved_by' => $this->manager->id,
+        ]);
+
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'barang_id' => $this->barangElektronik->id,
+            'jumlah_pesan' => 2,
+            'jumlah_diterima' => 2,
+            'harga_satuan' => 1000000,
+            'subtotal' => 2000000,
+        ]);
+
+        PurchaseOrderItem::create([
+            'purchase_order_id' => $po->id,
+            'barang_id' => $secondElektronik->id,
+            'jumlah_pesan' => 1,
+            'jumlah_diterima' => 1,
+            'harga_satuan' => 1500000,
+            'subtotal' => 1500000,
+        ]);
+
+        ProcurementAnalyticsService::clearCache();
+
+        $csvResponse = $this->actingAs($this->admin)->get(route('analytics.procurement.export-csv'));
+        $csvResponse->assertOk();
+
+        $csvContent = preg_replace('/^\xEF\xBB\xBF/', '', $csvResponse->streamedContent()) ?? '';
+        $rows = collect(preg_split('/\r\n|\n|\r/', trim($csvContent)))
+            ->filter(static fn (string $line): bool => $line !== '')
+            ->map(static fn (string $line): array => str_getcsv($line, ',', '"', ''))
+            ->values();
+
+        $categoryHeaderIndex = $rows->search(
+            static fn (array $row): bool => ($row[0] ?? null) === 'BAGIAN 3: DISTRIBUSI PENGADAAN PER KATEGORI BARANG'
+        );
+        $this->assertNotFalse($categoryHeaderIndex);
+
+        $elektronikRow = $rows->slice((int) $categoryHeaderIndex + 2)->first(
+            static fn (array $row): bool => ($row[0] ?? null) === 'Elektronik'
+        );
+        $this->assertIsArray($elektronikRow);
+        $this->assertSame('1', $elektronikRow[1]);
+        $this->assertSame('2', $elektronikRow[2]);
+
+        $excelResponse = $this->actingAs($this->admin)->get(route('analytics.procurement.export-excel'));
+        $excelResponse->assertOk();
+        $this->assertNotEmpty($excelResponse->streamedContent());
+    }
 }

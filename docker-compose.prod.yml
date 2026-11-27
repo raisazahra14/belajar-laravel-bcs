@@ -1,0 +1,172 @@
+x-app-env: &app-env
+  APP_NAME: LogistikKu
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_AUTO_LOGIN: "false"
+  APP_KEY: ${APP_KEY:?Set APP_KEY before starting production stack}
+  APP_URL: ${APP_URL:-http://localhost}
+  APP_TIMEZONE: UTC
+  APP_DISPLAY_TIMEZONE: Asia/Jakarta
+  API_DOCS_ENABLED: ${API_DOCS_ENABLED:-true}
+  API_DOCS_PUBLIC: ${API_DOCS_PUBLIC:-false}
+  CACHE_STORE: redis
+  SESSION_DRIVER: redis
+  QUEUE_CONNECTION: redis
+  REDIS_CLIENT: phpredis
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD before starting production stack}
+  REDIS_QUEUE_RETRY_AFTER: 360
+  DB_CONNECTION: mysql
+  DB_HOST: db
+  DB_PORT: 3306
+  DB_DATABASE: ${DB_DATABASE:-logistikku}
+  DB_USERNAME: ${DB_USERNAME:-logistikku_user}
+  DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD before starting production stack}
+  DB_QUEUE_RETRY_AFTER: 360
+  PYTHON_EXECUTABLE: /var/www/python/.venv/bin/python
+
+services:
+  # 1. Aplikasi Utama (PHP 8.3-FPM + phpredis + Python 3 + Tesseract OCR)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: logistikku_prod_app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - app_storage:/var/www/storage
+    environment:
+      <<: *app-env
+      CONTAINER_ROLE: app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "php -v >/dev/null 2>&1 && test -f /var/www/vendor/autoload.php"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - logistikku_prod_net
+
+  # 2. Web Server (Nginx Reverse Proxy)
+  nginx:
+    image: nginx:alpine
+    container_name: logistikku_prod_nginx
+    restart: unless-stopped
+    ports:
+      - "${APP_HTTP_PORT:-80}:80"
+    volumes:
+      - ./public:/var/www/public:ro
+      - app_storage:/var/www/storage:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/up || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - logistikku_prod_net
+
+  # 3. Database MySQL 8.0 (Terisolasi pada jaringan internal)
+  db:
+    image: mysql:8.0
+    container_name: logistikku_prod_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-logistikku}
+      MYSQL_USER: ${DB_USERNAME:-logistikku_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD before starting production stack}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD before starting production stack}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u \"${DB_USERNAME:-logistikku_user}\" -p\"${DB_PASSWORD}\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - logistikku_prod_net
+
+  # 4. Redis 7 (Shared Cache, Atomic Locks, Sessions & High-Throughput Queue)
+  redis:
+    image: redis:7-alpine
+    container_name: logistikku_prod_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD before starting production stack}"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - logistikku_prod_net
+
+  # 5. Background Queue Worker (Redis Queue: stock-predictions & default OCR)
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: logistikku_prod_queue
+    restart: unless-stopped
+    working_dir: /var/www
+    command: php artisan queue:work redis --queue=stock-predictions,default --sleep=1 --tries=3 --timeout=300 --max-jobs=500 --max-time=3600
+    volumes:
+      - app_storage:/var/www/storage
+    environment:
+      <<: *app-env
+      CONTAINER_ROLE: queue
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    networks:
+      - logistikku_prod_net
+
+  # 6. Task Scheduler (Heartbeat Monitor, PO Overdue & Sanctum Token Pruning)
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: logistikku_prod_scheduler
+    restart: unless-stopped
+    working_dir: /var/www
+    command: php artisan schedule:work --no-interaction
+    volumes:
+      - app_storage:/var/www/storage
+    environment:
+      <<: *app-env
+      CONTAINER_ROLE: scheduler
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    networks:
+      - logistikku_prod_net
+
+volumes:
+  db_data:
+    driver: local
+  redis_data:
+    driver: local
+  app_storage:
+    driver: local
+
+networks:
+  logistikku_prod_net:
+    driver: bridge

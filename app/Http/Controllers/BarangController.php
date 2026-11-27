@@ -12,6 +12,7 @@ use App\Models\StockPrediction;
 use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Services\BarangCodeGenerator;
+use App\Services\BarangPersistenceService;
 use App\Services\InventoryDashboardService;
 use App\Services\InventoryMasterDataService;
 use App\Services\PurchaseOrderService;
@@ -19,12 +20,7 @@ use App\Services\StockAdjustmentService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
-use RuntimeException;
-use Throwable;
 
 class BarangController extends Controller
 {
@@ -73,6 +69,9 @@ class BarangController extends Controller
             'prediction_counts' => $predictionCounts,
         ]);
         $procurementKpis = $poService->getProcurementKpis();
+        if (! $request->user()?->canViewFinancials()) {
+            $procurementKpis['monthly_spend'] = null;
+        }
 
         return view('barang.index', compact(
             'barang',
@@ -185,32 +184,12 @@ class BarangController extends Controller
         ));
     }
 
-    public function store(StoreBarangRequest $request, BarangCodeGenerator $codeGenerator)
+    public function store(StoreBarangRequest $request, BarangPersistenceService $persistence)
     {
-        $path = $request->file('foto_barang')?->store('barang', 'public');
-        if ($request->hasFile('foto_barang') && (! is_string($path) || $path === '')) {
-            throw ValidationException::withMessages([
-                'foto_barang' => 'Foto barang tidak dapat disimpan. Periksa kapasitas penyimpanan lalu coba lagi.',
-            ]);
-        }
-        try {
-            $codeGenerator->create([...$request->safe()->except('foto_barang'), 'foto_barang' => $path]);
-        } catch (Throwable $exception) {
-            if ($path) {
-                Storage::disk('public')->delete($path);
-            }
-            if ($exception instanceof ValidationException) {
-                throw $exception;
-            }
-            if ($exception instanceof RuntimeException) {
-                throw ValidationException::withMessages(['nama_barang' => $exception->getMessage()]);
-            }
-            report($exception);
-
-            throw ValidationException::withMessages([
-                'foto_barang' => 'Foto atau data barang tidak dapat disimpan. Coba lagi.',
-            ]);
-        }
+        $persistence->store(
+            $request->safe()->except('foto_barang'),
+            $request->file('foto_barang'),
+        );
 
         return redirect('/barang')
             ->with('success', 'Data barang berhasil ditambahkan.');
@@ -235,44 +214,14 @@ class BarangController extends Controller
         ));
     }
 
-    public function update(UpdateBarangRequest $request, $id)
+    public function update(UpdateBarangRequest $request, $id, BarangPersistenceService $persistence)
     {
         $barang = Barang::findOrFail($id);
-
-        $oldPhoto = $barang->foto_barang;
-        $newPhoto = $request->file('foto_barang')?->store('barang', 'public');
-        if ($request->hasFile('foto_barang') && (! is_string($newPhoto) || $newPhoto === '')) {
-            throw ValidationException::withMessages([
-                'foto_barang' => 'Foto barang tidak dapat disimpan. Periksa kapasitas penyimpanan lalu coba lagi.',
-            ]);
-        }
-
-        try {
-            $barang->update([
-                'nama_barang' => $request->nama_barang,
-                'supplier_id' => $request->validated('supplier_id'),
-                'kategori' => $request->kategori,
-                'harga_beli' => $request->validated('harga_beli'),
-                'daily_usage_estimate' => $request->validated('daily_usage_estimate'),
-                'lead_time_days' => $request->validated('lead_time_days'),
-                'satuan' => $request->satuan,
-                'lokasi' => $request->lokasi,
-                'foto_barang' => $newPhoto ?? $oldPhoto,
-            ]);
-        } catch (Throwable $exception) {
-            if ($newPhoto) {
-                Storage::disk('public')->delete($newPhoto);
-            }
-            report($exception);
-
-            throw ValidationException::withMessages([
-                'foto_barang' => 'Foto atau data barang tidak dapat diperbarui. Coba lagi.',
-            ]);
-        }
-
-        if ($newPhoto && $oldPhoto) {
-            Storage::disk('public')->delete($oldPhoto);
-        }
+        $persistence->update(
+            $barang,
+            $request->safe()->except('foto_barang'),
+            $request->file('foto_barang'),
+        );
 
         return redirect('/barang')
             ->with('success', 'Data barang berhasil diperbarui.');
@@ -427,49 +376,13 @@ class BarangController extends Controller
     /** @param array<string,mixed> $filters */
     private function filteredInventory(array $filters): Builder
     {
-        $query = Barang::query()->with([
-            'supplier:id,nama_supplier,kode_supplier,is_active,deleted_at',
-            'warehouseStocks' => fn ($stock) => $stock
-                ->where('stok', '>', 0)
-                ->with('warehouse:id,kode_gudang,nama_gudang,is_active,deleted_at'),
-        ]);
-        $search = $filters['search'] ?? null;
-        if ($search !== null && $search !== '') {
-            $query->where(function (Builder $query) use ($search): void {
-                if (DB::getDriverName() === 'mysql' && mb_strlen($search) >= 3) {
-                    $query->where('kode_barang', 'like', "{$search}%")
-                        ->orWhereFullText(['kode_barang', 'nama_barang', 'lokasi'], $search);
-
-                    return;
-                }
-
-                $query->where('kode_barang', 'like', "%{$search}%")
-                    ->orWhere('nama_barang', 'like', "%{$search}%")
-                    ->orWhere('lokasi', 'like', "%{$search}%");
-            });
-        }
-        if (! empty($filters['kategori'])) {
-            $query->where('kategori', $filters['kategori']);
-        }
-        if (($filters['status'] ?? null) === 'menipis') {
-            $query->lowStock();
-        } elseif (($filters['status'] ?? null) === 'aman') {
-            $query->safeStock();
-        }
-        if (! empty($filters['supplier_id'])) {
-            $query->where('supplier_id', $filters['supplier_id']);
-        }
-        if (! empty($filters['warehouse_id'])) {
-            $query->whereHas('warehouseStocks', fn (Builder $stock): Builder => $stock
-                ->where('warehouse_id', $filters['warehouse_id']));
-        }
-
-        $sorts = [
-            'nama_asc' => ['nama_barang', 'asc'], 'nama_desc' => ['nama_barang', 'desc'],
-            'stok_asc' => ['stok', 'asc'], 'stok_desc' => ['stok', 'desc'],
-        ];
-        $sort = $filters['sort'] ?? null;
-
-        return isset($sorts[$sort]) ? $query->orderBy(...$sorts[$sort]) : $query->latest('id');
+        return Barang::query()
+            ->with([
+                'supplier:id,nama_supplier,kode_supplier,is_active,deleted_at',
+                'warehouseStocks' => fn ($stock) => $stock
+                    ->where('stok', '>', 0)
+                    ->with('warehouse:id,kode_gudang,nama_gudang,is_active,deleted_at'),
+            ])
+            ->filter($filters);
     }
 }

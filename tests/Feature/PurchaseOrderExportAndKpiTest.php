@@ -234,14 +234,26 @@ class PurchaseOrderExportAndKpiTest extends TestCase
 
     public function test_purchase_orders_index_renders_kpi_cards_and_export_button(): void
     {
-        $response = $this->actingAs($this->staff)->get(route('purchase-orders.index'));
+        $staffResponse = $this->actingAs($this->staff)->get(route('purchase-orders.index'));
 
-        $response->assertStatus(200);
-        $response->assertSee('Export CSV / Excel');
-        $response->assertSee('Menunggu Approval');
-        $response->assertSee('PO Overdue (Terlambat)');
-        $response->assertSee('Tingkat Pemenuhan');
-        $response->assertSee('Belanja Bulan Ini');
+        $staffResponse->assertStatus(200);
+        $staffResponse->assertSee('Export CSV / Excel');
+        $staffResponse->assertSee('Menunggu Approval');
+        $staffResponse->assertSee('PO Overdue (Terlambat)');
+        $staffResponse->assertSee('Tingkat Pemenuhan');
+        $staffResponse->assertSee('PO Selesai');
+        $staffResponse->assertDontSee('Belanja Bulan Ini');
+        $staffResponse->assertDontSee('Total Biaya');
+
+        $managerResponse = $this->actingAs($this->manager)->get(route('purchase-orders.index'));
+        $managerResponse->assertStatus(200)
+            ->assertSee('Belanja Bulan Ini')
+            ->assertSee('Total Biaya');
+
+        $adminResponse = $this->actingAs($this->admin)->get(route('purchase-orders.index'));
+        $adminResponse->assertStatus(200)
+            ->assertSee('Belanja Bulan Ini')
+            ->assertSee('Total Biaya');
     }
 
     public function test_barang_dashboard_renders_procurement_kpi_widget(): void

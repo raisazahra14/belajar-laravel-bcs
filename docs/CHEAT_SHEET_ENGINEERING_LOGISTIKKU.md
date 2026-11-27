@@ -232,7 +232,9 @@ flowchart TD
 
 ## 6. Ringkasan Prinsip Bersih (*Clean Code Checklist*)
 
-- [x] **Zero Raw SQL di Controller**: Gunakan Eloquent ORM atau Query Builder terparameterisasi penuh.
+- [x] **Zero Raw SQL di Controller**: Gunakan Eloquent ORM atau Query Builder terparameterisasi penuh (serta helper lintas-driver `App\Support\SqlDateExpressions` untuk agregasi `GROUP BY` tanggal SQLite/MySQL).
 - [x] **Single Responsibility FormRequest**: Jangan validasi data di Controller; delegasikan ke `Store...Request` atau `Update...Request`.
-- [x] **Enums for Strict Typings**: Manfaatkan PHP 8.1+ Enums (`PurchaseOrderStatus::cases()`) untuk menggantikan nilai string acak (*magic string*).
+- [x] **Centralized Concurrency & Deadlock Retry**: Gunakan `App\Support\DatabaseConcurrency::runWithDeadlockRetry()` untuk menangani retry otomatis ketika terjadi deadlock atau lock timeout lintas driver database.
+- [x] **Centralized Spreadsheet Formula Sanitization**: Gunakan `App\Support\SpreadsheetSanitizer::sanitizeCell()` dan `escapeCsvRow()` di seluruh layanan ekspor CSV/XLSX untuk mencegah *CSV/Excel Formula Injection* (`=`, `+`, `-`, `@`, `\t`, `\r`).
+- [x] **Enums for Strict Typings**: Manfaatkan PHP 8.1+ Enums (`PurchaseOrderStatus::cases()`, `isCancellable()`) untuk menggantikan nilai string acak (*magic string*).
 - [x] **Automated Code Styling**: Jalankan `php vendor/bin/pint` sebelum melakukan commit agar pipeline CI selalu hijau.

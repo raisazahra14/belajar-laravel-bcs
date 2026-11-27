@@ -20,41 +20,27 @@ use App\Services\PurchaseOrderPdfService;
 use App\Services\PurchaseOrderService;
 use App\Services\PurchaseOrderStateMachine;
 use App\Services\ThreeWayMatchingService;
+use App\Support\DatabaseConcurrency;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class PurchaseOrderController extends Controller
 {
     public function index(Request $request, PurchaseOrderService $service): View|AnonymousResourceCollection
     {
-        $statusValues = array_map(
-            static fn (PurchaseOrderStatus $case): string => $case->value,
-            PurchaseOrderStatus::cases()
-        );
+        $this->authorize('viewAny', PurchaseOrder::class);
 
-        $validated = $request->validate([
-            'search' => ['nullable', 'string', 'max:100'],
-            'nomor_po' => ['nullable', 'string', 'max:100'],
-            'supplier_id' => ['nullable', 'integer'],
-            'warehouse_id' => ['nullable', 'integer'],
-            'status' => ['nullable', 'string', Rule::in($statusValues)],
-            'overdue' => ['nullable', 'boolean'],
-        ], [
-            'search.max' => 'Kata kunci pencarian maksimal 100 karakter.',
-            'nomor_po.max' => 'Pencarian nomor PO maksimal 100 karakter.',
-            'supplier_id.integer' => 'Filter supplier tidak valid.',
-            'warehouse_id.integer' => 'Filter gudang tidak valid.',
-            'status.in' => 'Filter status Purchase Order tidak valid.',
-        ]);
-
+        $validated = $this->validateFilterRequest($request);
         $purchaseOrders = $service->paginateWithFilters($validated, 10);
 
         if ($request->wantsJson()) {
@@ -74,6 +60,9 @@ class PurchaseOrderController extends Controller
         $statuses = PurchaseOrderStatus::cases();
         $overdueOnly = ! empty($validated['overdue']);
         $kpis = $service->getProcurementKpis();
+        if (! $request->user()?->canViewFinancials()) {
+            $kpis['monthly_spend'] = null;
+        }
 
         return view('purchase-orders.index', compact(
             'purchaseOrders',
@@ -91,21 +80,38 @@ class PurchaseOrderController extends Controller
      */
     public function export(Request $request, PurchaseOrderService $service): StreamedResponse
     {
+        $this->authorize('viewAny', PurchaseOrder::class);
+
+        $validated = $this->validateFilterRequest($request);
+        $includeFinancials = $request->user()?->canViewFinancials() ?? false;
+
+        return $service->exportCsv($validated, $includeFinancials);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validateFilterRequest(Request $request): array
+    {
         $statusValues = array_map(
             static fn (PurchaseOrderStatus $case): string => $case->value,
-            PurchaseOrderStatus::cases()
+            PurchaseOrderStatus::cases(),
         );
 
-        $validated = $request->validate([
+        return $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'nomor_po' => ['nullable', 'string', 'max:100'],
             'supplier_id' => ['nullable', 'integer'],
             'warehouse_id' => ['nullable', 'integer'],
             'status' => ['nullable', 'string', Rule::in($statusValues)],
             'overdue' => ['nullable', 'boolean'],
+        ], [
+            'search.max' => 'Kata kunci pencarian maksimal 100 karakter.',
+            'nomor_po.max' => 'Pencarian nomor PO maksimal 100 karakter.',
+            'supplier_id.integer' => 'Filter supplier tidak valid.',
+            'warehouse_id.integer' => 'Filter gudang tidak valid.',
+            'status.in' => 'Filter status Purchase Order tidak valid.',
         ]);
-
-        return $service->exportCsv($validated);
     }
 
     public function create(Request $request, PurchaseOrderService $service): View
@@ -237,13 +243,16 @@ class PurchaseOrderController extends Controller
             : [];
 
         // Three-Way Matching (PO vs GRN vs Dokumen Verifikasi OCR)
-        $matchingDocuments = $matchingService->findMatchingDocuments($purchaseOrder);
+        $matchingDocuments = $matchingService->findMatchingDocuments($purchaseOrder, $user);
         $selectedDocId = $request->integer('doc_id');
         $selectedDocument = $selectedDocId > 0
             ? $matchingDocuments->firstWhere('id', $selectedDocId)
             : $matchingDocuments->first();
 
         $threeWayMatching = $matchingService->match($purchaseOrder, $selectedDocument);
+        if (! $user?->canViewFinancials()) {
+            $threeWayMatching = $matchingService->maskFinancials($threeWayMatching);
+        }
 
         return view('purchase-orders.show', compact(
             'purchaseOrder',
@@ -262,11 +271,53 @@ class PurchaseOrderController extends Controller
         PurchaseOrder $purchaseOrder,
         ThreeWayMatchingService $matchingService
     ): JsonResponse {
-        $selectedDocId = $request->integer('doc_id');
-        $verification = $selectedDocId > 0 ? DocumentVerification::find($selectedDocId) : null;
-        $result = $matchingService->match($purchaseOrder, $verification);
+        $this->authorize('view', $purchaseOrder);
 
-        return response()->json($result);
+        $user = $request->user();
+        $matchingDocuments = $matchingService->findMatchingDocuments($purchaseOrder, $user);
+        $selectedDocId = $request->integer('doc_id');
+
+        if ($selectedDocId > 0) {
+            $verification = $matchingDocuments->firstWhere('id', $selectedDocId);
+
+            if ($verification === null) {
+                $rawDoc = DocumentVerification::find($selectedDocId);
+                if ($rawDoc !== null && ! $user?->can('view', $rawDoc)) {
+                    abort(403, 'Anda tidak memiliki hak akses terhadap dokumen verifikasi ini.');
+                }
+
+                abort(404, 'Dokumen verifikasi tidak ditemukan untuk Purchase Order ini.');
+            }
+        } else {
+            $verification = $matchingDocuments->first();
+        }
+
+        $result = $matchingService->match($purchaseOrder, $verification);
+        if (! $user?->canViewFinancials()) {
+            $result = $matchingService->maskFinancials($result);
+        }
+        $doc = $result['document'];
+
+        return response()->json([
+            'status' => $result['status'],
+            'status_label' => $result['status_label'],
+            'status_badge' => $result['status_badge'],
+            'document' => $doc instanceof DocumentVerification ? [
+                'id' => (int) $doc->id,
+                'document_type' => $doc->document_type,
+                'original_filename' => $doc->original_filename,
+                'document_number' => $doc->document_number,
+                'document_date' => $doc->document_date?->format('Y-m-d'),
+                'purchase_order_number' => $doc->purchase_order_number,
+                'do_number' => $doc->do_number,
+                'process_status' => $doc->process_status,
+                'authenticity_status' => $doc->authenticity_status,
+                'overall_score' => $doc->overall_score,
+            ] : null,
+            'header_matching' => $result['header_matching'],
+            'items' => $result['items'],
+            'discrepancies' => $result['discrepancies'],
+        ]);
     }
 
     public function edit(Request $request, PurchaseOrder $purchaseOrder): View|RedirectResponse
@@ -331,32 +382,12 @@ class PurchaseOrderController extends Controller
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service
     ): RedirectResponse|PurchaseOrderResource|JsonResponse {
-        try {
-            $po = $service->submitPO($purchaseOrder, $request->user());
-
-            if ($request->wantsJson()) {
-                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
-
-                return new PurchaseOrderResource($po);
-            }
-
-            return redirect()
-                ->route('purchase-orders.show', $po)
-                ->with('success', "Purchase Order {$po->nomor_po} berhasil diajukan untuk persetujuan Manager.");
-        } catch (InvalidPurchaseOrderTransitionException $e) {
-            if ($request->wantsJson()) {
-                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
-            }
-
-            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
-        } catch (QueryException $e) {
-            $message = 'Terjadi kepadatan transaksi saat mengajukan Purchase Order. Silakan coba kembali.';
-            if ($request->wantsJson()) {
-                return response()->json(['message' => $message, 'error_code' => 'database_conflict'], 409);
-            }
-
-            return back()->with('error', $message);
-        }
+        return $this->runWorkflowTransition(
+            request: $request,
+            action: fn () => $service->submitPO($purchaseOrder, $request->user()),
+            successMessage: fn (PurchaseOrder $po) => "Purchase Order {$po->nomor_po} berhasil diajukan untuk persetujuan Manager.",
+            conflictMessage: 'Terjadi kepadatan transaksi saat mengajukan Purchase Order. Silakan coba kembali.',
+        );
     }
 
     public function approve(
@@ -364,32 +395,12 @@ class PurchaseOrderController extends Controller
         PurchaseOrder $purchaseOrder,
         PurchaseOrderService $service
     ): RedirectResponse|PurchaseOrderResource|JsonResponse {
-        try {
-            $po = $service->approvePO($purchaseOrder, $request->user());
-
-            if ($request->wantsJson()) {
-                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
-
-                return new PurchaseOrderResource($po);
-            }
-
-            return redirect()
-                ->route('purchase-orders.show', $po)
-                ->with('success', "Purchase Order {$po->nomor_po} telah berhasil disetujui.");
-        } catch (InvalidPurchaseOrderTransitionException $e) {
-            if ($request->wantsJson()) {
-                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
-            }
-
-            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
-        } catch (QueryException $e) {
-            $message = 'Terjadi kendala saat menyetujui pesanan pada database. Silakan coba kembali.';
-            if ($request->wantsJson()) {
-                return response()->json(['message' => $message, 'error_code' => 'database_conflict'], 409);
-            }
-
-            return back()->with('error', $message);
-        }
+        return $this->runWorkflowTransition(
+            request: $request,
+            action: fn () => $service->approvePO($purchaseOrder, $request->user()),
+            successMessage: fn (PurchaseOrder $po) => "Purchase Order {$po->nomor_po} telah berhasil disetujui.",
+            conflictMessage: 'Terjadi kendala saat menyetujui pesanan pada database. Silakan coba kembali.',
+        );
     }
 
     public function reject(
@@ -404,32 +415,12 @@ class PurchaseOrderController extends Controller
             'reason.max' => 'Catatan alasan penolakan maksimal 1.000 karakter.',
         ]);
 
-        try {
-            $po = $service->rejectPO($purchaseOrder, $request->user(), $validated['reason']);
-
-            if ($request->wantsJson()) {
-                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
-
-                return new PurchaseOrderResource($po);
-            }
-
-            return redirect()
-                ->route('purchase-orders.show', $po)
-                ->with('success', "Purchase Order {$po->nomor_po} telah ditolak.");
-        } catch (InvalidPurchaseOrderTransitionException $e) {
-            if ($request->wantsJson()) {
-                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
-            }
-
-            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
-        } catch (QueryException $e) {
-            $message = 'Terjadi kendala saat menolak pesanan pada database. Silakan coba kembali.';
-            if ($request->wantsJson()) {
-                return response()->json(['message' => $message, 'error_code' => 'database_conflict'], 409);
-            }
-
-            return back()->with('error', $message);
-        }
+        return $this->runWorkflowTransition(
+            request: $request,
+            action: fn () => $service->rejectPO($purchaseOrder, $request->user(), $validated['reason']),
+            successMessage: fn (PurchaseOrder $po) => "Purchase Order {$po->nomor_po} telah ditolak.",
+            conflictMessage: 'Terjadi kendala saat menolak pesanan pada database. Silakan coba kembali.',
+        );
     }
 
     public function cancel(
@@ -444,32 +435,12 @@ class PurchaseOrderController extends Controller
             'reason.max' => 'Catatan alasan pembatalan maksimal 1.000 karakter.',
         ]);
 
-        try {
-            $po = $service->cancelPO($purchaseOrder, $request->user(), $validated['reason']);
-
-            if ($request->wantsJson()) {
-                $po->load(['items.barang', 'supplier', 'warehouse', 'creator', 'approver']);
-
-                return new PurchaseOrderResource($po);
-            }
-
-            return redirect()
-                ->route('purchase-orders.show', $po)
-                ->with('success', "Purchase Order {$po->nomor_po} telah dibatalkan.");
-        } catch (InvalidPurchaseOrderTransitionException $e) {
-            if ($request->wantsJson()) {
-                return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
-            }
-
-            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
-        } catch (QueryException $e) {
-            $message = 'Terjadi kendala saat membatalkan pesanan pada database. Silakan coba kembali.';
-            if ($request->wantsJson()) {
-                return response()->json(['message' => $message, 'error_code' => 'database_conflict'], 409);
-            }
-
-            return back()->with('error', $message);
-        }
+        return $this->runWorkflowTransition(
+            request: $request,
+            action: fn () => $service->cancelPO($purchaseOrder, $request->user(), $validated['reason']),
+            successMessage: fn (PurchaseOrder $po) => "Purchase Order {$po->nomor_po} telah dibatalkan.",
+            conflictMessage: 'Terjadi kendala saat membatalkan pesanan pada database. Silakan coba kembali.',
+        );
     }
 
     public function revise(
@@ -483,7 +454,7 @@ class PurchaseOrderController extends Controller
             'reason.max' => 'Catatan alasan revisi maksimal 1.000 karakter.',
         ]);
 
-        return $this->runDraftTransition(
+        return $this->runWorkflowTransition(
             request: $request,
             action: fn () => $service->revisePO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
             successMessage: fn (PurchaseOrder $po) => "Purchase Order {$po->nomor_po} dikembalikan ke status Draft untuk direvisi.",
@@ -502,7 +473,7 @@ class PurchaseOrderController extends Controller
             'reason.max' => 'Catatan alasan penarikan pengajuan maksimal 1.000 karakter.',
         ]);
 
-        return $this->runDraftTransition(
+        return $this->runWorkflowTransition(
             request: $request,
             action: fn () => $service->withdrawPO($purchaseOrder, $request->user(), $validated['reason'] ?? null),
             successMessage: fn (PurchaseOrder $po) => "Pengajuan Purchase Order {$po->nomor_po} berhasil ditarik kembali ke status Draft.",
@@ -514,7 +485,7 @@ class PurchaseOrderController extends Controller
      * @param  callable(): PurchaseOrder  $action
      * @param  callable(PurchaseOrder): string  $successMessage
      */
-    private function runDraftTransition(
+    private function runWorkflowTransition(
         Request $request,
         callable $action,
         callable $successMessage,
@@ -553,19 +524,23 @@ class PurchaseOrderController extends Controller
         PurchaseOrderService $service
     ): RedirectResponse|PurchaseOrderResource|JsonResponse {
         $validated = $request->validated();
-
-        $receivedItems = $validated['items'] ?? [];
-        if (empty($receivedItems) && ! empty($validated['jumlah_diterima']) && $request->getPurchaseOrderItem()) {
-            $receivedItems = [[
-                'purchase_order_item_id' => $request->getPurchaseOrderItem()->id,
-                'jumlah_diterima' => (int) $validated['jumlah_diterima'],
-            ]];
-        }
+        $receivedItems = PurchaseOrderService::resolveReceivedItemsPayload($validated, $request->getPurchaseOrderItem());
 
         $fotoPath = null;
         if ($request->hasFile('foto_surat_jalan')) {
-            $fotoPath = $request->file('foto_surat_jalan')->store('surat_jalan', 'public');
+            $fotoPath = $request->file('foto_surat_jalan')->store('goods-receipts/surat-jalan', 'local');
+            if (! is_string($fotoPath) || $fotoPath === '') {
+                throw ValidationException::withMessages([
+                    'foto_surat_jalan' => 'Berkas surat jalan tidak dapat disimpan. Periksa kapasitas penyimpanan lalu coba lagi.',
+                ]);
+            }
         }
+
+        $cleanupUploadedPhoto = static function (?string $path): void {
+            if (is_string($path) && $path !== '') {
+                Storage::disk('local')->delete($path);
+            }
+        };
 
         try {
             $po = $service->receiveItems(
@@ -589,12 +564,16 @@ class PurchaseOrderController extends Controller
                 ->route('purchase-orders.show', $po)
                 ->with('success', "Penerimaan barang fisik untuk Purchase Order {$po->nomor_po} berhasil dicatat. Saldo stok gudang telah diperbarui.");
         } catch (InvalidPurchaseOrderTransitionException $e) {
+            $cleanupUploadedPhoto($fotoPath);
+
             if ($request->wantsJson()) {
                 return response()->json(['message' => $e->getMessage(), 'error_code' => $e->errorCode], $e->httpStatus());
             }
 
             return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()])->withInput();
         } catch (ValidationException $e) {
+            $cleanupUploadedPhoto($fotoPath);
+
             if ($request->wantsJson()) {
                 throw $e;
             }
@@ -603,30 +582,28 @@ class PurchaseOrderController extends Controller
 
             return back()->with('error', $errorMessage)->withErrors($e->validator)->withInput();
         } catch (QueryException $e) {
-            $isDeadlock = in_array((string) $e->getCode(), ['40001', '1213'], true)
-                || (isset($e->errorInfo[1]) && in_array((int) $e->errorInfo[1], [1205, 1213], true))
-                || str_contains(strtolower($e->getMessage()), 'deadlock')
-                || str_contains(strtolower($e->getMessage()), 'lock wait timeout')
-                || str_contains(strtolower($e->getMessage()), 'database is locked')
-                || str_contains(strtolower($e->getMessage()), 'busy');
+            $cleanupUploadedPhoto($fotoPath);
 
-            $friendlyMessage = $isDeadlock
-                ? 'Sistem mendeteksi kepadatan transaksi pada database saat memperbarui saldo stok di gudang. Transaksi dibatalkan dengan aman untuk menjaga integritas saldo. Silakan coba kembali beberapa saat lagi.'
-                : 'Terjadi kendala saat menyimpan mutasi stok ke database. Silakan coba beberapa saat lagi.';
+            $friendlyMessage = DatabaseConcurrency::stockConflictMessage($e);
 
             if ($request->wantsJson()) {
                 return response()->json(['message' => $friendlyMessage, 'error_code' => 'database_conflict'], 409);
             }
 
             return back()->with('error', $friendlyMessage)->withInput();
+        } catch (Throwable $e) {
+            $cleanupUploadedPhoto($fotoPath);
+
+            throw $e;
         }
     }
 
-    public function pdf(PurchaseOrder $purchaseOrder, PurchaseOrderPdfService $pdfService): Response
+    public function pdf(Request $request, PurchaseOrder $purchaseOrder, PurchaseOrderPdfService $pdfService): Response
     {
         $this->authorize('viewPdf', $purchaseOrder);
 
-        $pdfContent = $pdfService->make($purchaseOrder);
+        $includeFinancials = $request->user()?->canViewFinancials() ?? false;
+        $pdfContent = $pdfService->make($purchaseOrder, $includeFinancials);
 
         return response($pdfContent, 200, [
             'Content-Type' => 'application/pdf',

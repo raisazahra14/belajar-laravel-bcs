@@ -79,6 +79,9 @@
 
                     <div class="small mb-2">
                         @if($key === 'database')
+                            @php
+                                $stockConsistency = $comp['metrics']['stock_consistency'] ?? null;
+                            @endphp
                             <div class="d-flex justify-content-between py-1 border-bottom">
                                 <span class="text-muted">Driver Koneksi</span>
                                 <strong>{{ $comp['metrics']['driver'] }}</strong>
@@ -87,11 +90,26 @@
                                 <span class="text-muted">Latensi Kueri (SELECT 1)</span>
                                 <strong>{{ $comp['metrics']['latency_ms'] !== null ? $comp['metrics']['latency_ms'] . ' ms' : 'N/A' }}</strong>
                             </div>
-                            <div class="d-flex justify-content-between py-1">
+                            <div class="d-flex justify-content-between py-1 {{ $stockConsistency !== null ? 'border-bottom' : '' }}">
                                 <span class="text-muted">Skema Tabel Inti &amp; Migrasi</span>
                                 <strong>{{ $comp['metrics']['core_tables_ready'] ? 'Lengkap' : 'Belum Lengkap' }} ({{ $comp['metrics']['migrations_applied'] }} migrasi)</strong>
                             </div>
+                            @if($stockConsistency !== null)
+                                <div class="d-flex justify-content-between py-1">
+                                    <span class="text-muted">Konsistensi Saldo Master vs Gudang</span>
+                                    <strong>
+                                        @if($stockConsistency['is_consistent'])
+                                            <span class="text-success">Sinkron (0 selisih)</span>
+                                        @else
+                                            <span class="text-warning">{{ $stockConsistency['mismatched_item_count'] }} SKU berselisih ({{ $stockConsistency['difference_units'] > 0 ? '+'.$stockConsistency['difference_units'] : $stockConsistency['difference_units'] }} unit)</span>
+                                        @endif
+                                    </strong>
+                                </div>
+                            @endif
                         @elseif($key === 'queue')
+                            @php
+                                $workerHb = $comp['metrics']['worker_heartbeat'] ?? null;
+                            @endphp
                             <div class="d-flex justify-content-between py-1 border-bottom">
                                 <span class="text-muted">Queue Driver</span>
                                 <strong>{{ strtoupper($comp['metrics']['driver']) }}</strong>
@@ -100,9 +118,46 @@
                                 <span class="text-muted">Antrean default (OCR) / stock-predictions</span>
                                 <strong>{{ $comp['metrics']['pending_default'] }} job / {{ $comp['metrics']['pending_stock_predictions'] }} job</strong>
                             </div>
-                            <div class="d-flex justify-content-between py-1">
+                            <div class="d-flex justify-content-between py-1 border-bottom">
                                 <span class="text-muted">Job Gagal (failed_jobs) &amp; Self-Healing OCR</span>
                                 <strong>{{ $comp['metrics']['failed_jobs'] }} gagal · Self-Healing Aktif</strong>
+                            </div>
+                            <div class="d-flex justify-content-between py-1">
+                                <span class="text-muted">Heartbeat Worker Terakhir</span>
+                                <strong>
+                                    @if(($workerHb['state'] ?? 'never_recorded') === 'alive')
+                                        Aktif ({{ $workerHb['age_seconds'] }} dtk lalu)
+                                    @elseif(($workerHb['state'] ?? '') === 'stale')
+                                        Stale ({{ $workerHb['age_seconds'] }} dtk lalu)
+                                    @else
+                                        Belum Tercatat
+                                    @endif
+                                </strong>
+                            </div>
+                        @elseif($key === 'scheduler')
+                            <div class="d-flex justify-content-between py-1 border-bottom">
+                                <span class="text-muted">Status Liveness Scheduler</span>
+                                <strong>
+                                    @if(($comp['metrics']['state'] ?? '') === 'alive')
+                                        Aktif ({{ $comp['metrics']['age_seconds'] }} dtk lalu)
+                                    @elseif(($comp['metrics']['state'] ?? '') === 'stale')
+                                        Kedaluwarsa ({{ $comp['metrics']['age_seconds'] }} dtk lalu)
+                                    @else
+                                        Belum Tercatat
+                                    @endif
+                                </strong>
+                            </div>
+                            <div class="d-flex justify-content-between py-1 border-bottom">
+                                <span class="text-muted">Heartbeat Terakhir</span>
+                                <strong>{{ $comp['metrics']['last_seen_at'] ? $comp['metrics']['last_seen_at'].' WIB' : 'N/A' }}</strong>
+                            </div>
+                            <div class="py-1">
+                                <span class="text-muted d-block mb-1">Tugas Terjadwal Aktif:</span>
+                                <div class="d-flex flex-wrap" style="gap: 0.35rem;">
+                                    @foreach(($comp['metrics']['scheduled_tasks'] ?? []) as $taskName)
+                                        <x-ui.badge variant="info">{{ $taskName }}</x-ui.badge>
+                                    @endforeach
+                                </div>
                             </div>
                         @elseif($key === 'python')
                             <div class="d-flex justify-content-between py-1 border-bottom">

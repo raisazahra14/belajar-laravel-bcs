@@ -1,0 +1,3313 @@
+openapi: 3.0.3
+info:
+  title: "LogistikKu RESTful API"
+  version: "1.0.0"
+  description: |
+    Spesifikasi kontrak **OpenAPI 3.0.3** resmi untuk integrasi sistem eksternal **LogistikKu (`/api/v1`)** — mesin Kasir (POS), pemindai barcode gudang (*handheld scanner*), dan sistem ERP/pengadaan.
+
+    ### Fitur & Standar Utama Kontrak `/api/v1`
+    - **Autentikasi Stateless:** Laravel Sanctum Bearer Token (`Authorization: Bearer <token>`) dengan masa berlaku default **24 jam** (`1440` menit) dan pembatasan hak akses granular (*Token Abilities*).
+    - **Unified Response Contract:**
+      - Respon sukses (`200`, `201`) selalu memuat `{ success: true, message, data, meta }`.
+      - Respon gagal (`4xx`, `5xx`) selalu memuat `{ success: false, message, errors: {}, code }` tanpa membocorkan *stack trace*.
+    - **Header Standar:** Seluruh respon menyertakan `X-API-Version: v1.0`, `X-Content-Type-Options: nosniff`, dan `X-Frame-Options: DENY`.
+    - **Rate Limiting:** Maksimum **60 request/menit** per user/IP (`429 TOO_MANY_REQUESTS` + header `Retry-After`) serta proteksi *brute-force* login (**5 percobaan gagal per 60 detik**).
+    - **Idempotency & Concurrency Guard:** Mendukung `reference_number` pada mutasi/transfer stok serta `receipt_token` pada penerimaan barang PO (`409 CONFLICT` jika duplikat atau deadlock).
+    - **Data Masking (OWASP API3):** Field `harga_beli` barang disamarkan menjadi `null` untuk role `staff`, sedangkan email internal pegawai (`creator`/`approver`) tidak diekspos pada respon Purchase Order.
+
+    Untuk panduan langkah demi langkah dan contoh kode (cURL, Python `requests`, JavaScript `fetch`/`axios`), lihat `docs/api_integration_guide.md`.
+  contact:
+    name: "Tim IT LogistikKu (itbcslogistics)"
+  license:
+    name: "MIT"
+servers:
+  - url: "/"
+    description: "Server Aktif Saat Ini (Direkomendasikan untuk Try It Out di Swagger UI)"
+  - url: "http://127.0.0.1:8000"
+    description: "Local Development Server (php artisan serve)"
+  - url: "http://localhost:8000"
+    description: "Localhost Alternative"
+tags:
+  - name: "System & Status"
+    description: "Endpoint publik untuk pemeriksaan ketersediaan layanan dan penemuan tautan dokumentasi (HATEOAS)."
+  - name: "Authentication"
+    description: "Penerbitan Sanctum Bearer Token dengan scoped abilities, inspeksi profil aktif, dan pencabutan token."
+  - name: "Master Barang & Stok"
+    description: "Katalog barang multi-gudang, pencarian/filter aman SQLi, serta pengecekan stok real-time untuk POS/Kasir."
+  - name: "Mutasi & Transfer Stok"
+    description: "Penyesuaian stok masuk/keluar atomik dan transfer stok antar-gudang dengan idempotency guard."
+  - name: "Purchase Orders & GRN"
+    description: "Pembuatan draft Purchase Order, riwayat pengadaan, dan pencatatan Goods Receipt via barcode scanner maupun batch."
+security:
+  - BearerAuth: []
+paths:
+  /api/v1/status:
+    get:
+      tags:
+        - "System & Status"
+      summary: "Status Operasional & Kontrak API v1"
+      description: "Mengembalikan metadata layanan, tingkat kematangan REST (Richardson Maturity Model Level 2-3), metode HTTP yang didukung, serta tautan hipermedia ke portal dokumentasi dan spesifikasi OpenAPI."
+      operationId: "getApiStatus"
+      security: []
+      responses:
+        "200":
+          description: "Layanan RESTful API v1 dalam kondisi operasional."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+            X-Content-Type-Options:
+              $ref: "#/components/headers/XContentTypeOptions"
+            X-Frame-Options:
+              $ref: "#/components/headers/XFrameOptions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiStatusSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/auth/login:
+    post:
+      tags:
+        - "Authentication"
+      summary: "Login & Penerbitan Sanctum Bearer Token"
+      description: |
+        Menukar kredensial email dan password menjadi Sanctum Bearer Token.
+        - Email dinormalisasi otomatis (*trim* + *lowercase*).
+        - Klien dapat meminta subset `abilities` sesuai *Principle of Least Privilege* (misal `["barang:read", "stok:check"]` untuk mesin POS).
+        - Permintaan ability di luar daftar `User::ROLE_API_ABILITIES` milik role pengguna ditolak dengan HTTP `422`.
+        - Dilindungi rate limiter login (**maksimal 5 percobaan gagal per 60 detik** per kombinasi email + IP).
+      operationId: "authLogin"
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            examples:
+              LoginDefaultRole:
+                summary: "Login standar sesuai seluruh ability role"
+                value:
+                  email: "admin@logistikku.test"
+                  password: "password"
+                  device_name: "ERP-Integration-Service"
+              LoginScopedPOS:
+                summary: "Login dengan scoped token minimal (Kasir/POS)"
+                value:
+                  email: "staff@logistikku.test"
+                  password: "password"
+                  device_name: "Kasir-POS-01"
+                  abilities:
+                    - "barang:read"
+                    - "stok:check"
+      responses:
+        "200":
+          description: "Autentikasi berhasil dan Bearer Token diterbitkan."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+            X-Content-Type-Options:
+              $ref: "#/components/headers/XContentTypeOptions"
+            X-Frame-Options:
+              $ref: "#/components/headers/XFrameOptions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/auth/me:
+    get:
+      tags:
+        - "Authentication"
+      summary: "Profil Pengguna & Metadata Token Aktif"
+      description: "Mengembalikan profil pengguna terautentikasi beserta daftar `token_abilities` yang melekat pada token aktif dan waktu kedaluwarsanya (`token_expires_at`). Kolom sensitif (`password`, `remember_token`) selalu disembunyikan."
+      operationId: "authMe"
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: "Profil pengguna dan metadata token berhasil diambil."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMeSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/auth/logout:
+    post:
+      tags:
+        - "Authentication"
+      summary: "Logout & Pencabutan Token Sanctum"
+      description: "Mencabut token Bearer yang sedang digunakan pada request aktif, atau mencabut seluruh token milik pengguna di semua perangkat apabila `all_devices: true` dikirim."
+      operationId: "authLogout"
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogoutRequest"
+            examples:
+              CabutPerangkatIni:
+                summary: "Cabut hanya token aktif saat ini"
+                value:
+                  all_devices: false
+              CabutSemuaPerangkat:
+                summary: "Cabut darurat seluruh token perangkat pengguna"
+                value:
+                  all_devices: true
+      responses:
+        "200":
+          description: "Token akses berhasil dicabut."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogoutSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/barang:
+    get:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Daftar Master Barang (Filter, Search, Sort & Paginasi)"
+      description: |
+        Mengambil daftar master barang lengkap dengan relasi `supplier` dan distribusi stok per gudang (`warehouse_stocks`).
+        - **Required Ability:** `barang:read`
+        - **Input Sanitization:** Parameter `search` dibersihkan dari tag HTML dan karakter kontrol ASCII; parameter `sort` divalidasi ketat dengan *whitelist*.
+        - **Data Masking:** Atribut `harga_beli` otomatis bernilai `null` apabila token dimiliki oleh pengguna ber-role `staff`.
+      operationId: "listBarang"
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: "search"
+          in: "query"
+          required: false
+          description: "Kata kunci pencarian kode barang, nama barang, atau lokasi rak (maksimal 100 karakter; disanitasi dari HTML/control chars)."
+          schema:
+            type: "string"
+            maxLength: 100
+          example: "Scanner"
+        - name: "kategori"
+          in: "query"
+          required: false
+          description: "Filter kategori barang."
+          schema:
+            type: "string"
+            enum:
+              - "Elektronik"
+              - "Jaringan"
+              - "Peralatan"
+              - "ATK"
+              - "Bahan Baku"
+              - "Furniture"
+        - name: "status"
+          in: "query"
+          required: false
+          description: "Filter status ketersediaan stok."
+          schema:
+            type: "string"
+            enum:
+              - "menipis"
+              - "aman"
+        - name: "supplier_id"
+          in: "query"
+          required: false
+          description: "Filter berdasarkan ID supplier utama."
+          schema:
+            type: "integer"
+            minimum: 1
+        - name: "warehouse_id"
+          in: "query"
+          required: false
+          description: "Filter barang yang memiliki catatan saldo di ID gudang tertentu."
+          schema:
+            type: "integer"
+            minimum: 1
+        - name: "sort"
+          in: "query"
+          required: false
+          description: "Kolom atau preset pengurutan yang diizinkan whitelist."
+          schema:
+            type: "string"
+            enum:
+              - "id"
+              - "kode_barang"
+              - "nama_barang"
+              - "kategori"
+              - "stok"
+              - "harga_beli"
+              - "created_at"
+              - "nama_asc"
+              - "nama_desc"
+              - "stok_asc"
+              - "stok_desc"
+        - name: "direction"
+          in: "query"
+          required: false
+          description: "Arah pengurutan saat menggunakan nama kolom pada parameter `sort`."
+          schema:
+            type: "string"
+            enum:
+              - "asc"
+              - "desc"
+        - name: "page"
+          in: "query"
+          required: false
+          description: "Nomor halaman hasil paginasi."
+          schema:
+            type: "integer"
+            minimum: 1
+            default: 1
+        - name: "per_page"
+          in: "query"
+          required: false
+          description: "Jumlah item per halaman (maksimal 100)."
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 100
+            default: 15
+      responses:
+        "200":
+          description: "Daftar barang terpaginasi berhasil diambil."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangListSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    post:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Buat Master Barang Baru & Inisialisasi Saldo Gudang (Khusus Admin)"
+      description: |
+        Membuat entitas master barang baru secara atomik dengan pembangkitan `kode_barang` otomatis (`BRG-######`) dan inisialisasi saldo stok awal pada `warehouse_id` bila `stok > 0`.
+        - **Required Ability:** `barang:write` (khusus role `admin`)
+      operationId: "storeBarang"
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreBarangRequest"
+      responses:
+        "201":
+          description: "Master barang baru berhasil dibuat."
+          headers:
+            Location:
+              $ref: "#/components/headers/LocationHeader"
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/barang/{barang}:
+    get:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Detail Master Barang & Saldo per Gudang"
+      description: |
+        Mengambil detail satu entitas barang beserta relasi `supplier` dan daftar `warehouse_stocks` (`zone`, `rack_location`, `bin_code`).
+        - **Required Ability:** `barang:read`
+        - **Data Masking:** Atribut `harga_beli` bernilai `null` untuk role `staff`.
+      operationId: "getBarangDetail"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BarangIdPath"
+      responses:
+        "200":
+          description: "Detail barang berhasil diambil."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    put:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Perbarui Representasi Penuh Master Barang (Khusus Admin)"
+      description: |
+        Memperbarui atribut master barang secara utuh (tanpa mengubah saldo stok; perubahan saldo stok wajib melalui `/api/v1/stok/adjust` atau `/api/v1/stok/transfer`).
+        - **Required Ability:** `barang:write` (khusus role `admin`)
+      operationId: "updateBarangPut"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BarangIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBarangRequest"
+      responses:
+        "200":
+          description: "Master barang berhasil diperbarui."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    patch:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Perbarui Parsial Atribut Master Barang (Khusus Admin)"
+      description: |
+        Memperbarui sebagian atribut master barang secara parsial (misalnya hanya memperbarui `harga_beli` atau `lokasi`).
+        - **Required Ability:** `barang:write` (khusus role `admin`)
+      operationId: "updateBarangPatch"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BarangIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBarangRequest"
+      responses:
+        "200":
+          description: "Master barang berhasil diperbarui."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    delete:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Hapus Master Barang via Soft Delete (Khusus Admin)"
+      description: |
+        Menghapus master barang dari katalog aktif menggunakan mekanisme *Soft Delete* (`deleted_at`) agar integritas riwayat transaksi tetap terjaga.
+        - **Required Ability:** `barang:write` (khusus role `admin`)
+      operationId: "destroyBarang"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BarangIdPath"
+      responses:
+        "200":
+          description: "Master barang berhasil dihapus (soft delete)."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BarangDeleteSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/barang/{barang}/check-stock:
+    get:
+      tags:
+        - "Master Barang & Stok"
+      summary: "Cek Kecukupan Stok Real-Time di Gudang Target"
+      description: |
+        Digunakan oleh aplikasi Kasir (POS) atau sistem order untuk memeriksa apakah stok fisik barang di suatu gudang aktif mencukupi kebutuhan `qty`.
+        - **Required Ability:** `stok:check` atau `barang:read`
+      operationId: "checkBarangStock"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BarangIdPath"
+        - name: "warehouse_id"
+          in: "query"
+          required: true
+          description: "ID gudang aktif yang diperiksa."
+          schema:
+            type: "integer"
+            minimum: 1
+          example: 1
+        - name: "qty"
+          in: "query"
+          required: true
+          description: "Jumlah unit yang dibutuhkan."
+          schema:
+            type: "integer"
+            minimum: 1
+          example: 2
+      responses:
+        "200":
+          description: "Hasil pemeriksaan kecukupan stok real-time berhasil diambil."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckStockSuccessResponse"
+              examples:
+                StokMencukupi:
+                  summary: "Stok gudang mencukupi permintaan"
+                  value:
+                    success: true
+                    message: "Stok mencukupi di gudang terpilih"
+                    data:
+                      barang:
+                        id: 1
+                        kode_barang: "BRG-000101"
+                        nama_barang: "Monitor LED 24 Inch"
+                        satuan: "Unit"
+                      warehouse:
+                        id: 1
+                        kode_gudang: "GDG-BRG-A"
+                        nama_gudang: "Gudang Utama Jakarta"
+                        alamat: "Jl. Industri No. 10"
+                      requested_qty: 2
+                      available_stock: 10
+                      is_available: true
+                      shortage: 0
+                      minimum_stock: 3
+                      total_stock_all_warehouses: 15
+                    meta:
+                      timestamp: "2026-11-20T14:30:00+07:00"
+                      version: "v1.0"
+                StokTidakMencukupi:
+                  summary: "Stok gudang kurang dari permintaan"
+                  value:
+                    success: true
+                    message: "Stok tidak mencukupi di gudang terpilih"
+                    data:
+                      barang:
+                        id: 1
+                        kode_barang: "BRG-000101"
+                        nama_barang: "Monitor LED 24 Inch"
+                        satuan: "Unit"
+                      warehouse:
+                        id: 1
+                        kode_gudang: "GDG-BRG-A"
+                        nama_gudang: "Gudang Utama Jakarta"
+                        alamat: "Jl. Industri No. 10"
+                      requested_qty: 25
+                      available_stock: 10
+                      is_available: false
+                      shortage: 15
+                      minimum_stock: 3
+                      total_stock_all_warehouses: 15
+                    meta:
+                      timestamp: "2026-11-20T14:30:00+07:00"
+                      version: "v1.0"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/stok/adjust:
+    post:
+      tags:
+        - "Mutasi & Transfer Stok"
+      summary: "Penyesuaian Stok Masuk / Keluar Secara Atomik"
+      description: |
+        Mencatat transaksi penyesuaian stok masuk atau keluar pada gudang aktif dalam transaksi database terkunci (*pessimistic lock*).
+        - **Required Ability:** `stok:adjust` (serta Gate `update-stock` untuk role `admin`, `manager`, `staff`).
+        - **Idempotency Guard:** Jika `reference_number` dikirim dan sudah pernah dipakai untuk kombinasi `barang_id` + `warehouse_id` + `jenis` + `reference_type` yang sama, API menolak mutasi ganda dengan `409 CONFLICT`.
+        - **Aturan Bisnis:** Field `supplier_id` dilarang (*prohibited*) apabila `jenis` adalah `keluar`.
+      operationId: "adjustStock"
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustStockRequest"
+            examples:
+              StokMasuk:
+                summary: "Penyesuaian stok masuk dengan nomor referensi DO"
+                value:
+                  barang_id: 1
+                  warehouse_id: 1
+                  supplier_id: 1
+                  jenis: "masuk"
+                  jumlah: 5
+                  unit_cost: 1500000
+                  reference_type: "DO"
+                  reference_number: "DO-EXT-2026-001"
+                  document_date: "2026-11-20"
+                  keterangan: "Penambahan stok dari sistem ERP"
+              StokKeluar:
+                summary: "Penyesuaian stok keluar tanpa supplier_id"
+                value:
+                  barang_id: 1
+                  warehouse_id: 1
+                  jenis: "keluar"
+                  jumlah: 2
+                  reference_type: "Internal"
+                  reference_number: "POS-OUT-2026-001"
+                  document_date: "2026-11-20"
+                  keterangan: "Pengeluaran barang ke unit operasional"
+      responses:
+        "201":
+          description: "Penyesuaian stok berhasil dicatat."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockAdjustSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/stok/transfer:
+    post:
+      tags:
+        - "Mutasi & Transfer Stok"
+      summary: "Transfer Stok Antar-Gudang Secara Atomik"
+      description: |
+        Memindahkan sejumlah stok barang dari `source_warehouse_id` ke `destination_warehouse_id` dalam satu transaksi atomik yang membentuk pasangan mutasi `out` dan `in` dengan `transfer_group_uuid` yang sama.
+        - **Required Ability:** `stok:transfer`
+        - **Nomor Referensi Unik:** Jika `reference_number` dikosongkan, server otomatis membangkitkan nomor unik berpola `TRF-YYYYMMDD-XXXXXX`. Jika `reference_number` dikirim dan sudah pernah digunakan, request ditolak dengan `409 CONFLICT`.
+      operationId: "transferStock"
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferStockRequest"
+            example:
+              barang_id: 1
+              source_warehouse_id: 1
+              destination_warehouse_id: 2
+              jumlah: 2
+              reference_number: "TRF-20261120-EXT01"
+              document_date: "2026-11-20"
+              keterangan: "Distribusi stok ke gudang cabang"
+      responses:
+        "201":
+          description: "Transfer stok antar-gudang berhasil dicatat."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransferSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/stok/{stokTransaction}/reverse:
+    post:
+      tags:
+        - "Mutasi & Transfer Stok"
+      summary: "Pembatalan Mutasi Stok (Reversal Audit Trail)"
+      description: |
+        Membatalkan transaksi mutasi stok secara atomik dengan menerbitkan transaksi pembalik (`reversal`) dan menandai transaksi asal sebagai telah dibatalkan (`reversed_at`). Jika transaksi asal terkait Purchase Order, status PO dan Goods Receipt ikut disinkronkan secara atomik.
+        - **Required Ability & Role:** `stok:reverse` dan hak akses `reverse-stock` (`admin` atau `manager`).
+      operationId: "reverseStockTransaction"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StokTransactionIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StockReverseRequest"
+            example:
+              reason: "Koreksi salah input jumlah penerimaan pada shift malam"
+      responses:
+        "200":
+          description: "Transaksi stok berhasil dibatalkan melalui reversal."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockReverseSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders:
+    get:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Daftar Purchase Order (Filter & Paginasi)"
+      description: |
+        Mengambil daftar Purchase Order terpaginasi dengan dukungan filter pencarian, nomor PO, status siklus hidup, supplier, gudang, rentang tanggal, dan indikator keterlambatan (`overdue`).
+        - **Required Ability:** `po:read`
+        - **Data Masking:** Informasi internal `email` pada objek `creator` dan `approver` tidak pernah diekspos.
+      operationId: "listPurchaseOrders"
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: "search"
+          in: "query"
+          required: false
+          description: "Kata kunci pencarian umum pada PO (maksimal 100 karakter; disanitasi)."
+          schema:
+            type: "string"
+            maxLength: 100
+        - name: "nomor_po"
+          in: "query"
+          required: false
+          description: "Filter nomor dokumen Purchase Order."
+          schema:
+            type: "string"
+            maxLength: 100
+          example: "PO-20261120"
+        - name: "supplier_id"
+          in: "query"
+          required: false
+          description: "Filter berdasarkan ID supplier."
+          schema:
+            type: "integer"
+            minimum: 1
+        - name: "warehouse_id"
+          in: "query"
+          required: false
+          description: "Filter berdasarkan ID gudang tujuan."
+          schema:
+            type: "integer"
+            minimum: 1
+        - name: "status"
+          in: "query"
+          required: false
+          description: "Filter berdasarkan status siklus hidup Purchase Order."
+          schema:
+            $ref: "#/components/schemas/PurchaseOrderStatusEnum"
+        - name: "tanggal_dari"
+          in: "query"
+          required: false
+          description: "Tanggal awal `tanggal_pesan` (format `YYYY-MM-DD`)."
+          schema:
+            type: "string"
+            format: "date"
+            pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        - name: "tanggal_sampai"
+          in: "query"
+          required: false
+          description: "Tanggal akhir `tanggal_pesan` (format `YYYY-MM-DD`, harus >= `tanggal_dari`)."
+          schema:
+            type: "string"
+            format: "date"
+            pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        - name: "date_from"
+          in: "query"
+          required: false
+          description: "Alias `tanggal_dari` (format `YYYY-MM-DD`)."
+          schema:
+            type: "string"
+            format: "date"
+            pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        - name: "date_to"
+          in: "query"
+          required: false
+          description: "Alias `tanggal_sampai` (format `YYYY-MM-DD`, harus >= `date_from`)."
+          schema:
+            type: "string"
+            format: "date"
+            pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+        - name: "overdue"
+          in: "query"
+          required: false
+          description: "Filter hanya PO yang melewati `estimasi_tiba` dan belum selesai."
+          schema:
+            type: "boolean"
+        - name: "page"
+          in: "query"
+          required: false
+          description: "Nomor halaman hasil paginasi."
+          schema:
+            type: "integer"
+            minimum: 1
+            default: 1
+        - name: "per_page"
+          in: "query"
+          required: false
+          description: "Jumlah item per halaman (maksimal 100)."
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 100
+            default: 15
+      responses:
+        "200":
+          description: "Daftar Purchase Order berhasil diambil."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderListSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Buat Draft Purchase Order Baru"
+      description: |
+        Membuat dokumen Purchase Order baru berstatus `draft` dari sistem perencanaan pengadaan/ERP.
+        - **Required Ability:** `po:create` (role `admin`, `staff`, atau `manager`).
+        - **Respon 201 Created:** Menyertakan header HTTP `Location` menuju URI detail PO baru (`/api/v1/purchase-orders/{id}`).
+      operationId: "createPurchaseOrder"
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StorePurchaseOrderRequest"
+            example:
+              supplier_id: 1
+              warehouse_id: 1
+              tanggal_pesan: "2026-11-20"
+              estimasi_tiba: "2026-11-27"
+              catatan: "Restock otomatis dari sistem perencanaan ERP"
+              items:
+                - barang_id: 1
+                  jumlah_pesan: 5
+                  harga_satuan: 250000
+      responses:
+        "201":
+          description: "Purchase Order berhasil dibuat dengan status draft."
+          headers:
+            Location:
+              $ref: "#/components/headers/LocationHeader"
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}:
+    get:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Detail Lengkap Purchase Order, Item, & Goods Receipts"
+      description: |
+        Mengambil representasi lengkap Purchase Order meliputi informasi supplier, gudang tujuan, daftar item pesanan, riwayat perubahan status (`status_histories`), catatan penerimaan barang (`goods_receipts`), serta daftar transisi status yang diizinkan (`available_transitions`).
+        - **Required Ability:** `po:read` + policy `view`.
+      operationId: "getPurchaseOrderDetail"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      responses:
+        "200":
+          description: "Detail Purchase Order berhasil diambil."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    put:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Perbarui Purchase Order Berstatus Draft"
+      description: |
+        Memperbarui header dan daftar item Purchase Order yang masih berstatus `draft`.
+        - **Required Ability:** `po:update` (hanya pembuat PO, `admin`, atau `manager`).
+      operationId: "updatePurchaseOrderPut"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StorePurchaseOrderRequest"
+      responses:
+        "200":
+          description: "Purchase Order berhasil diperbarui."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+    patch:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Perbarui Purchase Order Berstatus Draft (PATCH)"
+      description: |
+        Alias `PATCH` untuk memperbarui Purchase Order yang masih berstatus `draft`.
+        - **Required Ability:** `po:update`
+      operationId: "updatePurchaseOrderPatch"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StorePurchaseOrderRequest"
+      responses:
+        "200":
+          description: "Purchase Order berhasil diperbarui."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/submit:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Ajukan Purchase Order untuk Persetujuan"
+      description: |
+        Mengubah status PO dari `draft` menjadi `pending_approval` (minimal memiliki 1 item).
+        - **Required Ability:** `po:submit` (pembuat PO atau `admin`).
+      operationId: "submitPurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      responses:
+        "200":
+          description: "Purchase Order berhasil diajukan untuk persetujuan."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/approve:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Setujui Purchase Order (Maker-Checker)"
+      description: |
+        Menyetujui PO dari `pending_approval` ke `approved`. Menerapkan prinsip Separation of Duty (Maker-Checker): pembuat PO tidak dapat menyetujui PO miliknya sendiri (`403 FORBIDDEN`).
+        - **Required Ability:** `po:approve` (`admin` atau `manager` non-pembuat PO).
+      operationId: "approvePurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      responses:
+        "200":
+          description: "Purchase Order berhasil disetujui."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/reject:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Tolak Purchase Order dengan Alasan Wajib"
+      description: |
+        Menolak PO dari `pending_approval` ke `rejected` beserta catatan alasan penolakan (`reason` wajib diisi). Maker-Checker berlaku.
+        - **Required Ability:** `po:approve`
+      operationId: "rejectPurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderRequiredReasonRequest"
+      responses:
+        "200":
+          description: "Purchase Order berhasil ditolak."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/revise:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Kembalikan PO Ditolak ke Draft untuk Revisi"
+      description: |
+        Mengembalikan PO berstatus `rejected` ke `draft` agar dapat disunting ulang.
+        - **Required Ability:** `po:update`
+      operationId: "revisePurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderOptionalReasonRequest"
+      responses:
+        "200":
+          description: "Purchase Order dikembalikan ke status Draft."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/withdraw:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Tarik Pengajuan PO Menunggu Persetujuan ke Draft"
+      description: |
+        Menarik PO berstatus `pending_approval` kembali ke `draft`.
+        - **Required Ability:** `po:update`
+      operationId: "withdrawPurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderOptionalReasonRequest"
+      responses:
+        "200":
+          description: "Pengajuan Purchase Order berhasil ditarik kembali ke Draft."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/cancel:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Batalkan Purchase Order dengan Alasan Wajib"
+      description: |
+        Membatalkan PO pada status `draft`, `pending_approval`, `rejected`, atau `approved` beserta catatan alasan (`reason` wajib diisi).
+        - **Required Ability:** `po:update` atau `po:approve`
+      operationId: "cancelPurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseOrderRequiredReasonRequest"
+      responses:
+        "200":
+          description: "Purchase Order berhasil dibatalkan."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+  /api/v1/purchase-orders/{purchaseOrder}/receive:
+    post:
+      tags:
+        - "Purchase Orders & GRN"
+      summary: "Pencatatan Penerimaan Fisik Barang (GRN / Barcode Scanner)"
+      description: |
+        Mencatat penerimaan fisik barang (Goods Receipt Note) untuk Purchase Order berstatus `approved` atau `partially_received`.
+        Mendukung dua mode payload:
+        1. **Pemindaian Tunggal (*Handheld Barcode Scanner*):** Kirim `barcode` atau `kode_barang` (atau `purchase_order_item_id`). Jika `jumlah_diterima` tidak dikirim bersama `barcode`/`kode_barang`, sistem mendefaultkannya menjadi `1`.
+        2. **Penerimaan Batch Multi-Item:** Kirim array `items[]` berisi pasangan (`purchase_order_item_id` atau `kode_barang`/`barcode`) dan `jumlah_diterima`.
+
+        - **Required Ability & Role:** `po:receive` dan role **`admin` atau `staff`** (role `manager` ditolak `403 FORBIDDEN`).
+        - **Idempotency & Concurrency:** Gunakan `receipt_token` unik per aksi penerimaan untuk mencegah duplikasi akibat retry jaringan; benturan lock/concurrency database mengembalikan `409 CONFLICT`.
+      operationId: "receivePurchaseOrder"
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PurchaseOrderIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceivePurchaseOrderRequest"
+            examples:
+              BarcodeSingleScan:
+                summary: "Pemindaian barcode tunggal oleh handheld scanner"
+                value:
+                  barcode: "BRG-PO-001"
+                  jumlah_diterima: 1
+                  tanggal_terima: "2026-11-20"
+                  nomor_surat_jalan: "SJ-SCAN-20261120-01"
+                  catatan: "Diterima via handheld scanner di dermaga gudang"
+                  receipt_token: "SCAN-TOKEN-20261120-001"
+              BatchItemsReceive:
+                summary: "Penerimaan batch beberapa item sekaligus"
+                value:
+                  tanggal_terima: "2026-11-20"
+                  nomor_surat_jalan: "SJ-BATCH-20261120-01"
+                  catatan: "Penerimaan batch pengiriman pertama"
+                  receipt_token: "BATCH-TOKEN-20261120-001"
+                  items:
+                    - purchase_order_item_id: 1
+                      jumlah_diterima: 3
+                    - kode_barang: "BRG-PO-002"
+                      jumlah_diterima: 5
+      responses:
+        "200":
+          description: "Penerimaan barang Purchase Order berhasil dicatat dan saldo gudang diperbarui."
+          headers:
+            X-API-Version:
+              $ref: "#/components/headers/XApiVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOrderDetailSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest400"
+        "401":
+          $ref: "#/components/responses/Unauthorized401"
+        "403":
+          $ref: "#/components/responses/Forbidden403"
+        "404":
+          $ref: "#/components/responses/NotFound404"
+        "409":
+          $ref: "#/components/responses/Conflict409"
+        "422":
+          $ref: "#/components/responses/ValidationError422"
+        "429":
+          $ref: "#/components/responses/TooManyRequests429"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: "http"
+      scheme: "bearer"
+      bearerFormat: "Sanctum Personal Access Token"
+      description: |
+        Masukkan Plain Text Token yang diperoleh dari `POST /api/v1/auth/login` (tanpa awalan kata `Bearer`, Swagger UI akan otomatis menambahkan header `Authorization: Bearer <token>`).
+
+  parameters:
+    BarangIdPath:
+      name: "barang"
+      in: "path"
+      required: true
+      description: "ID numerik entitas barang pada database."
+      schema:
+        type: "integer"
+        minimum: 1
+      example: 1
+    PurchaseOrderIdPath:
+      name: "purchaseOrder"
+      in: "path"
+      required: true
+      description: "ID numerik dokumen Purchase Order."
+      schema:
+        type: "integer"
+        minimum: 1
+      example: 1
+    StokTransactionIdPath:
+      name: "stokTransaction"
+      in: "path"
+      required: true
+      description: "ID numerik transaksi mutasi stok."
+      schema:
+        type: "integer"
+        minimum: 1
+      example: 101
+
+  headers:
+    XApiVersion:
+      description: "Versi kontrak RESTful API aktif yang memproses respon."
+      schema:
+        type: "string"
+        example: "v1.0"
+    XContentTypeOptions:
+      description: "Header keamanan OWASP untuk mencegah MIME-type sniffing."
+      schema:
+        type: "string"
+        example: "nosniff"
+    XFrameOptions:
+      description: "Header keamanan OWASP untuk mencegah clickjacking iframe."
+      schema:
+        type: "string"
+        example: "DENY"
+    LocationHeader:
+      description: "URI resource baru yang berhasil dibuat pada operasi 201 Created."
+      schema:
+        type: "string"
+        format: "uri"
+        example: "http://127.0.0.1:8000/api/v1/purchase-orders/12"
+    RetryAfterHeader:
+      description: "Jumlah detik tunggu minimum sebelum klien mengirim ulang request setelah terkena rate limiter."
+      schema:
+        type: "integer"
+        example: 45
+
+  schemas:
+    ApiMeta:
+      type: "object"
+      required:
+        - "timestamp"
+        - "version"
+      properties:
+        timestamp:
+          type: "string"
+          format: "date-time"
+          example: "2026-11-20T14:30:00+07:00"
+        version:
+          type: "string"
+          example: "v1.0"
+
+    PaginationLinks:
+      type: "object"
+      required:
+        - "first"
+        - "last"
+        - "prev"
+        - "next"
+      properties:
+        first:
+          type: "string"
+          format: "uri"
+          nullable: true
+          example: "http://127.0.0.1:8000/api/v1/barang?page=1"
+        last:
+          type: "string"
+          format: "uri"
+          nullable: true
+          example: "http://127.0.0.1:8000/api/v1/barang?page=3"
+        prev:
+          type: "string"
+          format: "uri"
+          nullable: true
+          example: null
+        next:
+          type: "string"
+          format: "uri"
+          nullable: true
+          example: "http://127.0.0.1:8000/api/v1/barang?page=2"
+
+    PaginationMeta:
+      allOf:
+        - $ref: "#/components/schemas/ApiMeta"
+        - type: "object"
+          required:
+            - "current_page"
+            - "per_page"
+            - "total"
+            - "last_page"
+            - "from"
+            - "to"
+            - "links"
+          properties:
+            current_page:
+              type: "integer"
+              example: 1
+            per_page:
+              type: "integer"
+              example: 15
+            total:
+              type: "integer"
+              example: 42
+            last_page:
+              type: "integer"
+              example: 3
+            from:
+              type: "integer"
+              nullable: true
+              example: 1
+            to:
+              type: "integer"
+              nullable: true
+              example: 15
+            links:
+              $ref: "#/components/schemas/PaginationLinks"
+
+    ErrorResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "errors"
+        - "code"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - false
+          example: false
+        message:
+          type: "string"
+          example: "Permintaan tidak valid."
+        errors:
+          type: "object"
+          additionalProperties:
+            type: "array"
+            items:
+              type: "string"
+          description: "Selalu bertipe JSON Object `{}` (kosong `{}` untuk error umum, atau peta field -> daftar pesan error pada 422)."
+          example: {}
+        code:
+          type: "string"
+          example: "BAD_REQUEST"
+
+    ApiStatusData:
+      type: "object"
+      required:
+        - "service"
+        - "architecture"
+        - "maturity_model"
+        - "status"
+        - "supported_verbs"
+        - "documentation"
+        - "links"
+      properties:
+        service:
+          type: "string"
+          example: "LogistikKu RESTful API"
+        architecture:
+          type: "string"
+          example: "Stateless RESTful API (Laravel Sanctum Bearer Token)"
+        maturity_model:
+          type: "string"
+          example: "Richardson Maturity Model Level 2-3 (REST + HATEOAS)"
+        status:
+          type: "string"
+          example: "operational"
+        supported_verbs:
+          type: "array"
+          items:
+            type: "string"
+          example:
+            - "GET"
+            - "POST"
+            - "PUT"
+            - "PATCH"
+            - "DELETE"
+        documentation:
+          type: "string"
+          example: "docs/arsitektur_rest_api.md"
+        links:
+          type: "object"
+          required:
+            - "self"
+            - "docs"
+            - "openapi"
+          properties:
+            self:
+              type: "string"
+              format: "uri"
+              example: "http://127.0.0.1:8000/api/v1/status"
+            docs:
+              type: "string"
+              format: "uri"
+              example: "http://127.0.0.1:8000/docs/api"
+            openapi:
+              type: "string"
+              format: "uri"
+              example: "http://127.0.0.1:8000/docs/openapi.yaml"
+
+    ApiStatusSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Layanan RESTful API LogistikKu v1 siap digunakan"
+        data:
+          $ref: "#/components/schemas/ApiStatusData"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    LoginRequest:
+      type: "object"
+      required:
+        - "email"
+        - "password"
+      properties:
+        email:
+          type: "string"
+          format: "email"
+          example: "admin@logistikku.test"
+        password:
+          type: "string"
+          format: "password"
+          example: "password"
+        device_name:
+          type: "string"
+          maxLength: 100
+          nullable: true
+          description: "Label perangkat/integrasi untuk pencatatan audit token (default: `external-client`)."
+          example: "Postman-Runner-v1"
+        abilities:
+          type: "array"
+          minItems: 1
+          uniqueItems: true
+          nullable: true
+          description: "Opsional: subset scope yang diminta. Harus merupakan bagian dari ability milik role user; permintaan ability yang tidak dimiliki role ditolak 422."
+          items:
+            type: "string"
+          example:
+            - "barang:read"
+            - "stok:check"
+
+    AuthUserSummary:
+      type: "object"
+      required:
+        - "id"
+        - "name"
+        - "email"
+        - "role"
+      properties:
+        id:
+          type: "integer"
+          example: 1
+        name:
+          type: "string"
+          example: "Administrator"
+        email:
+          type: "string"
+          format: "email"
+          example: "admin@logistikku.test"
+        role:
+          type: "string"
+          enum:
+            - "admin"
+            - "manager"
+            - "staff"
+          example: "admin"
+
+    LoginData:
+      type: "object"
+      required:
+        - "token"
+        - "token_type"
+        - "abilities"
+        - "expires_at"
+        - "user"
+      properties:
+        token:
+          type: "string"
+          example: "1|xYzAbCdEfGhIjKlMnOpQrStUvWxYz1234567890"
+        token_type:
+          type: "string"
+          example: "Bearer"
+        abilities:
+          type: "array"
+          items:
+            type: "string"
+          example:
+            - "barang:read"
+            - "barang:write"
+            - "stok:check"
+            - "stok:adjust"
+            - "stok:transfer"
+            - "stok:reverse"
+            - "po:read"
+            - "po:create"
+            - "po:update"
+            - "po:submit"
+            - "po:approve"
+            - "po:receive"
+        expires_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: "2026-11-21T14:30:00+07:00"
+        user:
+          $ref: "#/components/schemas/AuthUserSummary"
+
+    LoginSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Autentikasi berhasil"
+        data:
+          $ref: "#/components/schemas/LoginData"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    AuthMeData:
+      type: "object"
+      required:
+        - "id"
+        - "name"
+        - "email"
+        - "role"
+        - "token_abilities"
+        - "token_expires_at"
+        - "created_at"
+      properties:
+        id:
+          type: "integer"
+          example: 1
+        name:
+          type: "string"
+          example: "Administrator"
+        email:
+          type: "string"
+          format: "email"
+          example: "admin@logistikku.test"
+        role:
+          type: "string"
+          enum:
+            - "admin"
+            - "manager"
+            - "staff"
+          example: "admin"
+        token_abilities:
+          type: "array"
+          items:
+            type: "string"
+          example:
+            - "barang:read"
+            - "stok:check"
+        token_expires_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: "2026-11-21T14:30:00+07:00"
+        created_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: "2026-10-01T08:00:00+07:00"
+
+    AuthMeSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Profil pengguna berhasil diambil"
+        data:
+          $ref: "#/components/schemas/AuthMeData"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    LogoutRequest:
+      type: "object"
+      properties:
+        all_devices:
+          type: "boolean"
+          default: false
+          description: "Jika bernilai true, seluruh Personal Access Token milik user akan dicabut."
+
+    LogoutSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Token berhasil dicabut"
+        data:
+          type: "object"
+          nullable: true
+          example: null
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    SupplierCompact:
+      type: "object"
+      required:
+        - "id"
+        - "kode_supplier"
+        - "nama_supplier"
+        - "is_active"
+      properties:
+        id:
+          type: "integer"
+          example: 1
+        kode_supplier:
+          type: "string"
+          example: "SUP-001"
+        nama_supplier:
+          type: "string"
+          example: "PT Mitra Perangkat Nusantara"
+        is_active:
+          type: "boolean"
+          example: true
+
+    WarehouseCompact:
+      type: "object"
+      required:
+        - "id"
+        - "kode_gudang"
+        - "nama_gudang"
+        - "alamat"
+        - "is_active"
+      properties:
+        id:
+          type: "integer"
+          example: 1
+        kode_gudang:
+          type: "string"
+          example: "GDG-UTM"
+        nama_gudang:
+          type: "string"
+          example: "Gudang Utama Jakarta"
+        alamat:
+          type: "string"
+          nullable: true
+          example: "Jl. Industri No. 10"
+        is_active:
+          type: "boolean"
+          example: true
+
+    WarehouseStockResource:
+      type: "object"
+      required:
+        - "id"
+        - "warehouse_id"
+        - "stok"
+        - "stok_minimum"
+        - "zone"
+        - "rack_location"
+        - "bin_code"
+        - "is_below_minimum"
+        - "warehouse"
+      properties:
+        id:
+          type: "integer"
+          example: 10
+        warehouse_id:
+          type: "integer"
+          example: 1
+        stok:
+          type: "integer"
+          example: 10
+        stok_minimum:
+          type: "integer"
+          example: 3
+        zone:
+          type: "string"
+          nullable: true
+          example: "Zona A"
+        rack_location:
+          type: "string"
+          nullable: true
+          example: "R-01"
+        bin_code:
+          type: "string"
+          nullable: true
+          example: "BIN-A1"
+        is_below_minimum:
+          type: "boolean"
+          example: false
+        warehouse:
+          allOf:
+            - $ref: "#/components/schemas/WarehouseCompact"
+          nullable: true
+
+    BarangResource:
+      type: "object"
+      required:
+        - "id"
+        - "kode_barang"
+        - "nama_barang"
+        - "kategori"
+        - "satuan"
+        - "lokasi"
+        - "stok"
+        - "minimum_stock"
+        - "is_low_stock"
+        - "harga_beli"
+        - "daily_usage_estimate"
+        - "lead_time_days"
+        - "supplier_id"
+        - "created_at"
+      properties:
+        id:
+          type: "integer"
+          example: 1
+        kode_barang:
+          type: "string"
+          example: "BRG-000101"
+        nama_barang:
+          type: "string"
+          example: "Monitor LED 24 Inch"
+        kategori:
+          type: "string"
+          example: "Elektronik"
+        satuan:
+          type: "string"
+          example: "Unit"
+        lokasi:
+          type: "string"
+          nullable: true
+          example: "Rak A1"
+        stok:
+          type: "integer"
+          example: 15
+        minimum_stock:
+          type: "integer"
+          example: 5
+        is_low_stock:
+          type: "boolean"
+          example: false
+        harga_beli:
+          type: "number"
+          format: "double"
+          nullable: true
+          description: "Disamarkan menjadi `null` apabila user terautentikasi ber-role `staff`."
+          example: 1850000
+        daily_usage_estimate:
+          type: "number"
+          format: "double"
+          nullable: true
+          example: 1.5
+        lead_time_days:
+          type: "integer"
+          nullable: true
+          example: 7
+        supplier_id:
+          type: "integer"
+          nullable: true
+          example: 1
+        supplier:
+          allOf:
+            - $ref: "#/components/schemas/SupplierCompact"
+          nullable: true
+        warehouse_stocks:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/WarehouseStockResource"
+        created_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: "2026-10-15T09:00:00+07:00"
+
+    BarangListSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Daftar barang berhasil diambil"
+        data:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/BarangResource"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    BarangDetailSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Detail barang berhasil diambil"
+        data:
+          $ref: "#/components/schemas/BarangResource"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    CheckStockData:
+      type: "object"
+      required:
+        - "barang"
+        - "warehouse"
+        - "requested_qty"
+        - "available_stock"
+        - "is_available"
+        - "shortage"
+        - "minimum_stock"
+        - "total_stock_all_warehouses"
+      properties:
+        barang:
+          type: "object"
+          required:
+            - "id"
+            - "kode_barang"
+            - "nama_barang"
+            - "satuan"
+          properties:
+            id:
+              type: "integer"
+              example: 1
+            kode_barang:
+              type: "string"
+              example: "BRG-000101"
+            nama_barang:
+              type: "string"
+              example: "Monitor LED 24 Inch"
+            satuan:
+              type: "string"
+              example: "Unit"
+        warehouse:
+          type: "object"
+          required:
+            - "id"
+            - "kode_gudang"
+            - "nama_gudang"
+            - "alamat"
+          properties:
+            id:
+              type: "integer"
+              example: 1
+            kode_gudang:
+              type: "string"
+              example: "GDG-BRG-A"
+            nama_gudang:
+              type: "string"
+              example: "Gudang Utama Jakarta"
+            alamat:
+              type: "string"
+              nullable: true
+              example: "Jl. Industri No. 10"
+        requested_qty:
+          type: "integer"
+          example: 2
+        available_stock:
+          type: "integer"
+          example: 10
+        is_available:
+          type: "boolean"
+          example: true
+        shortage:
+          type: "integer"
+          example: 0
+        minimum_stock:
+          type: "integer"
+          example: 3
+        total_stock_all_warehouses:
+          type: "integer"
+          example: 15
+
+    CheckStockSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Stok mencukupi di gudang terpilih"
+        data:
+          $ref: "#/components/schemas/CheckStockData"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    AdjustStockRequest:
+      type: "object"
+      required:
+        - "barang_id"
+        - "warehouse_id"
+        - "jenis"
+        - "jumlah"
+      properties:
+        barang_id:
+          type: "integer"
+          minimum: 1
+          example: 1
+        warehouse_id:
+          type: "integer"
+          minimum: 1
+          description: "ID gudang aktif yang saldo stoknya disesuaikan."
+          example: 1
+        jenis:
+          type: "string"
+          enum:
+            - "masuk"
+            - "keluar"
+          example: "masuk"
+        jumlah:
+          type: "integer"
+          minimum: 1
+          example: 5
+        supplier_id:
+          type: "integer"
+          minimum: 1
+          nullable: true
+          description: "Opsional untuk `jenis=masuk`. Dilarang dikirim saat `jenis=keluar`."
+          example: 1
+        keterangan:
+          type: "string"
+          maxLength: 1000
+          nullable: true
+          example: "Penambahan stok dari sistem ERP"
+        unit_cost:
+          type: "number"
+          format: "double"
+          minimum: 0
+          nullable: true
+          example: 1500000
+        reference_type:
+          type: "string"
+          enum:
+            - "PO"
+            - "DO"
+            - "Surat Jalan"
+            - "Invoice"
+            - "Internal"
+            - "Lainnya"
+          nullable: true
+          default: "Internal"
+          example: "DO"
+        reference_number:
+          type: "string"
+          maxLength: 120
+          nullable: true
+          description: "Kunci idempotensi mutasi. Nomor referensi yang sama untuk barang, gudang, jenis, dan reference_type yang sama akan ditolak dengan HTTP 409 CONFLICT."
+          example: "DO-EXT-2026-001"
+        document_date:
+          type: "string"
+          format: "date"
+          nullable: true
+          description: "Format `YYYY-MM-DD`, maksimal tanggal hari ini."
+          example: "2026-11-20"
+
+    TransferStockRequest:
+      type: "object"
+      required:
+        - "barang_id"
+        - "source_warehouse_id"
+        - "destination_warehouse_id"
+        - "jumlah"
+      properties:
+        barang_id:
+          type: "integer"
+          minimum: 1
+          example: 1
+        source_warehouse_id:
+          type: "integer"
+          minimum: 1
+          description: "ID gudang asal yang aktif."
+          example: 1
+        destination_warehouse_id:
+          type: "integer"
+          minimum: 1
+          description: "ID gudang tujuan yang aktif (harus berbeda dari `source_warehouse_id`)."
+          example: 2
+        jumlah:
+          type: "integer"
+          minimum: 1
+          example: 2
+        keterangan:
+          type: "string"
+          maxLength: 1000
+          nullable: true
+          example: "Distribusi stok antar-gudang"
+        reference_number:
+          type: "string"
+          maxLength: 120
+          nullable: true
+          description: "Opsional. Jika dikosongkan, sistem membangkitkan kode unik berpola `TRF-YYYYMMDD-XXXXXX`."
+          example: "TRF-20261120-EXT01"
+        document_date:
+          type: "string"
+          format: "date"
+          nullable: true
+          description: "Format `YYYY-MM-DD`, maksimal tanggal hari ini."
+          example: "2026-11-20"
+
+    StockTransactionResource:
+      type: "object"
+      required:
+        - "id"
+        - "barang_id"
+        - "jenis"
+        - "mutation_type"
+        - "jumlah"
+        - "stok_sebelum"
+        - "stok_sesudah"
+        - "unit_cost"
+        - "unit_cost_source"
+        - "transfer_group_uuid"
+        - "reference_type"
+        - "reference_number"
+        - "document_date"
+        - "keterangan"
+        - "created_at"
+      properties:
+        id:
+          type: "integer"
+          example: 101
+        barang_id:
+          type: "integer"
+          example: 1
+        jenis:
+          type: "string"
+          enum:
+            - "masuk"
+            - "keluar"
+          example: "masuk"
+        mutation_type:
+          type: "string"
+          example: "operational"
+        jumlah:
+          type: "integer"
+          example: 5
+        stok_sebelum:
+          type: "integer"
+          nullable: true
+          example: 10
+        stok_sesudah:
+          type: "integer"
+          nullable: true
+          example: 15
+        unit_cost:
+          type: "number"
+          format: "double"
+          nullable: true
+          example: 1500000
+        unit_cost_source:
+          type: "string"
+          nullable: true
+          example: "manual"
+        transfer_group_uuid:
+          type: "string"
+          format: "uuid"
+          nullable: true
+          example: null
+        reversal_of_id:
+          type: "integer"
+          nullable: true
+          example: null
+        reversed_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: null
+        reference_type:
+          type: "string"
+          nullable: true
+          example: "DO"
+        reference_number:
+          type: "string"
+          nullable: true
+          example: "DO-EXT-2026-001"
+        document_date:
+          type: "string"
+          format: "date"
+          nullable: true
+          example: "2026-11-20"
+        keterangan:
+          type: "string"
+          nullable: true
+          example: "Penambahan stok dari sistem ERP"
+        barang:
+          type: "object"
+          nullable: true
+          properties:
+            id:
+              type: "integer"
+              example: 1
+            kode_barang:
+              type: "string"
+              example: "BRG-000101"
+            nama_barang:
+              type: "string"
+              example: "Monitor LED 24 Inch"
+            satuan:
+              type: "string"
+              example: "Unit"
+            stok:
+              type: "integer"
+              example: 15
+        warehouse:
+          type: "object"
+          nullable: true
+          properties:
+            warehouse_stock_id:
+              type: "integer"
+              example: 10
+            warehouse_id:
+              type: "integer"
+              example: 1
+            kode_gudang:
+              type: "string"
+              nullable: true
+              example: "GDG-UTM"
+            nama_gudang:
+              type: "string"
+              nullable: true
+              example: "Gudang Utama Jakarta"
+            saldo_gudang_terkini:
+              type: "integer"
+              example: 15
+        supplier:
+          type: "object"
+          nullable: true
+          properties:
+            id:
+              type: "integer"
+              example: 1
+            kode_supplier:
+              type: "string"
+              example: "SUP-001"
+            nama_supplier:
+              type: "string"
+              example: "PT Mitra Perangkat Nusantara"
+        actor:
+          type: "object"
+          nullable: true
+          properties:
+            id:
+              type: "integer"
+              example: 3
+            name:
+              type: "string"
+              example: "Staff Gudang"
+            role:
+              type: "string"
+              example: "staff"
+        created_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: "2026-11-20T14:35:00+07:00"
+
+    StockAdjustSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Penyesuaian stok berhasil dicatat"
+        data:
+          $ref: "#/components/schemas/StockTransactionResource"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    StockTransferData:
+      type: "object"
+      required:
+        - "transfer_group_uuid"
+        - "reference_number"
+        - "barang"
+        - "transactions"
+      properties:
+        transfer_group_uuid:
+          type: "string"
+          format: "uuid"
+          example: "9d842f10-3c4a-4b11-9d21-6c7a8e9f0123"
+        reference_number:
+          type: "string"
+          example: "TRF-20261120-A1B2C3"
+        barang:
+          $ref: "#/components/schemas/BarangResource"
+        transactions:
+          type: "object"
+          required:
+            - "out"
+            - "in"
+          properties:
+            out:
+              $ref: "#/components/schemas/StockTransactionResource"
+            in:
+              $ref: "#/components/schemas/StockTransactionResource"
+
+    StockTransferSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Transfer stok antar-gudang berhasil dicatat"
+        data:
+          $ref: "#/components/schemas/StockTransferData"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    PurchaseOrderStatusEnum:
+      type: "string"
+      enum:
+        - "draft"
+        - "pending_approval"
+        - "approved"
+        - "rejected"
+        - "partially_received"
+        - "completed"
+        - "cancelled"
+      example: "approved"
+
+    PurchaseOrderStatusObject:
+      type: "object"
+      required:
+        - "value"
+        - "label"
+        - "badge_variant"
+        - "description"
+        - "is_terminal"
+        - "is_editable"
+        - "can_receive_goods"
+      properties:
+        value:
+          $ref: "#/components/schemas/PurchaseOrderStatusEnum"
+        label:
+          type: "string"
+          example: "Disetujui"
+        badge_variant:
+          type: "string"
+          example: "info"
+        description:
+          type: "string"
+          example: "Pesanan disetujui dan resmi dikirim ke supplier."
+        is_terminal:
+          type: "boolean"
+          example: false
+        is_editable:
+          type: "boolean"
+          example: false
+        can_receive_goods:
+          type: "boolean"
+          example: true
+
+    UserPublicSummary:
+      type: "object"
+      nullable: true
+      description: "Ringkasan pengguna internal tanpa email (Data Masking OWASP)."
+      properties:
+        id:
+          type: "integer"
+          nullable: true
+          example: 3
+        name:
+          type: "string"
+          nullable: true
+          example: "Staff Gudang"
+        role:
+          type: "string"
+          nullable: true
+          example: "staff"
+
+    PurchaseOrderItemResource:
+      type: "object"
+      required:
+        - "id"
+        - "purchase_order_id"
+        - "barang_id"
+        - "jumlah_pesan"
+        - "jumlah_diterima"
+        - "sisa"
+        - "harga_satuan"
+        - "subtotal"
+        - "is_complete"
+      properties:
+        id:
+          type: "integer"
+          example: 1
+        purchase_order_id:
+          type: "integer"
+          example: 12
+        barang_id:
+          type: "integer"
+          example: 1
+        barang:
+          type: "object"
+          nullable: true
+          properties:
+            id:
+              type: "integer"
+              example: 1
+            kode_barang:
+              type: "string"
+              example: "BRG-000101"
+            nama_barang:
+              type: "string"
+              example: "Monitor LED 24 Inch"
+            satuan:
+              type: "string"
+              example: "Unit"
+            harga_beli:
+              type: "number"
+              format: "double"
+              example: 1850000
+        jumlah_pesan:
+          type: "integer"
+          example: 5
+        jumlah_diterima:
+          type: "integer"
+          example: 1
+        sisa:
+          type: "integer"
+          example: 4
+        harga_satuan:
+          type: "number"
+          format: "double"
+          example: 250000
+        subtotal:
+          type: "number"
+          format: "double"
+          example: 1250000
+        is_complete:
+          type: "boolean"
+          example: false
+        created_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: "2026-11-20T14:00:00+07:00"
+        updated_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: "2026-11-20T14:05:00+07:00"
+
+    PurchaseOrderResource:
+      type: "object"
+      required:
+        - "id"
+        - "nomor_po"
+        - "status"
+        - "tanggal_pesan"
+        - "estimasi_tiba"
+        - "total_biaya"
+        - "catatan"
+        - "available_transitions"
+        - "pdf_url"
+        - "created_at"
+        - "updated_at"
+      properties:
+        id:
+          type: "integer"
+          example: 12
+        nomor_po:
+          type: "string"
+          example: "PO-20261120-0012"
+        status:
+          $ref: "#/components/schemas/PurchaseOrderStatusObject"
+        tanggal_pesan:
+          type: "string"
+          format: "date"
+          nullable: true
+          example: "2026-11-20"
+        estimasi_tiba:
+          type: "string"
+          format: "date"
+          nullable: true
+          example: "2026-11-27"
+        total_biaya:
+          type: "number"
+          format: "double"
+          example: 1250000
+        catatan:
+          type: "string"
+          nullable: true
+          example: "Pengadaan rutin gudang utama"
+        supplier:
+          type: "object"
+          nullable: true
+          properties:
+            id:
+              type: "integer"
+              nullable: true
+              example: 1
+            kode_supplier:
+              type: "string"
+              nullable: true
+              example: "SUP-001"
+            nama_supplier:
+              type: "string"
+              nullable: true
+              example: "PT Mitra Perangkat Nusantara"
+            contact_person:
+              type: "string"
+              nullable: true
+              example: "Budi Santoso"
+            telepon:
+              type: "string"
+              nullable: true
+              example: "021-5551234"
+            email:
+              type: "string"
+              nullable: true
+              example: "sales@mitraperangkat.test"
+            alamat:
+              type: "string"
+              nullable: true
+              example: "Jakarta Timur"
+        warehouse:
+          type: "object"
+          nullable: true
+          properties:
+            id:
+              type: "integer"
+              nullable: true
+              example: 1
+            kode_gudang:
+              type: "string"
+              nullable: true
+              example: "GDG-UTM"
+            nama_gudang:
+              type: "string"
+              nullable: true
+              example: "Gudang Utama Jakarta"
+            lokasi:
+              type: "string"
+              nullable: true
+              example: "Kawasan Industri Pulogadung"
+        creator:
+          $ref: "#/components/schemas/UserPublicSummary"
+        approver:
+          $ref: "#/components/schemas/UserPublicSummary"
+        status_histories:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              id:
+                type: "integer"
+              from_status:
+                type: "string"
+                nullable: true
+              to_status:
+                type: "string"
+                nullable: true
+              user:
+                $ref: "#/components/schemas/UserPublicSummary"
+              reason:
+                type: "string"
+                nullable: true
+              metadata:
+                type: "object"
+                nullable: true
+                additionalProperties: true
+              created_at:
+                type: "string"
+                format: "date-time"
+                nullable: true
+        goods_receipts:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              id:
+                type: "integer"
+              nomor_grn:
+                type: "string"
+                example: "GRN-20261120-0001"
+              tanggal_terima:
+                type: "string"
+                format: "date"
+                nullable: true
+                example: "2026-11-20"
+              nomor_surat_jalan:
+                type: "string"
+                nullable: true
+                example: "SJ-SCAN-01"
+              catatan:
+                type: "string"
+                nullable: true
+              received_by:
+                $ref: "#/components/schemas/UserPublicSummary"
+              items:
+                type: "array"
+                items:
+                  type: "object"
+                  properties:
+                    id:
+                      type: "integer"
+                    purchase_order_item_id:
+                      type: "integer"
+                    barang_id:
+                      type: "integer"
+                    kode_barang:
+                      type: "string"
+                      nullable: true
+                    nama_barang:
+                      type: "string"
+                      nullable: true
+                    jumlah_diterima:
+                      type: "integer"
+                    catatan_kondisi:
+                      type: "string"
+                      nullable: true
+              created_at:
+                type: "string"
+                format: "date-time"
+                nullable: true
+        items_count:
+          type: "integer"
+          nullable: true
+          example: 1
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/PurchaseOrderItemResource"
+        available_transitions:
+          type: "array"
+          items:
+            type: "string"
+          example:
+            - "pending_approval"
+            - "cancelled"
+        pdf_url:
+          type: "string"
+          format: "uri"
+          example: "http://127.0.0.1:8000/purchase-orders/12/pdf"
+        created_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: "2026-11-20T14:00:00+07:00"
+        updated_at:
+          type: "string"
+          format: "date-time"
+          nullable: true
+          example: "2026-11-20T14:00:00+07:00"
+
+    PurchaseOrderListSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Daftar Purchase Order berhasil diambil"
+        data:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/PurchaseOrderResource"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    PurchaseOrderDetailSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Purchase Order berhasil dibuat"
+        data:
+          $ref: "#/components/schemas/PurchaseOrderResource"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    StorePurchaseOrderRequest:
+      type: "object"
+      required:
+        - "supplier_id"
+        - "warehouse_id"
+        - "tanggal_pesan"
+        - "items"
+      properties:
+        supplier_id:
+          type: "integer"
+          minimum: 1
+          example: 1
+        warehouse_id:
+          type: "integer"
+          minimum: 1
+          example: 1
+        tanggal_pesan:
+          type: "string"
+          format: "date"
+          description: "Format `YYYY-MM-DD`."
+          example: "2026-11-20"
+        estimasi_tiba:
+          type: "string"
+          format: "date"
+          nullable: true
+          description: "Opsional (`YYYY-MM-DD`), harus >= `tanggal_pesan`."
+          example: "2026-11-27"
+        catatan:
+          type: "string"
+          maxLength: 2000
+          nullable: true
+          example: "Pengadaan kebutuhan gudang utama"
+        items:
+          type: "array"
+          minItems: 1
+          items:
+            type: "object"
+            required:
+              - "barang_id"
+              - "jumlah_pesan"
+              - "harga_satuan"
+            properties:
+              barang_id:
+                type: "integer"
+                minimum: 1
+                description: "Harus unik di dalam array `items` dan tidak terhapus."
+                example: 1
+              jumlah_pesan:
+                type: "integer"
+                minimum: 1
+                example: 5
+              harga_satuan:
+                type: "number"
+                format: "double"
+                minimum: 0
+                maximum: 999999999999999.99
+                example: 250000
+
+    ReceivePurchaseOrderRequest:
+      type: "object"
+      description: "Mendukung pemindaian tunggal (`barcode`/`kode_barang`/`purchase_order_item_id`) atau penerimaan batch `items[]`."
+      properties:
+        purchase_order_item_id:
+          type: "integer"
+          minimum: 1
+          nullable: true
+          description: "ID item PO untuk penerimaan tunggal jika tidak menggunakan `barcode`/`kode_barang` atau `items[]`."
+        barcode:
+          type: "string"
+          maxLength: 100
+          nullable: true
+          description: "Hasil scan barcode (`kode_barang`) untuk penerimaan cepat 1 item."
+          example: "BRG-PO-001"
+        kode_barang:
+          type: "string"
+          maxLength: 100
+          nullable: true
+          description: "Alternatif eksplisit `barcode` untuk mencocokkan item pada PO."
+        jumlah_diterima:
+          type: "integer"
+          minimum: 1
+          nullable: true
+          description: "Wajib pada mode tunggal kecuali `barcode`/`kode_barang` dikirim (default otomatis `1`)."
+          example: 1
+        items:
+          type: "array"
+          minItems: 1
+          nullable: true
+          description: "Daftar item untuk penerimaan batch (wajib jika tidak menggunakan mode tunggal)."
+          items:
+            type: "object"
+            required:
+              - "jumlah_diterima"
+            properties:
+              purchase_order_item_id:
+                type: "integer"
+                minimum: 1
+                nullable: true
+              barcode:
+                type: "string"
+                maxLength: 100
+                nullable: true
+              kode_barang:
+                type: "string"
+                maxLength: 100
+                nullable: true
+              jumlah_diterima:
+                type: "integer"
+                minimum: 1
+        tanggal_terima:
+          type: "string"
+          format: "date"
+          nullable: true
+          description: "Format `YYYY-MM-DD`, maksimal tanggal hari ini."
+          example: "2026-11-20"
+        nomor_surat_jalan:
+          type: "string"
+          maxLength: 120
+          nullable: true
+          example: "SJ-SCAN-01"
+        catatan:
+          type: "string"
+          maxLength: 1000
+          nullable: true
+          example: "Kondisi fisik baik dan tersegel"
+        receipt_token:
+          type: "string"
+          maxLength: 64
+          nullable: true
+          description: "Token idempotensi untuk mencegah pencatatan Goods Receipt ganda saat retry jaringan."
+          example: "SCAN-TOKEN-001"
+
+    StockReverseRequest:
+      type: "object"
+      required:
+        - "reason"
+      properties:
+        reason:
+          type: "string"
+          minLength: 5
+          maxLength: 1000
+          example: "Koreksi salah input jumlah penerimaan"
+
+    StockReverseSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Transaksi stok berhasil dibatalkan melalui reversal"
+        data:
+          type: "object"
+          properties:
+            original_transaction:
+              $ref: "#/components/schemas/StockTransactionResource"
+            reversal_transaction:
+              $ref: "#/components/schemas/StockTransactionResource"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+    PurchaseOrderRequiredReasonRequest:
+      type: "object"
+      required:
+        - "reason"
+      properties:
+        reason:
+          type: "string"
+          maxLength: 1000
+          example: "Harga penawaran melebihi anggaran kuartal berjalan"
+
+    PurchaseOrderOptionalReasonRequest:
+      type: "object"
+      properties:
+        reason:
+          type: "string"
+          maxLength: 1000
+          nullable: true
+          example: "Penyesuaian kuantitas pesanan"
+
+    StoreBarangRequest:
+      type: "object"
+      required:
+        - "nama_barang"
+        - "kategori"
+        - "stok"
+        - "satuan"
+        - "lokasi"
+      properties:
+        supplier_id:
+          type: "integer"
+          nullable: true
+          example: 1
+        nama_barang:
+          type: "string"
+          maxLength: 255
+          example: "Scanner Barcode Industrial 2D"
+        kategori:
+          type: "string"
+          example: "Elektronik"
+        stok:
+          type: "integer"
+          minimum: 0
+          example: 10
+        warehouse_id:
+          type: "integer"
+          nullable: true
+          description: "Wajib diisi apabila `stok > 0`."
+          example: 1
+        harga_beli:
+          type: "number"
+          format: "float"
+          minimum: 0
+          nullable: true
+          example: 1750000
+        daily_usage_estimate:
+          type: "integer"
+          minimum: 1
+          nullable: true
+          example: 2
+        lead_time_days:
+          type: "integer"
+          enum: [3, 7, 14, 21, 30]
+          nullable: true
+          example: 7
+        satuan:
+          type: "string"
+          example: "Unit"
+        lokasi:
+          type: "string"
+          maxLength: 255
+          example: "Rak A2"
+
+    UpdateBarangRequest:
+      type: "object"
+      properties:
+        supplier_id:
+          type: "integer"
+          nullable: true
+          example: 1
+        nama_barang:
+          type: "string"
+          maxLength: 255
+          example: "Scanner Barcode Industrial 2D Pro"
+        kategori:
+          type: "string"
+          example: "Elektronik"
+        harga_beli:
+          type: "number"
+          format: "float"
+          minimum: 0
+          nullable: true
+          example: 1800000
+        daily_usage_estimate:
+          type: "integer"
+          minimum: 1
+          nullable: true
+          example: 3
+        lead_time_days:
+          type: "integer"
+          nullable: true
+          example: 7
+        satuan:
+          type: "string"
+          example: "Unit"
+        lokasi:
+          type: "string"
+          maxLength: 255
+          example: "Rak A3"
+
+    BarangDeleteSuccessResponse:
+      type: "object"
+      required:
+        - "success"
+        - "message"
+        - "data"
+        - "meta"
+      properties:
+        success:
+          type: "boolean"
+          enum:
+            - true
+          example: true
+        message:
+          type: "string"
+          example: "Data barang berhasil dihapus"
+        data:
+          type: "object"
+          properties:
+            id:
+              type: "integer"
+              example: 12
+            kode_barang:
+              type: "string"
+              example: "BRG-000105"
+            deleted_at:
+              type: "string"
+              format: "date-time"
+              example: "2026-11-24T11:05:00+07:00"
+        meta:
+          $ref: "#/components/schemas/ApiMeta"
+
+  responses:
+    BadRequest400:
+      description: "HTTP 400 Bad Request — Payload JSON rusak atau format parameter permintaan tidak valid."
+      headers:
+        X-API-Version:
+          $ref: "#/components/headers/XApiVersion"
+        X-Content-Type-Options:
+          $ref: "#/components/headers/XContentTypeOptions"
+        X-Frame-Options:
+          $ref: "#/components/headers/XFrameOptions"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: "Format payload JSON tidak valid."
+            errors: {}
+            code: "BAD_REQUEST"
+
+    Unauthorized401:
+      description: "HTTP 401 Unauthorized — Token Bearer tidak dikirim, tidak valid, sudah dicabut, kedaluwarsa, atau kredensial login salah."
+      headers:
+        X-API-Version:
+          $ref: "#/components/headers/XApiVersion"
+        X-Content-Type-Options:
+          $ref: "#/components/headers/XContentTypeOptions"
+        X-Frame-Options:
+          $ref: "#/components/headers/XFrameOptions"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            TokenMissingOrInvalid:
+              summary: "Token tidak ada / dicabut / kedaluwarsa"
+              value:
+                success: false
+                message: "Autentikasi diperlukan atau token tidak valid."
+                errors: {}
+                code: "UNAUTHENTICATED"
+            InvalidCredentials:
+              summary: "Email atau password salah pada login"
+              value:
+                success: false
+                message: "Kredensial yang diberikan tidak cocok."
+                errors: {}
+                code: "UNAUTHENTICATED"
+
+    Forbidden403:
+      description: "HTTP 403 Forbidden — Token valid tetapi tidak memiliki `ability` yang disyaratkan atau role pengguna tidak berwenang."
+      headers:
+        X-API-Version:
+          $ref: "#/components/headers/XApiVersion"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: "Token akses tidak memiliki izin (ability) yang diperlukan untuk endpoint ini."
+            errors: {}
+            code: "FORBIDDEN"
+
+    NotFound404:
+      description: "HTTP 404 Not Found — Resource ID atau endpoint API yang diminta tidak ditemukan."
+      headers:
+        X-API-Version:
+          $ref: "#/components/headers/XApiVersion"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: "Data atau endpoint API yang diminta tidak ditemukan."
+            errors: {}
+            code: "RESOURCE_NOT_FOUND"
+
+    Conflict409:
+      description: "HTTP 409 Conflict — Nomor referensi duplikat (idempotency guard), saldo stok tidak mencukupi/konflik, atau deadlock transaksi database."
+      headers:
+        X-API-Version:
+          $ref: "#/components/headers/XApiVersion"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: "Nomor referensi transaksi sudah pernah diproses sebelumnya."
+            errors: {}
+            code: "CONFLICT"
+
+    ValidationError422:
+      description: "HTTP 422 Unprocessable Content — Kegagalan validasi field payload/query atau pelanggaran aturan bisnis."
+      headers:
+        X-API-Version:
+          $ref: "#/components/headers/XApiVersion"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            FieldValidationError:
+              summary: "Validasi field atau query parameter gagal"
+              value:
+                success: false
+                message: "Validasi gagal"
+                errors:
+                  sort:
+                    - "Kolom pengurutan barang tidak valid."
+                code: "VALIDATION_ERROR"
+            AbilityEscalationRejected:
+              summary: "Permintaan scope ability di luar kewenangan role"
+              value:
+                success: false
+                message: "Validasi gagal"
+                errors:
+                  abilities:
+                    - "Role staff tidak diizinkan meminta ability: po:approve."
+                code: "VALIDATION_ERROR"
+
+    TooManyRequests429:
+      description: "HTTP 429 Too Many Requests — Batas 60 request/menit atau batas 5 percobaan login gagal terlampaui."
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterHeader"
+        X-API-Version:
+          $ref: "#/components/headers/XApiVersion"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: "Terlalu banyak permintaan. Silakan coba lagi beberapa saat lagi."
+            errors: {}
+            code: "TOO_MANY_REQUESTS"
+
+    InternalServerError500:
+      description: "HTTP 500 Internal Server Error — Kesalahan internal server (detail exception disamarkan di produksi)."
+      headers:
+        X-API-Version:
+          $ref: "#/components/headers/XApiVersion"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            success: false
+            message: "Terjadi kesalahan internal pada server."
+            errors: {}
+            code: "INTERNAL_SERVER_ERROR"

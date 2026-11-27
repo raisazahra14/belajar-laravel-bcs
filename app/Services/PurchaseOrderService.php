@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseStock;
 use App\Notifications\PurchaseOrderNotification;
+use App\Support\SpreadsheetSanitizer;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
@@ -266,6 +267,8 @@ class PurchaseOrderService
                 Notification::send($recipients, new PurchaseOrderNotification($lockedPo, 'approved', $approver));
             }
 
+            $this->schedulePredictionsForPoItems($lockedPo, $approver);
+
             return $lockedPo->fresh(['items.barang', 'approver', 'statusHistories.user']);
         });
     }
@@ -352,8 +355,20 @@ class PurchaseOrderService
                 reason: $reason ? trim($reason) : null
             );
 
+            if ($oldStatus === PurchaseOrderStatus::APPROVED) {
+                $this->schedulePredictionsForPoItems($lockedPo, $actor);
+            }
+
             return $lockedPo->fresh(['items.barang', 'statusHistories.user']);
         });
+    }
+
+    private function schedulePredictionsForPoItems(PurchaseOrder $lockedPo, ?User $actor = null): void
+    {
+        $scheduler = app(StockPredictionScheduler::class);
+        foreach ($lockedPo->items()->pluck('barang_id')->unique() as $barangId) {
+            $scheduler->schedule((int) $barangId, $actor, true, null, true);
+        }
     }
 
     /**
@@ -459,9 +474,13 @@ class PurchaseOrderService
             );
         }
 
-        // 1. Validasi cegah re-submit via token transaksi idempotensi
-        if ($receiptToken !== null && $receiptToken !== '') {
-            $tokenKey = "purchase_order:receipt_token:{$receiptToken}";
+        $normalizedReceiptToken = ($receiptToken !== null && trim($receiptToken) !== '')
+            ? trim($receiptToken)
+            : null;
+
+        // 1. Validasi cepat cegah re-submit via token transaksi idempotensi
+        if ($normalizedReceiptToken !== null) {
+            $tokenKey = "purchase_order:receipt_token:{$normalizedReceiptToken}";
             if (Cache::has($tokenKey)) {
                 throw ValidationException::withMessages([
                     'double_submit' => 'Penerimaan barang dengan nomor bukti/token ini sudah berhasil dicatat sebelumnya. Halaman diperbarui untuk mencegah duplikasi saldo.',
@@ -480,153 +499,206 @@ class PurchaseOrderService
         }
 
         try {
-            $resultPo = DB::transaction(function () use ($po, $receivedItems, $staff, $notes, $documentDate, $nomorSuratJalan, $fotoSuratJalan): PurchaseOrder {
-                // 1. Kunci header PO dengan lockForUpdate()
-                $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
-                $oldStatus = $lockedPo->status;
-
-                if (! $lockedPo->status->canReceiveGoods()) {
-                    throw InvalidPurchaseOrderTransitionException::guardFailed(
-                        "Penerimaan barang fisik tidak dapat dicatat untuk Purchase Order yang berstatus \"{$lockedPo->status->label()}\"."
-                    );
-                }
-
-                // 2. Kunci seluruh baris item PO dengan lockForUpdate() terurut deterministik untuk mencegah deadlock
-                $lockedItems = PurchaseOrderItem::with('barang')
-                    ->where('purchase_order_id', $lockedPo->id)
-                    ->orderBy('id')
-                    ->lockForUpdate()
-                    ->get();
-
-                $normalizedItems = $this->normalizeReceivedItems($lockedPo, $receivedItems, $lockedItems);
-
-                if (empty($normalizedItems)) {
-                    throw ValidationException::withMessages([
-                        'items' => 'Minimal harus terdapat 1 barang dengan jumlah diterima lebih dari 0.',
-                    ]);
-                }
-
-                // 3. Validasi pencegahan over-receipt per item sebelum mutasi
-                foreach ($normalizedItems as $row) {
-                    /** @var PurchaseOrderItem $item */
-                    $item = $row['item'];
-                    $qty = $row['qty'];
-
-                    if ($qty > $item->sisa) {
-                        $namaBarang = $item->barang?->nama_barang ?? "Item #{$item->id}";
+            try {
+                $resultPo = DB::transaction(function () use ($po, $receivedItems, $staff, $notes, $documentDate, $nomorSuratJalan, $fotoSuratJalan, $normalizedReceiptToken): PurchaseOrder {
+                    if ($normalizedReceiptToken !== null
+                        && GoodsReceipt::withTrashed()->where('receipt_token', $normalizedReceiptToken)->exists()) {
                         throw ValidationException::withMessages([
-                            'jumlah_diterima' => "Jumlah barang yang diterima untuk {$namaBarang} ({$qty}) melebihi sisa pesanan yang belum tiba ({$item->sisa}).",
+                            'double_submit' => 'Penerimaan barang dengan nomor bukti/token ini sudah berhasil dicatat sebelumnya. Halaman diperbarui untuk mencegah duplikasi saldo.',
                         ]);
                     }
-                }
 
-                // 4. Eksekusi penambahan stok dan audit transaksi mutasi masuk (dengan lock konsisten)
-                $tanggal = $documentDate ?? now()->toDateString();
-                foreach ($normalizedItems as $row) {
-                    /** @var PurchaseOrderItem $item */
-                    $item = $row['item'];
-                    $qty = $row['qty'];
+                    // 1. Kunci header PO dengan lockForUpdate()
+                    $lockedPo = PurchaseOrder::where('id', $po->id)->lockForUpdate()->firstOrFail();
+                    $oldStatus = $lockedPo->status;
 
-                    $lockedBarang = Barang::lockForUpdate()->find($item->barang_id);
-                    $newHargaBeli = $lockedBarang !== null
-                        ? $this->calculateWeightedPurchasePrice($lockedBarang, $qty, (float) $item->harga_satuan)
-                        : null;
-
-                    // Tambahkan saldo stok ke warehouse_stocks dan catat stok_transactions jenis masuk
-                    $this->stockAdjustmentService->adjust(
-                        barang: $item->barang_id,
-                        type: 'masuk',
-                        quantity: $qty,
-                        description: "Penerimaan PO #{$lockedPo->nomor_po}".($notes ? " - {$notes}" : ''),
-                        warehouseId: $lockedPo->warehouse_id,
-                        supplierId: $lockedPo->supplier_id,
-                        userId: $staff->id,
-                        metadata: [
-                            'mutation_type' => 'operational',
-                            'reference_type' => 'PO',
-                            'reference_number' => $lockedPo->nomor_po,
-                            'unit_cost' => $item->harga_satuan,
-                            'unit_cost_source' => 'purchase_order',
-                            'document_date' => $tanggal,
-                        ],
-                    );
-
-                    if (
-                        $lockedBarang !== null
-                        && $newHargaBeli !== null
-                        && ($lockedBarang->harga_beli === null || (float) $lockedBarang->harga_beli !== $newHargaBeli)
-                    ) {
-                        $lockedBarang->update(['harga_beli' => $newHargaBeli]);
+                    if (! $lockedPo->status->canReceiveGoods()) {
+                        throw InvalidPurchaseOrderTransitionException::guardFailed(
+                            "Penerimaan barang fisik tidak dapat dicatat untuk Purchase Order yang berstatus \"{$lockedPo->status->label()}\"."
+                        );
                     }
 
-                    // Akumulasi jumlah_diterima pada item PO
-                    $item->jumlah_diterima += $qty;
-                    $item->save();
-                }
+                    // 2. Kunci seluruh baris item PO dengan lockForUpdate() terurut deterministik untuk mencegah deadlock
+                    $lockedItems = PurchaseOrderItem::with('barang')
+                        ->where('purchase_order_id', $lockedPo->id)
+                        ->orderBy('id')
+                        ->lockForUpdate()
+                        ->get();
 
-                // 5. Terbitkan Dokumen Resmi Goods Receipt Note (GRN)
-                $grn = GoodsReceipt::create([
-                    'purchase_order_id' => $lockedPo->id,
-                    'warehouse_id' => $lockedPo->warehouse_id,
-                    'tanggal_terima' => $tanggal,
-                    'nomor_surat_jalan' => $nomorSuratJalan,
-                    'foto_surat_jalan' => $fotoSuratJalan,
-                    'catatan' => $notes,
-                    'received_by' => $staff->id,
-                ]);
+                    $normalizedItems = $this->normalizeReceivedItems($lockedPo, $receivedItems, $lockedItems);
 
-                foreach ($normalizedItems as $row) {
-                    /** @var PurchaseOrderItem $item */
-                    $item = $row['item'];
-                    $qty = $row['qty'];
+                    if (empty($normalizedItems)) {
+                        throw ValidationException::withMessages([
+                            'items' => 'Minimal harus terdapat 1 barang dengan jumlah diterima lebih dari 0.',
+                        ]);
+                    }
 
-                    $grn->items()->create([
-                        'purchase_order_item_id' => $item->id,
-                        'barang_id' => $item->barang_id,
-                        'jumlah_diterima' => $qty,
-                        'catatan_kondisi' => 'Baik & Lengkap',
+                    // 3. Validasi pencegahan over-receipt per item sebelum mutasi
+                    foreach ($normalizedItems as $row) {
+                        /** @var PurchaseOrderItem $item */
+                        $item = $row['item'];
+                        $qty = $row['qty'];
+
+                        if ($qty > $item->sisa) {
+                            $namaBarang = $item->barang?->nama_barang ?? "Item #{$item->id}";
+                            throw ValidationException::withMessages([
+                                'jumlah_diterima' => "Jumlah barang yang diterima untuk {$namaBarang} ({$qty}) melebihi sisa pesanan yang belum tiba ({$item->sisa}).",
+                            ]);
+                        }
+                    }
+
+                    // 4. Eksekusi penambahan stok dan audit transaksi mutasi masuk (dengan lock konsisten)
+                    $tanggal = $documentDate ?? now()->toDateString();
+                    foreach ($normalizedItems as $row) {
+                        /** @var PurchaseOrderItem $item */
+                        $item = $row['item'];
+                        $qty = $row['qty'];
+
+                        $lockedBarang = Barang::lockForUpdate()->find($item->barang_id);
+                        $newHargaBeli = $lockedBarang !== null
+                            ? $this->calculateWeightedPurchasePrice($lockedBarang, $qty, (float) $item->harga_satuan)
+                            : null;
+
+                        // Tambahkan saldo stok ke warehouse_stocks dan catat stok_transactions jenis masuk
+                        $this->stockAdjustmentService->adjust(
+                            barang: $item->barang_id,
+                            type: 'masuk',
+                            quantity: $qty,
+                            description: "Penerimaan PO #{$lockedPo->nomor_po}".($notes ? " - {$notes}" : ''),
+                            warehouseId: $lockedPo->warehouse_id,
+                            supplierId: $lockedPo->supplier_id,
+                            userId: $staff->id,
+                            metadata: [
+                                'mutation_type' => 'operational',
+                                'reference_type' => 'PO',
+                                'reference_number' => $lockedPo->nomor_po,
+                                'unit_cost' => $item->harga_satuan,
+                                'unit_cost_source' => 'purchase_order',
+                                'document_date' => $tanggal,
+                            ],
+                        );
+
+                        if (
+                            $lockedBarang !== null
+                            && $newHargaBeli !== null
+                            && ($lockedBarang->harga_beli === null || (float) $lockedBarang->harga_beli !== $newHargaBeli)
+                        ) {
+                            $lockedBarang->update(['harga_beli' => $newHargaBeli]);
+                        }
+
+                        // Akumulasi jumlah_diterima pada item PO
+                        $item->jumlah_diterima += $qty;
+                        $item->save();
+                    }
+
+                    // 5. Terbitkan Dokumen Resmi Goods Receipt Note (GRN)
+                    $grn = GoodsReceipt::create([
+                        'purchase_order_id' => $lockedPo->id,
+                        'warehouse_id' => $lockedPo->warehouse_id,
+                        'tanggal_terima' => $tanggal,
+                        'nomor_surat_jalan' => $nomorSuratJalan,
+                        'receipt_token' => $normalizedReceiptToken,
+                        'foto_surat_jalan' => $fotoSuratJalan,
+                        'catatan' => $notes,
+                        'received_by' => $staff->id,
+                    ]);
+
+                    foreach ($normalizedItems as $row) {
+                        /** @var PurchaseOrderItem $item */
+                        $item = $row['item'];
+                        $qty = $row['qty'];
+
+                        $grn->items()->create([
+                            'purchase_order_item_id' => $item->id,
+                            'barang_id' => $item->barang_id,
+                            'jumlah_diterima' => $qty,
+                            'catatan_kondisi' => 'Baik & Lengkap',
+                        ]);
+                    }
+
+                    // 6. Update status PO otomatis menjadi PARTIALLY_RECEIVED atau COMPLETED
+                    $lines = $lockedItems->map(fn (PurchaseOrderItem $it) => [
+                        'ordered' => (int) $it->jumlah_pesan,
+                        'received' => (int) $it->jumlah_diterima,
+                    ])->all();
+
+                    $newStatus = $this->stateMachine->resolveReceivingStatus($lockedPo->status, $lines);
+                    $lockedPo->status = $newStatus;
+                    $lockedPo->save();
+
+                    $lockedPo->recordStatusHistory(
+                        from: $oldStatus,
+                        to: $newStatus,
+                        user: $staff,
+                        reason: $notes ?: "Penerimaan fisik barang (GRN: {$grn->nomor_grn})",
+                        metadata: [
+                            'goods_receipt_id' => $grn->id,
+                            'nomor_grn' => $grn->nomor_grn,
+                            'nomor_surat_jalan' => $nomorSuratJalan,
+                            'received_items' => collect($normalizedItems)->map(fn ($r) => [
+                                'item_id' => $r['item']->id,
+                                'barang_id' => $r['item']->barang_id,
+                                'qty' => $r['qty'],
+                            ])->all(),
+                        ]
+                    );
+
+                    return $lockedPo->fresh(['items.barang', 'supplier', 'warehouse', 'statusHistories.user', 'goodsReceipts.items.barang', 'goodsReceipts.receivedBy']);
+                }, 3);
+            } catch (QueryException $e) {
+                if ($normalizedReceiptToken !== null && $this->isReceiptTokenUniqueViolation($e)) {
+                    throw ValidationException::withMessages([
+                        'double_submit' => 'Penerimaan barang dengan nomor bukti/token ini sudah berhasil dicatat sebelumnya. Halaman diperbarui untuk mencegah duplikasi saldo.',
                     ]);
                 }
 
-                // 6. Update status PO otomatis menjadi PARTIALLY_RECEIVED atau COMPLETED
-                $lines = $lockedItems->map(fn (PurchaseOrderItem $it) => [
-                    'ordered' => (int) $it->jumlah_pesan,
-                    'received' => (int) $it->jumlah_diterima,
-                ])->all();
+                throw $e;
+            }
 
-                $newStatus = $this->stateMachine->resolveReceivingStatus($lockedPo->status, $lines);
-                $lockedPo->status = $newStatus;
-                $lockedPo->save();
-
-                $lockedPo->recordStatusHistory(
-                    from: $oldStatus,
-                    to: $newStatus,
-                    user: $staff,
-                    reason: $notes ?: "Penerimaan fisik barang (GRN: {$grn->nomor_grn})",
-                    metadata: [
-                        'goods_receipt_id' => $grn->id,
-                        'nomor_grn' => $grn->nomor_grn,
-                        'nomor_surat_jalan' => $nomorSuratJalan,
-                        'received_items' => collect($normalizedItems)->map(fn ($r) => [
-                            'item_id' => $r['item']->id,
-                            'barang_id' => $r['item']->barang_id,
-                            'qty' => $r['qty'],
-                        ])->all(),
-                    ]
-                );
-
-                return $lockedPo->fresh(['items.barang', 'supplier', 'warehouse', 'statusHistories.user', 'goodsReceipts.items.barang', 'goodsReceipts.receivedBy']);
-            }, 3);
-
-            // Simpan token idempotensi agar tidak dapat di-submit ulang
-            if ($receiptToken !== null && $receiptToken !== '') {
-                Cache::put("purchase_order:receipt_token:{$receiptToken}", true, now()->addMinutes(15));
+            // Simpan token idempotensi di cache untuk short-circuit cepat selain constraint DB
+            if ($normalizedReceiptToken !== null) {
+                Cache::put("purchase_order:receipt_token:{$normalizedReceiptToken}", true, now()->addMinutes(15));
             }
 
             return $resultPo;
         } finally {
             $lock->release();
         }
+    }
+
+    private function isReceiptTokenUniqueViolation(QueryException $e): bool
+    {
+        $sqlState = (string) $e->getCode();
+        $driverCode = (int) ($e->errorInfo[1] ?? 0);
+        $isUniqueViolation = in_array($sqlState, ['23000', '23505'], true)
+            || in_array($driverCode, [1062, 19, 2067], true);
+
+        if (! $isUniqueViolation) {
+            return false;
+        }
+
+        $message = strtolower($e->getMessage());
+
+        return str_contains($message, 'receipt_token') || str_contains($message, 'uq_grn_receipt_token');
+    }
+
+    /**
+     * Normalisasi input penerimaan barang (batch `items[]` atau single item fallback).
+     *
+     * @param  array<string, mixed>  $validated
+     * @return array<mixed>
+     */
+    public static function resolveReceivedItemsPayload(array $validated, ?PurchaseOrderItem $singleItem = null): array
+    {
+        $receivedItems = $validated['items'] ?? [];
+        if ($receivedItems === [] && ! empty($validated['jumlah_diterima']) && $singleItem !== null) {
+            return [[
+                'purchase_order_item_id' => $singleItem->id,
+                'jumlah_diterima' => (int) $validated['jumlah_diterima'],
+            ]];
+        }
+
+        return is_array($receivedItems) ? $receivedItems : [];
     }
 
     /**
@@ -914,26 +986,25 @@ class PurchaseOrderService
      *
      * @param  array<string, mixed>  $filters
      */
-    public function exportCsv(array $filters = []): StreamedResponse
+    public function exportCsv(array $filters = [], bool $includeFinancials = true): StreamedResponse
     {
         $filename = 'rekap-purchase-orders-'.now()->format('Ymd-His').'.csv';
 
         $headers = [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => "attachment; filename=\"{$filename}\"",
-            'Pragma' => 'no-cache',
-            'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
-            'Expires' => '0',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
         ];
 
-        return response()->stream(function () use ($filters): void {
+        return response()->stream(function () use ($filters, $includeFinancials): void {
             $handle = fopen('php://output', 'wb');
             if ($handle === false) {
                 return;
             }
 
             // Tulis UTF-8 Byte Order Mark (BOM) agar Microsoft Excel mengenali karakter dengan benar
-            fwrite($handle, "\xEF\xBB\xBF");
+            fwrite($handle, SpreadsheetSanitizer::UTF8_BOM);
 
             // Header Kolom CSV
             fputcsv($handle, [
@@ -971,14 +1042,14 @@ class PurchaseOrderService
                 ->filter($filters)
                 ->orderByDesc('tanggal_pesan')
                 ->orderByDesc('id')
-                ->chunk(200, function ($purchaseOrders) use ($handle, &$rowNumber): void {
+                ->chunk(200, function ($purchaseOrders) use ($handle, &$rowNumber, $includeFinancials): void {
                     foreach ($purchaseOrders as $po) {
                         $totalOrdered = (int) $po->items->sum('jumlah_pesan');
                         $totalReceived = (int) $po->items->sum('jumlah_diterima');
                         $fulfillment = $totalOrdered > 0 ? round(($totalReceived / $totalOrdered) * 100, 1) : 0;
                         $latestGrn = $po->goodsReceipts->first();
 
-                        fputcsv($handle, [
+                        $row = [
                             $rowNumber++,
                             $po->nomor_po,
                             $po->status->label(),
@@ -991,13 +1062,15 @@ class PurchaseOrderService
                             $totalOrdered,
                             $totalReceived,
                             $fulfillment.'%',
-                            number_format((float) $po->total_biaya, 2, ',', '.'),
+                            $includeFinancials ? number_format((float) $po->total_biaya, 2, ',', '.') : '—',
                             $po->creator?->name ?? '—',
                             $po->approver?->name ?? '—',
                             $latestGrn?->nomor_grn ?? '—',
                             $latestGrn?->nomor_surat_jalan ?? '—',
                             $po->catatan ?? '—',
-                        ]);
+                        ];
+
+                        fputcsv($handle, SpreadsheetSanitizer::neutralizeRow($row));
                     }
                 });
 

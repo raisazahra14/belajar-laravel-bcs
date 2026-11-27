@@ -37,6 +37,31 @@ class Barang extends Model
 
     public const LEAD_TIME_OPTIONS = [3, 7, 14, 21, 30];
 
+    public const API_SORTABLE_COLUMNS = [
+        'id',
+        'kode_barang',
+        'nama_barang',
+        'kategori',
+        'stok',
+        'harga_beli',
+        'created_at',
+    ];
+
+    /**
+     * Relasi standar untuk representasi lengkap API Resource Barang.
+     *
+     * @return array<int|string, mixed>
+     */
+    public static function apiDetailRelations(): array
+    {
+        return [
+            'supplier:id,kode_supplier,nama_supplier,is_active,deleted_at',
+            'warehouseStocks' => fn ($query) => $query
+                ->orderBy('warehouse_id')
+                ->with('warehouse:id,kode_gudang,nama_gudang,alamat,is_active,deleted_at'),
+        ];
+    }
+
     protected $table = 'barang';
 
     public const MINIMUM_STOCK = 5;
@@ -145,6 +170,74 @@ class Barang extends Model
     }
 
     /**
+     * Filter dan urutkan daftar barang untuk antarmuka Web maupun RESTful API v1.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function scopeFilter(Builder $query, array $filters): Builder
+    {
+        $search = isset($filters['search']) ? trim((string) $filters['search']) : null;
+        if ($search !== null && $search !== '') {
+            $query->where(function (Builder $subQuery) use ($search): void {
+                if (DB::getDriverName() === 'mysql' && mb_strlen($search) >= 3) {
+                    $subQuery->where('kode_barang', 'like', "{$search}%")
+                        ->orWhereFullText(['kode_barang', 'nama_barang', 'lokasi'], $search);
+
+                    return;
+                }
+
+                $subQuery->where('kode_barang', 'like', "%{$search}%")
+                    ->orWhere('nama_barang', 'like', "%{$search}%")
+                    ->orWhere('lokasi', 'like', "%{$search}%");
+            });
+        }
+
+        if (! empty($filters['kategori'])) {
+            $query->where('kategori', $filters['kategori']);
+        }
+
+        if (($filters['status'] ?? null) === 'menipis') {
+            $query->lowStock();
+        } elseif (($filters['status'] ?? null) === 'aman') {
+            $query->safeStock();
+        }
+
+        if (! empty($filters['supplier_id'])) {
+            $query->where('supplier_id', (int) $filters['supplier_id']);
+        }
+
+        if (! empty($filters['warehouse_id'])) {
+            $warehouseId = (int) $filters['warehouse_id'];
+            $query->whereHas(
+                'warehouseStocks',
+                fn (Builder $stock): Builder => $stock->where('warehouse_id', $warehouseId),
+            );
+        }
+
+        $legacySorts = [
+            'nama_asc' => ['nama_barang', 'asc'],
+            'nama_desc' => ['nama_barang', 'desc'],
+            'stok_asc' => ['stok', 'asc'],
+            'stok_desc' => ['stok', 'desc'],
+        ];
+        $sort = $filters['sort'] ?? null;
+
+        if (is_string($sort) && isset($legacySorts[$sort])) {
+            [$column, $direction] = $legacySorts[$sort];
+
+            return $query->orderBy($column, $direction)->orderBy('id', 'asc');
+        }
+
+        if (is_string($sort) && in_array($sort, self::API_SORTABLE_COLUMNS, true)) {
+            $direction = strtolower((string) ($filters['direction'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
+
+            return $query->orderBy($sort, $direction)->orderBy('id', 'asc');
+        }
+
+        return $query->latest('id');
+    }
+
+    /**
      * Menghitung metrik ringkasan inventaris untuk dashboard.
      *
      * @return array{total_jenis: int, total_stok: int, total_kategori: int, stok_menipis: int, tanpa_foto: int}
@@ -195,6 +288,20 @@ class Barang extends Model
     public function isLowStock(): bool
     {
         return $this->stok <= self::MINIMUM_STOCK;
+    }
+
+    /**
+     * Menghitung ambang batas stok minimum efektif barang:
+     * mengambil nilai tertinggi antara konstanta minimum global (MINIMUM_STOCK)
+     * dan total stok_minimum yang dikonfigurasi pada seluruh gudang barang ini.
+     */
+    public function effectiveMinimumStock(): int
+    {
+        $warehouseMinSum = $this->relationLoaded('warehouseStocks')
+            ? (int) $this->warehouseStocks->sum('stok_minimum')
+            : (int) $this->warehouseStocks()->sum('stok_minimum');
+
+        return max(self::MINIMUM_STOCK, $warehouseMinSum);
     }
 
     public function illustrationPosition(): string

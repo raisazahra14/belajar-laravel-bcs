@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\PurchaseOrderStatus;
 use App\Services\ProcurementAnalyticsService;
+use App\Services\PurchaseOrderWebhookService;
+use App\Services\SupplierPerformanceService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -47,13 +49,13 @@ class PurchaseOrder extends Model
             }
         });
 
-        static::saved(function (): void {
+        $clearCaches = static function (): void {
             ProcurementAnalyticsService::clearCache();
-        });
+            SupplierPerformanceService::clearCache();
+        };
 
-        static::deleted(function (): void {
-            ProcurementAnalyticsService::clearCache();
-        });
+        static::saved($clearCaches);
+        static::deleted($clearCaches);
     }
 
     /**
@@ -159,13 +161,24 @@ class PurchaseOrder extends Model
         ?string $reason = null,
         ?array $metadata = null,
     ): PurchaseOrderStatusHistory {
-        return $this->statusHistories()->create([
+        $history = $this->statusHistories()->create([
             'from_status' => $from,
             'to_status' => $to,
             'user_id' => $user?->id,
             'reason' => $reason,
             'metadata' => $metadata,
         ]);
+
+        app(PurchaseOrderWebhookService::class)->dispatchAfterCommit(
+            po: $this,
+            from: $from,
+            to: $to,
+            actor: $user,
+            reason: $reason,
+            metadata: $metadata,
+        );
+
+        return $history;
     }
 
     /**
@@ -189,6 +202,8 @@ class PurchaseOrder extends Model
     public function scopeFilter($query, array $filters)
     {
         $searchTerm = trim((string) ($filters['search'] ?? $filters['nomor_po'] ?? ''));
+        $dateFrom = $filters['tanggal_dari'] ?? $filters['date_from'] ?? null;
+        $dateTo = $filters['tanggal_sampai'] ?? $filters['date_to'] ?? null;
 
         return $query
             ->when($searchTerm !== '', function ($q) use ($searchTerm): void {
@@ -213,6 +228,12 @@ class PurchaseOrder extends Model
             })
             ->when(! empty($filters['status']), function ($q) use ($filters): void {
                 $q->where('status', $filters['status']);
+            })
+            ->when(! empty($dateFrom), function ($q) use ($dateFrom): void {
+                $q->whereDate('tanggal_pesan', '>=', $dateFrom);
+            })
+            ->when(! empty($dateTo), function ($q) use ($dateTo): void {
+                $q->whereDate('tanggal_pesan', '<=', $dateTo);
             })
             ->when(! empty($filters['overdue']), function ($q): void {
                 $q->overdue();
